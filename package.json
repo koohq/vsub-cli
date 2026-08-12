@@ -1,0 +1,45 @@
+{
+  "name": "vsub-cli",
+  "version": "0.1.0",
+  "description": "CLI tool to extract audio, transcribe with Groq API, and translate subtitles using Google Gemini API",
+  "type": "module",
+  "bin": {
+    "vsub": "./dist/index.js"
+  },
+  "main": "./dist/index.js",
+  "scripts": {
+    "build": "tsc",
+    "dev": "tsx src/index.ts",
+    "check": "biome check .",
+    "lint": "biome lint .",
+    "format": "biome format --write .",
+    "deps:semver": "pnpm up -r",
+    "deps:manual": "pnpm up -r -i --latest"
+  },
+  "keywords": [
+    "cli",
+    "subtitle",
+    "srt",
+    "whisper",
+    "groq",
+    "gemini",
+    "translation"
+  ],
+  "author": "",
+  "license": "Unlicense",
+  "dependencies": {
+    "@google/genai": "^2.16.0",
+    "commander": "^12.1.0",
+    "dotenv": "^16.4.5",
+    "execa": "^9.3.0",
+    "groq-sdk": "^0.7.0"
+  },
+  "devDependencies": {
+    "@biomejs/biome": "^2.5.7",
+    "@tsconfig/node26": "^26.0.0",
+    "@tsconfig/strictest": "^2.0.8",
+    "@types/node": "^22.5.0",
+    "tsx": "^4.19.0",
+    "typescript": "^7.0.2"
+  }
+}
