@@ -1,6 +1,8 @@
 {
   "extends": ["@tsconfig/node26/tsconfig.json", "@tsconfig/strictest/tsconfig.json"],
   "compilerOptions": {
+    "target": "es2024",
+    "lib": ["es2024", "esnext"],
     "outDir": "./dist",
     "rootDir": "./src"
   },
