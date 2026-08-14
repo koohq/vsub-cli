@@ -19,11 +19,11 @@ A CLI tool that automatically extracts audio from video files, transcribes speec
 ## Prerequisites & Dependencies
 
 1. **Node.js**: v24 / v26 or higher
-2. **pnpm**: Package manager
-3. **ffmpeg**: Must be installed on your system (or specify executable path)
-4. **API Keys**:
+2. **ffmpeg**: Must be installed on your system (or specify executable path)
+3. **API Keys**:
    * `VSUB_GROQ_API_KEY` obtained from [Groq Console](https://console.groq.com/)
    * `VSUB_GEMINI_API_KEY` obtained from [Google AI Studio](https://aistudio.google.com/)
+4. **pnpm**: Package manager *(Required for development & building from source)*
 
 ---
 

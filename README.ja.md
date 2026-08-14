@@ -19,11 +19,11 @@
 ## 前提条件・外部依存
 
 1. **Node.js**: v24 / v26 以上
-2. **pnpm**: パッケージマネージャー
-3. **ffmpeg**: ローカル環境にインストール済みであること（または実行ファイルパスを指定）
-4. **API キー**:
+2. **ffmpeg**: ローカル環境にインストール済みであること（または実行ファイルパスを指定）
+3. **API キー**:
    * [Groq Console](https://console.groq.com/) にて取得できる `GROQ_API_KEY`
    * [Google AI Studio](https://aistudio.google.com/) にて取得できる `GEMINI_API_KEY`
+4. **pnpm**: パッケージマネージャー *(開発・ソースからのビルド時に必要)*
 
 ---
 
