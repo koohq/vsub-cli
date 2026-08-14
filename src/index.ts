@@ -14,33 +14,33 @@ const program = new Command();
 program
   .name("vsub")
   .description(
-    "動画ファイルから音声を抽出し、Groqで文字起こし・Geminiで多言語字幕(SRT)を自動生成するCLIツール",
+    "CLI tool to extract audio from video, transcribe speech via Groq API, and generate multilingual SRT subtitles via Gemini API.",
   );
 
-// サブコマンド: config
-const configCmd = program.command("config").description("グローバル設定の確認・変更を行います");
+// Subcommand: config
+const configCmd = program.command("config").description("Manage global configuration settings");
 
 configCmd
   .command("path")
-  .description("設定ファイルの保存場所を表示します")
+  .description("Display global configuration file path")
   .action(() => {
-    console.log(`設定ファイルのパス: ${getGlobalConfigPath()}`);
+    console.log(`Configuration file path: ${getGlobalConfigPath()}`);
   });
 
 configCmd
   .command("show")
-  .description("現在の設定内容を表示します")
+  .description("Display current settings")
   .action(() => {
     const configPath = getGlobalConfigPath();
     const resolvedConfig = getConfig();
 
-    console.log(`\n📁 設定ファイル: ${configPath}`);
+    console.log(`\n📁 Config File: ${configPath}`);
     console.log("----------------------------------------");
     console.log(
-      `Groq API Key   : ${resolvedConfig.groqApiKey ? `${resolvedConfig.groqApiKey.slice(0, 4)}...${resolvedConfig.groqApiKey.slice(-4)}` : "(未設定)"}`,
+      `Groq API Key   : ${resolvedConfig.groqApiKey ? `${resolvedConfig.groqApiKey.slice(0, 4)}...${resolvedConfig.groqApiKey.slice(-4)}` : "(Not configured)"}`,
     );
     console.log(
-      `Gemini API Key : ${resolvedConfig.geminiApiKey ? `${resolvedConfig.geminiApiKey.slice(0, 4)}...${resolvedConfig.geminiApiKey.slice(-4)}` : "(未設定)"}`,
+      `Gemini API Key : ${resolvedConfig.geminiApiKey ? `${resolvedConfig.geminiApiKey.slice(0, 4)}...${resolvedConfig.geminiApiKey.slice(-4)}` : "(Not configured)"}`,
     );
     console.log(`FFmpeg Path    : ${resolvedConfig.ffmpegPath}`);
     console.log("----------------------------------------\n");
@@ -48,13 +48,15 @@ configCmd
 
 configCmd
   .command("set")
-  .description("グローバル設定にAPI KeyやFFmpegパスを保存します")
+  .description("Save API Keys or FFmpeg path to global config")
   .option("--groq-key <key>", "Groq API Key")
   .option("--gemini-key <key>", "Gemini API Key")
-  .option("--ffmpeg-path <path>", "FFmpeg 実行ファイルパス")
+  .option("--ffmpeg-path <path>", "Path to ffmpeg executable")
   .action((options: { groqKey?: string; geminiKey?: string; ffmpegPath?: string }) => {
     if (!options.groqKey && !options.geminiKey && !options.ffmpegPath) {
-      console.log("⚠️ 保存する設定を指定してください。 (例: vsub config set --groq-key YOUR_KEY)");
+      console.log(
+        "⚠️ Please specify settings to save. (Example: vsub config set --groq-key YOUR_KEY)",
+      );
       return;
     }
 
@@ -64,12 +66,12 @@ configCmd
       ...(options.ffmpegPath ? { ffmpegPath: options.ffmpegPath.trim() } : {}),
     });
 
-    console.log(`✅ 設定を更新・保存しました: ${getGlobalConfigPath()}`);
+    console.log(`✅ Configuration updated and saved: ${getGlobalConfigPath()}`);
   });
 
 configCmd
   .command("init")
-  .description("対話形式で API Key を初期設定します")
+  .description("Initialize API Keys interactively")
   .action(async () => {
     const config = getConfig();
     await ensureApiKeys({
@@ -79,17 +81,21 @@ configCmd
     });
   });
 
-// メインアクション (動画ファイルの変換)
+// Main action (Video processing)
 program
-  .argument("[video-file]", "処理対象の動画ファイルパス (.mp4, .mkv, .mov 等)")
-  .option("-t, --target-lang <lang>", "翻訳先の言語コード (例: ja, en, es)", "ja")
-  .option("-o, --output <path>", "出力する字幕ファイルのパス")
+  .argument("[video-file]", "Target video file path (.mp4, .mkv, .mov, etc.)")
+  .option("-t, --target-lang <lang>", "Target language code (e.g., ja, en, es)", "ja")
+  .option("-o, --output <path>", "Output path for the generated subtitle file")
   .option(
     "--ffmpeg-path <path>",
-    "ffmpeg 実行ファイルのパス (未指定時は FFMPEG_PATH または PATH を探索)",
+    "Path to ffmpeg executable (searches VSUB_FFMPEG_PATH or PATH if omitted)",
   )
-  .option("--keep-audio", "中間生成した音声ファイルを削除せずに保持するデバッグオプション", false)
-  .option("--verbose", "詳細なログを出力する", false)
+  .option(
+    "--keep-audio",
+    "Keep intermediate extracted audio files without deleting",
+    false,
+  )
+  .option("--verbose", "Output detailed log messages", false)
   .action(
     async (
       videoFile: string | undefined,
@@ -111,14 +117,14 @@ program
         const rawConfig = getConfig(options.ffmpegPath);
         const verbose = Boolean(options.verbose);
 
-        // API Key の確保（必要に応じて対話型プロンプトを起動）
+        // Ensure API Key availability
         const config = await ensureApiKeys(rawConfig);
         await checkFfmpeg(config.ffmpegPath);
 
-        console.log(`\n🎬 [vsub-cli] 処理を開始します: ${path.basename(resolvedVideoPath)}`);
+        console.log(`\n🎬 [vsub-cli] Starting process: ${path.basename(resolvedVideoPath)}`);
 
         // 1. Audio extraction
-        console.log("🔊 [1/4] 音声を抽出中 (16kHz モノラル / 低ビットレート)...");
+        console.log("🔊 [1/4] Extracting audio (16kHz mono / low bitrate)...");
         const { audioPaths, cleanup } = await extractAudio(
           resolvedVideoPath,
           config.ffmpegPath,
@@ -127,16 +133,20 @@ program
 
         try {
           // 2. Transcription with Groq
-          console.log("🎙️ [2/4] Groq API (Whisper) で文字起こし中...");
-          const srtEntries = await transcribeAudioSegments(audioPaths, config.groqApiKey, verbose);
+          console.log("🎙️ [2/4] Transcribing audio with Groq API (Whisper)...");
+          const srtEntries = await transcribeAudioSegments(
+            audioPaths,
+            config.groqApiKey,
+            verbose,
+          );
 
           if (srtEntries.length === 0) {
-            console.warn("⚠️ 文字起こし結果から有効な字幕エントリが検出されませんでした。");
+            console.warn("⚠️ No valid subtitle entries were detected from transcription results.");
           }
 
           // 3. Translation with Gemini
           console.log(
-            `🌐 [3/4] Gemini API で ${options.targetLang} へ字幕を翻訳中 (${srtEntries.length}件)...`,
+            `🌐 [3/4] Translating subtitles to ${options.targetLang} with Gemini API (${srtEntries.length} items)...`,
           );
           const translatedEntries = await translateSrtEntries(
             srtEntries,
@@ -156,19 +166,19 @@ program
             : path.join(videoDir, `${videoBaseName}.${options.targetLang}.srt`);
 
           fs.writeFileSync(outputPath, finalSrtContent, "utf-8");
-          console.log(`✨ [4/4] 字幕ファイルの保存完了: ${outputPath}\n`);
+          console.log(`✨ [4/4] Subtitle file saved: ${outputPath}\n`);
         } finally {
           if (!options.keepAudio) {
             await cleanup();
           } else {
             console.log(
-              `ℹ️ [--keep-audio] 中間音声ファイルを保持しました: ${audioPaths.join(", ")}`,
+              `ℹ️ [--keep-audio] Kept intermediate audio files: ${audioPaths.join(", ")}`,
             );
           }
         }
       } catch (error) {
         console.error(
-          `\n❌ エラーが発生しました: ${error instanceof Error ? error.message : String(error)}\n`,
+          `\n❌ Error occurred: ${error instanceof Error ? error.message : String(error)}\n`,
         );
         process.exit(1);
       }

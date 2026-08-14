@@ -1,0 +1,121 @@
+# vsub-cli (Video Subtitle CLI)
+
+[English](README.md) | [日本語](README.ja.md)
+
+動画ファイルから音声を自動抽出し、**Groq API (`whisper-large-v3-turbo`)** で高速文字起こしを行った後、**Google Gemini API (`@google/genai`)** を用いて多言語字幕（`.srt`）を自動生成する CLI ツールです。
+
+---
+
+## 特徴
+
+* ⚡ **超高速文字起こし**: Groq LPU 上で動作する `whisper-large-v3-turbo` を採用し、音声認識を高速処理。
+* 🔊 **音質・ファイルサイズ自動最適化**: `ffmpeg` を用いて 16kHz モノラル / 低ビットレート（32〜48kbps）に圧縮抽出し、Groq の 25MB 上限を自動クリア（超長尺動画の自動分割にも対応）。
+* 🎯 **タイムコード破綻防止翻訳**: SRT 構造を JSON 化し、字幕テキストのみをチャンク分割翻訳。タイムコードの行崩れやずれを 100% 防止。
+* 🌍 **多言語対応**: デフォルトの日本語（`ja`）をはじめ、英語（`en`）、スペイン語（`es`）など任意の言語コードを指定可能。
+* 🛠️ **柔軟な ffmpeg パス対応**: システム `PATH` に加え、環境変数 `FFMPEG_PATH` や `--ffmpeg-path` オプションで個別にファイルパスを指定可能。
+
+---
+
+## 前提条件・外部依存
+
+1. **Node.js**: v24 / v26 以上
+2. **pnpm**: パッケージマネージャー
+3. **ffmpeg**: ローカル環境にインストール済みであること（または実行ファイルパスを指定）
+4. **API キー**:
+   * [Groq Console](https://console.groq.com/) にて取得できる `GROQ_API_KEY`
+   * [Google AI Studio](https://aistudio.google.com/) にて取得できる `GEMINI_API_KEY`
+
+---
+
+## セットアップ & API キーの設定
+
+API キーの設定方法は **3つの方法** から選べます：
+
+### 方法 1: 対話型セットアップ (推奨・一番簡単)
+キーが未設定の状態でコマンドを実行すると、自動的にターミナル上で対話入力プロンプトが起動します。
+入力されたキーは**ホームディレクトリのグローバル設定ファイル**（例: `~/.config/vsub/config.json` または `%APPDATA%\vsub\config.json`）に保存されるため、どのディレクトリから実行しても2回目以降は設定不要で利用できます。
+
+直接キーを登録・更新したい場合は以下を実行してください：
+```bash
+# 対話型で登録・更新
+pnpm dev config init
+
+# またはコマンドラインから直接設定
+pnpm dev config set --groq-key "your_groq_key" --gemini-key "your_gemini_key"
+```
+
+### 方法 2: 環境変数 (`VSUB_` プレフィックス)
+システム環境変数またはシェルで設定します（競合防止のため `VSUB_` プレフィックスが付いています）：
+```bash
+export VSUB_GROQ_API_KEY="your_groq_api_key_here"
+export VSUB_GEMINI_API_KEY="your_gemini_api_key_here"
+```
+*(従来名 `GROQ_API_KEY` / `GEMINI_API_KEY` もフォールバックとして対応しています)*
+
+### 方法 3: `.env` ファイル
+リポジトリ直下（または実行時のカレントディレクトリ）に `.env` ファイルを配置して設定します：
+```env
+VSUB_GROQ_API_KEY=your_groq_api_key_here
+VSUB_GEMINI_API_KEY=your_gemini_api_key_here
+```
+
+---
+
+## 使い方
+
+### 基本実行
+
+```bash
+# デフォルトで日本語字幕 ([動画名].ja.srt) を生成
+pnpm dev path/to/video.mp4
+
+# またはビルド後に実行
+pnpm build
+node ./dist/index.js path/to/video.mp4
+```
+
+### コマンドヘルプ
+
+```text
+Usage: vsub [options] [command] <video-file>
+
+Arguments:
+  video-file                処理対象の動画ファイルパス (.mp4, .mkv, .mov 等)
+
+Options:
+  -t, --target-lang <lang>  翻訳先の言語コード (例: ja, en, es) (デフォルト: "ja")
+  -o, --output <path>       出力する字幕ファイルの個別パス指定
+  --ffmpeg-path <path>      ffmpeg 実行ファイルのパス (未指定時は VSUB_FFMPEG_PATH または PATH を探索)
+  --keep-audio              中間生成した音声ファイルを削除せずに保持する (デフォルト: false)
+  --verbose                 詳細なログ（APIリクエスト等）を出力する (デフォルト: false)
+  -h, --help                ヘルプを表示
+
+Commands:
+  config path               設定ファイルの保存場所を表示
+  config show               現在の設定内容を表示 (API Key はマスク表示)
+  config set                グローバル設定に API Key や FFmpeg パスを保存
+  config init               対話形式で API Key を初期設定
+```
+
+### 使用例
+
+```bash
+# 設定の確認・初期化
+pnpm dev config show
+pnpm dev config init
+
+# 英語字幕 (.en.srt) を生成
+pnpm dev sample.mp4 -t en
+
+# 出力先パスを指定
+pnpm dev sample.mp4 -o ./subtitles/my_subtitle.srt
+
+# ffmpeg のパスを直接指定して実行
+pnpm dev sample.mp4 --ffmpeg-path "C:\tools\ffmpeg\bin\ffmpeg.exe"
+```
+
+---
+
+## ライセンス
+
+[The Unlicense](LICENSE)

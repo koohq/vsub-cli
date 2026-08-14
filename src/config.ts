@@ -83,8 +83,8 @@ export async function ensureApiKeys(config: AppConfig): Promise<AppConfig> {
   const isInteractive = Boolean(process.stdin.isTTY && process.stdout.isTTY);
 
   if ((!groqApiKey || !geminiApiKey) && isInteractive) {
-    console.log("\n🔑 API Key が不足しているため、初回セットアップを行います。");
-    console.log("※ 入力されたキーは次回以降自動で使用されるよう、以下の場所に保存されます:");
+    console.log("\n🔑 API keys missing. Starting interactive setup.");
+    console.log("Note: Entered keys will be saved globally for future use at:");
     console.log(`   ${getGlobalConfigPath()}\n`);
 
     const rl = readline.createInterface({
@@ -95,13 +95,13 @@ export async function ensureApiKeys(config: AppConfig): Promise<AppConfig> {
     try {
       if (!groqApiKey) {
         groqApiKey = (
-          await rl.question("1. Groq API Key を入力してください (https://console.groq.com/): ")
+          await rl.question("1. Enter Groq API Key (https://console.groq.com/): ")
         ).trim();
       }
 
       if (!geminiApiKey) {
         geminiApiKey = (
-          await rl.question("2. Gemini API Key を入力してください (https://aistudio.google.com/): ")
+          await rl.question("2. Enter Gemini API Key (https://aistudio.google.com/): ")
         ).trim();
       }
 
@@ -110,7 +110,7 @@ export async function ensureApiKeys(config: AppConfig): Promise<AppConfig> {
           ...(groqApiKey ? { groqApiKey } : {}),
           ...(geminiApiKey ? { geminiApiKey } : {}),
         });
-        console.log("✅ 設定を保存しました。\n");
+        console.log("✅ Configuration saved successfully.\n");
       }
     } finally {
       rl.close();
@@ -131,15 +131,15 @@ export function validateApiKeys(config: AppConfig): void {
   const missingKeys: string[] = [];
 
   if (!config.groqApiKey) {
-    missingKeys.push("VSUB_GROQ_API_KEY / GROQ_API_KEY (取得: https://console.groq.com/)");
+    missingKeys.push("VSUB_GROQ_API_KEY / GROQ_API_KEY (Get at: https://console.groq.com/)");
   }
   if (!config.geminiApiKey) {
-    missingKeys.push("VSUB_GEMINI_API_KEY / GEMINI_API_KEY (取得: https://aistudio.google.com/)");
+    missingKeys.push("VSUB_GEMINI_API_KEY / GEMINI_API_KEY (Get at: https://aistudio.google.com/)");
   }
 
   if (missingKeys.length > 0) {
     throw new Error(
-      `必要な API キーが設定されていません:\n- ${missingKeys.join("\n- ")}\n対話入力、.env ファイル、または環境変数 (VSUB_GROQ_API_KEY / VSUB_GEMINI_API_KEY) に設定してください。`,
+      `Required API key(s) are not configured:\n- ${missingKeys.join("\n- ")}\nPlease set them via interactive prompt, .env file, or environment variables (VSUB_GROQ_API_KEY / VSUB_GEMINI_API_KEY).`,
     );
   }
 }

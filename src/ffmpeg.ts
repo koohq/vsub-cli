@@ -16,7 +16,7 @@ export async function checkFfmpeg(ffmpegPath: string): Promise<void> {
     await execa(ffmpegPath, ["-version"]);
   } catch (_error) {
     throw new Error(
-      `ffmpeg コマンドが見つかりませんでした (指定パス: "${ffmpegPath}")。\nffmpeg をインストールして PATH を通すか、.env に FFMPEG_PATH または CLI オプション --ffmpeg-path を指定してください。`,
+      `ffmpeg executable not found (specified path: "${ffmpegPath}").\nPlease install ffmpeg and add it to your PATH, or set VSUB_FFMPEG_PATH in environment / CLI option --ffmpeg-path.`,
     );
   }
 }
@@ -31,7 +31,7 @@ export async function extractAudio(
   verbose = false,
 ): Promise<ExtractedAudioResult> {
   if (!fs.existsSync(videoPath)) {
-    throw new Error(`指定された動画ファイルが見つかりません: ${videoPath}`);
+    throw new Error(`Specified video file not found: ${videoPath}`);
   }
 
   const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "vsub-"));
@@ -53,13 +53,13 @@ export async function extractAudio(
   ];
 
   if (verbose) {
-    console.log(`[ffmpeg] 実行コマンド: ${ffmpegPath} ${ffmpegArgs.join(" ")}`);
+    console.log(`[ffmpeg] Executing command: ${ffmpegPath} ${ffmpegArgs.join(" ")}`);
   }
 
   await execa(ffmpegPath, ffmpegArgs);
 
   if (!fs.existsSync(tempAudioFile)) {
-    throw new Error("音声の抽出に失敗しました。一時ファイルが作成されませんでした。");
+    throw new Error("Failed to extract audio. Temporary file was not created.");
   }
 
   const stats = fs.statSync(tempAudioFile);
@@ -74,7 +74,7 @@ export async function extractAudio(
   } else {
     if (verbose) {
       console.log(
-        `[ffmpeg] 抽出音声が25MBを超過しているため分割処理を開始します (${(stats.size / 1024 / 1024).toFixed(1)}MB)`,
+        `[ffmpeg] Extracted audio exceeds 25MB threshold. Starting audio split process (${(stats.size / 1024 / 1024).toFixed(1)}MB)`,
       );
     }
 

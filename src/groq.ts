@@ -39,7 +39,7 @@ export async function transcribeAudioWithGroq(
   const groq = new Groq({ apiKey });
 
   if (verbose) {
-    console.log(`[Groq API] Whisper 文字起こし要求を送信中: ${audioPath}`);
+    console.log(`[Groq API] Requesting Whisper transcription: ${audioPath}`);
   }
 
   const response = await groq.audio.transcriptions.create({
@@ -87,7 +87,7 @@ export async function transcribeAudioSegments(
     if (!audioPath) continue;
 
     if (verbose && audioPaths.length > 1) {
-      console.log(`[Groq API] セグメント (${i + 1}/${audioPaths.length}) を文字起こし中...`);
+      console.log(`[Groq API] Transcribing segment (${i + 1}/${audioPaths.length})...`);
     }
 
     const entries = await transcribeAudioWithGroq(audioPath, apiKey, timeOffsetSeconds, verbose);

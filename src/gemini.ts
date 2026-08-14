@@ -31,7 +31,7 @@ ${JSON.stringify(texts, null, 2)}`;
   for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
     try {
       if (verbose && attempt > 1) {
-        console.log(`[Gemini API] 試行 ${attempt}/${MAX_RETRIES}...`);
+        console.log(`[Gemini API] Retry attempt ${attempt}/${MAX_RETRIES}...`);
       }
 
       const response = await ai.models.generateContent({
@@ -56,7 +56,7 @@ ${JSON.stringify(texts, null, 2)}`;
       }
 
       throw new Error(
-        `Gemini API の返却配列数が不一致です (要求: ${texts.length}, 受信: ${Array.isArray(translatedArray) ? translatedArray.length : 0})`,
+        `Gemini API returned mismatched array length (expected: ${texts.length}, received: ${Array.isArray(translatedArray) ? translatedArray.length : 0})`,
       );
     } catch (err) {
       lastError = err instanceof Error ? err : new Error(String(err));
@@ -66,7 +66,7 @@ ${JSON.stringify(texts, null, 2)}`;
     }
   }
 
-  throw new Error(`Gemini API 翻訳失敗 (全${MAX_RETRIES}回試行): ${lastError?.message}`);
+  throw new Error(`Gemini API translation failed after ${MAX_RETRIES} attempts: ${lastError?.message}`);
 }
 
 /**
@@ -93,7 +93,7 @@ export async function translateSrtEntries(
 
     if (verbose) {
       console.log(
-        `[Gemini API] 翻訳処理中: チャンク (${chunkIndex}/${totalChunks}) [${chunk.length}件]...`,
+        `[Gemini API] Translating chunk (${chunkIndex}/${totalChunks}) [${chunk.length} items]...`,
       );
     }
 
