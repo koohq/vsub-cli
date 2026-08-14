@@ -127,9 +127,9 @@ program
         const rawConfig = getConfig(options.ffmpegPath);
         const verbose = Boolean(options.verbose);
 
-        // Ensure API Key availability (Gemini key is optional if --no-translate is set)
+        // Ensure API Key availability (Groq key is required; Gemini key will be validated lazily if translation is needed)
         const config = await ensureApiKeys(rawConfig, {
-          requireGemini: !options.noTranslate,
+          requireGemini: false,
         });
         await checkFfmpeg(config.ffmpegPath);
 
