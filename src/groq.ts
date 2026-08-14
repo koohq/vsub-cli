@@ -6,10 +6,11 @@ import type { SrtEntry } from "./srt.js";
  * Formats seconds (e.g. 62.5) into SRT timestamp format ("00:01:02,500")
  */
 export function formatSrtTime(totalSeconds: number): string {
-  const hours = Math.floor(totalSeconds / 3600);
-  const minutes = Math.floor((totalSeconds % 3600) / 60);
-  const seconds = Math.floor(totalSeconds % 60);
-  const milliseconds = Math.floor((totalSeconds % 1) * 1000);
+  const totalMs = Math.round(totalSeconds * 1000);
+  const hours = Math.floor(totalMs / 3_600_000);
+  const minutes = Math.floor((totalMs % 3_600_000) / 60_000);
+  const seconds = Math.floor((totalMs % 60_000) / 1_000);
+  const milliseconds = totalMs % 1_000;
 
   const hh = String(hours).padStart(2, "0");
   const mm = String(minutes).padStart(2, "0");

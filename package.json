@@ -13,6 +13,8 @@
     "check": "biome check .",
     "lint": "biome lint .",
     "format": "biome format --write .",
+    "test": "vitest run",
+    "test:watch": "vitest",
     "deps:semver": "pnpm up -r",
     "deps:manual": "pnpm up -r -i --latest"
   },
@@ -40,6 +42,7 @@
     "@tsconfig/strictest": "^2.0.8",
     "@types/node": "^22.5.0",
     "tsx": "^4.19.0",
-    "typescript": "^7.0.2"
+    "typescript": "^7.0.2",
+    "vitest": "^4.1.10"
   }
 }
