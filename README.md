@@ -25,24 +25,36 @@
 
 ---
 
-## セットアップ手順
+## セットアップ & API キーの設定
 
-### 1. リポジトリのクローン & 依存関係のインストール
+API キーの設定方法は **3つの方法** から選べます：
 
+### 方法 1: 対話型セットアップ (推奨・一番簡単)
+キーが未設定の状態でコマンドを実行すると、自動的にターミナル上で対話入力プロンプトが起動します。
+入力されたキーは**ホームディレクトリのグローバル設定ファイル**（例: `~/.config/vsub/config.json` または `%APPDATA%\vsub\config.json`）に保存されるため、どのディレクトリから実行しても2回目以降は設定不要で利用できます。
+
+直接キーを登録・更新したい場合は以下を実行してください：
 ```bash
-pnpm install
+# 対話型で登録・更新
+pnpm dev config init
+
+# またはコマンドラインから直接設定
+pnpm dev config set --groq-key "your_groq_key" --gemini-key "your_gemini_key"
 ```
 
-### 2. 環境変数の設定
+### 方法 2: 環境変数 (`VSUB_` プレフィックス)
+システム環境変数またはシェルで設定します（競合防止のため `VSUB_` プレフィックスが付いています）：
+```bash
+export VSUB_GROQ_API_KEY="your_groq_api_key_here"
+export VSUB_GEMINI_API_KEY="your_gemini_api_key_here"
+```
+*(従来名 `GROQ_API_KEY` / `GEMINI_API_KEY` もフォールバックとして対応しています)*
 
-リポジトリルートに `.env` ファイルを作成し、取得した API キーを設定します：
-
+### 方法 3: `.env` ファイル
+リポジトリ直下（または実行時のカレントディレクトリ）に `.env` ファイルを配置して設定します：
 ```env
-GROQ_API_KEY=your_groq_api_key_here
-GEMINI_API_KEY=your_gemini_api_key_here
-
-# (任意) ffmpeg のパスを指定する場合
-# FFMPEG_PATH=C:\tools\ffmpeg\bin\ffmpeg.exe
+VSUB_GROQ_API_KEY=your_groq_api_key_here
+VSUB_GEMINI_API_KEY=your_gemini_api_key_here
 ```
 
 ---
@@ -60,10 +72,10 @@ pnpm build
 node ./dist/index.js path/to/video.mp4
 ```
 
-### コマンドオプション
+### コマンドヘルプ
 
 ```text
-Usage: vsub [options] <video-file>
+Usage: vsub [options] [command] <video-file>
 
 Arguments:
   video-file                処理対象の動画ファイルパス (.mp4, .mkv, .mov 等)
@@ -71,15 +83,25 @@ Arguments:
 Options:
   -t, --target-lang <lang>  翻訳先の言語コード (例: ja, en, es) (デフォルト: "ja")
   -o, --output <path>       出力する字幕ファイルの個別パス指定
-  --ffmpeg-path <path>      ffmpeg 実行ファイルのパス (未指定時は FFMPEG_PATH または PATH を検索)
+  --ffmpeg-path <path>      ffmpeg 実行ファイルのパス (未指定時は VSUB_FFMPEG_PATH または PATH を探索)
   --keep-audio              中間生成した音声ファイルを削除せずに保持する (デフォルト: false)
   --verbose                 詳細なログ（APIリクエスト等）を出力する (デフォルト: false)
   -h, --help                ヘルプを表示
+
+Commands:
+  config path               設定ファイルの保存場所を表示
+  config show               現在の設定内容を表示 (API Key はマスク表示)
+  config set                グローバル設定に API Key や FFmpeg パスを保存
+  config init               対話形式で API Key を初期設定
 ```
 
 ### 使用例
 
 ```bash
+# 設定の確認・初期化
+pnpm dev config show
+pnpm dev config init
+
 # 英語字幕 (.en.srt) を生成
 pnpm dev sample.mp4 -t en
 
