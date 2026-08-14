@@ -76,13 +76,20 @@ export function getConfig(cliFfmpegPath?: string): AppConfig {
   };
 }
 
-export async function ensureApiKeys(config: AppConfig): Promise<AppConfig> {
+export async function ensureApiKeys(
+  config: AppConfig,
+  options: { requireGemini?: boolean } = {},
+): Promise<AppConfig> {
+  const requireGemini = options.requireGemini ?? true;
   let groqApiKey = config.groqApiKey;
   let geminiApiKey = config.geminiApiKey;
 
   const isInteractive = Boolean(process.stdin.isTTY && process.stdout.isTTY);
 
-  if ((!groqApiKey || !geminiApiKey) && isInteractive) {
+  const missingGroq = !groqApiKey;
+  const missingGemini = requireGemini && !geminiApiKey;
+
+  if ((missingGroq || missingGemini) && isInteractive) {
     console.log("\n🔑 API keys missing. Starting interactive setup.");
     console.log("Note: Entered keys will be saved globally for future use at:");
     console.log(`   ${getGlobalConfigPath()}\n`);
@@ -99,7 +106,7 @@ export async function ensureApiKeys(config: AppConfig): Promise<AppConfig> {
         ).trim();
       }
 
-      if (!geminiApiKey) {
+      if (requireGemini && !geminiApiKey) {
         geminiApiKey = (
           await rl.question("2. Enter Gemini API Key (https://aistudio.google.com/): ")
         ).trim();
@@ -123,17 +130,21 @@ export async function ensureApiKeys(config: AppConfig): Promise<AppConfig> {
     geminiApiKey,
   };
 
-  validateApiKeys(updatedConfig);
+  validateApiKeys(updatedConfig, { requireGemini });
   return updatedConfig;
 }
 
-export function validateApiKeys(config: AppConfig): void {
+export function validateApiKeys(
+  config: AppConfig,
+  options: { requireGemini?: boolean } = {},
+): void {
+  const requireGemini = options.requireGemini ?? true;
   const missingKeys: string[] = [];
 
   if (!config.groqApiKey) {
     missingKeys.push("VSUB_GROQ_API_KEY / GROQ_API_KEY (Get at: https://console.groq.com/)");
   }
-  if (!config.geminiApiKey) {
+  if (requireGemini && !config.geminiApiKey) {
     missingKeys.push("VSUB_GEMINI_API_KEY / GEMINI_API_KEY (Get at: https://aistudio.google.com/)");
   }
 

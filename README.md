@@ -87,6 +87,9 @@ Options:
   -o, --output <path>       Output path for the generated subtitle file
   --ffmpeg-path <path>      Path to ffmpeg executable (searches VSUB_FFMPEG_PATH or PATH if omitted)
   --keep-audio              Keep intermediate extracted audio files without deleting (default: false)
+  --no-translate            Skip translation and output raw transcribed subtitles
+  --save-original           Save original transcription subtitle file alongside the result (default: false)
+  --force-translate         Force Gemini translation even if detected language matches target language (default: false)
   --verbose                 Output detailed log messages (API requests, etc.) (default: false)
   -h, --help                Display help for command
 
@@ -106,6 +109,15 @@ pnpm dev config init
 
 # Generate English subtitles (.en.srt)
 pnpm dev sample.mp4 -t en
+
+# Transcription only without translation (does not require Gemini API Key)
+pnpm dev sample.mp4 --no-translate
+
+# Save both translated subtitles and original transcription subtitles
+pnpm dev sample.mp4 -t ja --save-original
+
+# Force Gemini translation even if speech language matches target language
+pnpm dev sample.mp4 -t ja --force-translate
 
 # Specify custom output path
 pnpm dev sample.mp4 -o ./subtitles/my_subtitle.srt

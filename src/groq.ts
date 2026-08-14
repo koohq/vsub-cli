@@ -26,16 +26,63 @@ export interface GroqSegment {
   text: string;
 }
 
+export interface GroqVerboseJsonResponse {
+  language?: string;
+  segments?: GroqSegment[];
+}
+
+export interface TranscriptionResult {
+  entries: SrtEntry[];
+  detectedLanguage?: string | undefined;
+}
+
+const LANGUAGE_NAME_TO_CODE: Record<string, string> = {
+  japanese: "ja",
+  english: "en",
+  spanish: "es",
+  french: "fr",
+  german: "de",
+  italian: "it",
+  chinese: "zh",
+  korean: "ko",
+  russian: "ru",
+  portuguese: "pt",
+  dutch: "nl",
+  turkish: "tr",
+  polish: "pl",
+  arabic: "ar",
+  hindi: "hi",
+  vietnamese: "vi",
+  indonesian: "id",
+  thai: "th",
+};
+
+export function normalizeLanguageCode(lang?: string): string | undefined {
+  if (!lang) return undefined;
+  const cleaned = lang.trim().toLowerCase();
+  if (LANGUAGE_NAME_TO_CODE[cleaned]) {
+    return LANGUAGE_NAME_TO_CODE[cleaned];
+  }
+  if (cleaned.length === 2) {
+    return cleaned;
+  }
+  const mainPart = cleaned.split("-")[0];
+  if (mainPart && mainPart.length === 2) {
+    return mainPart;
+  }
+  return cleaned;
+}
+
 /**
  * Calls Groq Audio Transcription API (whisper-large-v3-turbo) for a given audio file path.
- * Returns array of SrtEntry objects.
+ * Returns array of SrtEntry objects and detected language code.
  */
 export async function transcribeAudioWithGroq(
   audioPath: string,
   apiKey: string,
   timeOffsetSeconds = 0,
   verbose = false,
-): Promise<SrtEntry[]> {
+): Promise<TranscriptionResult> {
   const groq = new Groq({ apiKey });
 
   if (verbose) {
@@ -48,7 +95,9 @@ export async function transcribeAudioWithGroq(
     response_format: "verbose_json",
   });
 
-  const segments = (response as unknown as { segments?: GroqSegment[] }).segments || [];
+  const rawResponse = response as unknown as GroqVerboseJsonResponse;
+  const segments = rawResponse.segments || [];
+  const detectedLanguage = normalizeLanguageCode(rawResponse.language);
   const entries: SrtEntry[] = [];
 
   for (let i = 0; i < segments.length; i++) {
@@ -68,7 +117,7 @@ export async function transcribeAudioWithGroq(
     }
   }
 
-  return entries;
+  return { entries, detectedLanguage };
 }
 
 /**
@@ -78,9 +127,10 @@ export async function transcribeAudioSegments(
   audioPaths: string[],
   apiKey: string,
   verbose = false,
-): Promise<SrtEntry[]> {
+): Promise<TranscriptionResult> {
   const allEntries: SrtEntry[] = [];
   let timeOffsetSeconds = 0;
+  let detectedLanguage: string | undefined;
 
   for (let i = 0; i < audioPaths.length; i++) {
     const audioPath = audioPaths[i];
@@ -90,7 +140,16 @@ export async function transcribeAudioSegments(
       console.log(`[Groq API] Transcribing segment (${i + 1}/${audioPaths.length})...`);
     }
 
-    const entries = await transcribeAudioWithGroq(audioPath, apiKey, timeOffsetSeconds, verbose);
+    const { entries, detectedLanguage: segmentLang } = await transcribeAudioWithGroq(
+      audioPath,
+      apiKey,
+      timeOffsetSeconds,
+      verbose,
+    );
+
+    if (!detectedLanguage && segmentLang) {
+      detectedLanguage = segmentLang;
+    }
 
     // Re-index entry IDs sequentially
     for (const entry of entries) {
@@ -104,5 +163,5 @@ export async function transcribeAudioSegments(
     timeOffsetSeconds += 1200;
   }
 
-  return allEntries;
+  return { entries: allEntries, detectedLanguage };
 }

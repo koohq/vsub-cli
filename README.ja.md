@@ -87,6 +87,9 @@ Options:
   -o, --output <path>       出力する字幕ファイルの個別パス指定
   --ffmpeg-path <path>      ffmpeg 実行ファイルのパス (未指定時は VSUB_FFMPEG_PATH または PATH を探索)
   --keep-audio              中間生成した音声ファイルを削除せずに保持する (デフォルト: false)
+  --no-translate            Gemini翻訳をスキップし、Groqの文字起こし結果（原語字幕）のみを出力する
+  --save-original           翻訳後字幕に加え、翻訳前の原語文字起こし字幕ファイルも同時に保存する (デフォルト: false)
+  --force-translate         検出言語と出力言語が同一の場合でも強制的にGemini翻訳を実行する (デフォルト: false)
   --verbose                 詳細なログ（APIリクエスト等）を出力する (デフォルト: false)
   -h, --help                ヘルプを表示
 
@@ -106,6 +109,15 @@ pnpm dev config init
 
 # 英語字幕 (.en.srt) を生成
 pnpm dev sample.mp4 -t en
+
+# 翻訳を行わず文字起こし（原語字幕）のみ出力 (Gemini API Key 未設定でも利用可能)
+pnpm dev sample.mp4 --no-translate
+
+# 翻訳後字幕と同時に、翻訳前の原語字幕も保存
+pnpm dev sample.mp4 -t ja --save-original
+
+# 音声言語と出力言語が同じ場合でも、あえて Gemini 翻訳を実行
+pnpm dev sample.mp4 -t ja --force-translate
 
 # 出力先パスを指定
 pnpm dev sample.mp4 -o ./subtitles/my_subtitle.srt

@@ -90,9 +90,16 @@ program
     "--ffmpeg-path <path>",
     "Path to ffmpeg executable (searches VSUB_FFMPEG_PATH or PATH if omitted)",
   )
+  .option("--keep-audio", "Keep intermediate extracted audio files without deleting", false)
+  .option("--no-translate", "Skip translation and output raw transcribed subtitles", false)
   .option(
-    "--keep-audio",
-    "Keep intermediate extracted audio files without deleting",
+    "--save-original",
+    "Save original transcription subtitle file alongside the result",
+    false,
+  )
+  .option(
+    "--force-translate",
+    "Force Gemini translation even if detected language matches target language",
     false,
   )
   .option("--verbose", "Output detailed log messages", false)
@@ -104,6 +111,9 @@ program
         output?: string;
         ffmpegPath?: string;
         keepAudio?: boolean;
+        noTranslate?: boolean;
+        saveOriginal?: boolean;
+        forceTranslate?: boolean;
         verbose?: boolean;
       },
     ) => {
@@ -117,8 +127,10 @@ program
         const rawConfig = getConfig(options.ffmpegPath);
         const verbose = Boolean(options.verbose);
 
-        // Ensure API Key availability
-        const config = await ensureApiKeys(rawConfig);
+        // Ensure API Key availability (Gemini key is optional if --no-translate is set)
+        const config = await ensureApiKeys(rawConfig, {
+          requireGemini: !options.noTranslate,
+        });
         await checkFfmpeg(config.ffmpegPath);
 
         console.log(`\n🎬 [vsub-cli] Starting process: ${path.basename(resolvedVideoPath)}`);
@@ -134,36 +146,78 @@ program
         try {
           // 2. Transcription with Groq
           console.log("🎙️ [2/4] Transcribing audio with Groq API (Whisper)...");
-          const srtEntries = await transcribeAudioSegments(
+          const { entries: srtEntries, detectedLanguage } = await transcribeAudioSegments(
             audioPaths,
             config.groqApiKey,
             verbose,
           );
 
+          if (detectedLanguage && verbose) {
+            console.log(`ℹ️ [Groq API] Detected speech language: ${detectedLanguage}`);
+          }
+
           if (srtEntries.length === 0) {
             console.warn("⚠️ No valid subtitle entries were detected from transcription results.");
           }
 
-          // 3. Translation with Gemini
-          console.log(
-            `🌐 [3/4] Translating subtitles to ${options.targetLang} with Gemini API (${srtEntries.length} items)...`,
-          );
-          const translatedEntries = await translateSrtEntries(
-            srtEntries,
-            options.targetLang,
-            config.geminiApiKey,
-            verbose,
+          const isSameLanguage = Boolean(
+            detectedLanguage && detectedLanguage.toLowerCase() === options.targetLang.toLowerCase(),
           );
 
-          // 4. Save output SRT
-          const finalSrtContent = stringifySrt(translatedEntries);
+          const skipTranslation =
+            Boolean(options.noTranslate) || (isSameLanguage && !options.forceTranslate);
+
           const videoDir = path.dirname(resolvedVideoPath);
           const videoExt = path.extname(resolvedVideoPath);
           const videoBaseName = path.basename(resolvedVideoPath, videoExt);
 
+          // Save original raw subtitles if requested
+          if (options.saveOriginal) {
+            const rawLang = detectedLanguage || "raw";
+            const isNameConflict =
+              rawLang.toLowerCase() === options.targetLang.toLowerCase() && !skipTranslation;
+            const originalFilename = isNameConflict
+              ? `${videoBaseName}.orig.srt`
+              : `${videoBaseName}.${rawLang}.srt`;
+            const originalPath = path.join(videoDir, originalFilename);
+
+            fs.writeFileSync(originalPath, stringifySrt(srtEntries), "utf-8");
+            console.log(`📄 Saved original transcription subtitle: ${originalPath}`);
+          }
+
+          let finalEntries = srtEntries;
+          const outputLang = skipTranslation
+            ? detectedLanguage || options.targetLang
+            : options.targetLang;
+
+          if (skipTranslation) {
+            if (options.noTranslate) {
+              console.log("ℹ️ [3/4] [--no-translate] Skipping Gemini translation.");
+            } else if (isSameLanguage) {
+              console.log(
+                `ℹ️ [3/4] Skipping Gemini translation (detected language "${detectedLanguage}" matches target language "${options.targetLang}"). Use --force-translate to override.`,
+              );
+            }
+          } else {
+            // Ensure Gemini key before proceeding with translation
+            const activeConfig = await ensureApiKeys(config, { requireGemini: true });
+
+            console.log(
+              `🌐 [3/4] Translating subtitles to ${options.targetLang} with Gemini API (${srtEntries.length} items)...`,
+            );
+            finalEntries = await translateSrtEntries(
+              srtEntries,
+              options.targetLang,
+              activeConfig.geminiApiKey,
+              verbose,
+            );
+          }
+
+          // 4. Save output SRT
+          const finalSrtContent = stringifySrt(finalEntries);
           const outputPath = options.output
             ? path.resolve(process.cwd(), options.output)
-            : path.join(videoDir, `${videoBaseName}.${options.targetLang}.srt`);
+            : path.join(videoDir, `${videoBaseName}.${outputLang}.srt`);
 
           fs.writeFileSync(outputPath, finalSrtContent, "utf-8");
           console.log(`✨ [4/4] Subtitle file saved: ${outputPath}\n`);
@@ -171,9 +225,7 @@ program
           if (!options.keepAudio) {
             await cleanup();
           } else {
-            console.log(
-              `ℹ️ [--keep-audio] Kept intermediate audio files: ${audioPaths.join(", ")}`,
-            );
+            console.log(`ℹ️ [--keep-audio] Kept intermediate audio files: ${audioPaths.join(", ")}`);
           }
         }
       } catch (error) {

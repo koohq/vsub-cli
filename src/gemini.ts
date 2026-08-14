@@ -66,7 +66,9 @@ ${JSON.stringify(texts, null, 2)}`;
     }
   }
 
-  throw new Error(`Gemini API translation failed after ${MAX_RETRIES} attempts: ${lastError?.message}`);
+  throw new Error(
+    `Gemini API translation failed after ${MAX_RETRIES} attempts: ${lastError?.message}`,
+  );
 }
 
 /**
