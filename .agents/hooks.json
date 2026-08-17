@@ -3,8 +3,8 @@
     "Stop": [
       {
         "type": "command",
-        "command": "node ../scripts/quality-gate.mjs",
-        "timeout": 60
+        "command": "node .agents/scripts/quality-gate.mjs",
+        "timeout": 120
       }
     ]
   }

@@ -4,7 +4,8 @@ import { fileURLToPath } from "node:url";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
-const projectRoot = path.resolve(__dirname, "..");
+// .agents/scripts/ -> project root is two levels up
+const projectRoot = path.resolve(__dirname, "../..");
 
 /**
  * Runs a command and returns { success, output }
@@ -31,15 +32,19 @@ function runStep(commandStr) {
 async function main() {
   const steps = [
     {
-      name: "Biome Check (Lint & Format)",
-      cmd: "pnpm run check",
+      name: "Biome Format (Auto-fix)",
+      cmd: "pnpm run format",
     },
     {
       name: "TypeScript Compilation (Type Check)",
       cmd: "pnpm run build",
     },
     {
-      name: "Vitest (Unit Tests)",
+      name: "Biome Check (Lint & Verify)",
+      cmd: "pnpm run check",
+    },
+    {
+      name: "Vitest (All Unit Tests)",
       cmd: "pnpm run test",
     },
   ];
@@ -50,11 +55,14 @@ async function main() {
     const result = await runStep(step.cmd);
     if (!result.success) {
       failures.push(`[${step.name} 失敗]\n${result.output}`);
+      // If earlier step like build or check fails, we can either break or continue collecting
+      // Breaking early saves time
+      break;
     }
   }
 
   if (failures.length > 0) {
-    const reason = `【品質ゲートエラー】エージェント終了前の検証に失敗しました。以下のエラーを修正して完了してください:\n\n${failures.join(
+    const reason = `【品質ゲートエラー】作業完了前の自動検証に失敗しました。以下のエラーを修正して再度完了してください:\n\n${failures.join(
       "\n\n----------------------------------------\n\n",
     )}`;
 
