@@ -23,7 +23,8 @@
 | **Low** | 11. Gemini API 並列リクエストによる高速化 | 信頼性 | 中 | 長尺動画における翻訳待機時間の短縮 |
 | **Low** | 12. 動画への字幕焼き込み (Hardsub / Burn-in) | 機能拡張 | 中 | 字幕入り mp4 のワンストップ出力 |
 | **Low** | 13. ファイル上書き防止 / バックアップセーフティ | CLI UX | 低 | 既存ファイルの誤削除・上書き防止 |
-| **Low** | 14. npm / npx 配布設定の最適化 | DevOps | 低 | インストール不要での即時実行対応 |
+| **Low** | 14. npm パッケージ / `npx` 公開の最適化 | DevOps | 低 | インストール不要での即時実行 (`npx`) 対応・設定整備 |
+| **Low** | 15. GitHub Releases & スタンドアロンバイナリ配布 | DevOps | 中 | Node.js 未導入ユーザー向け単体バイナリ配布 |
 
 ---
 
@@ -136,9 +137,19 @@
   * `@vitest/coverage-v8` を導入し、`pnpm test:coverage` スクリプトを追加。
 * **対応スコープ**: `package.json`, `vitest.config.ts`
 
-### 4.3 npm パッケージ / `npx` 配布の最適化
-* **背景/課題**: リポジトリを clone せずに `npx vsub-cli` やグローバルインストールで利用したい。
+### 4.3 npm パッケージ / `npx` 公開設定の最適化
+* **背景/課題**: リポジトリを clone せずに `npx vsub-cli` や `npm i -g vsub-cli` で利用できるようにするためのパッケージ設定が必要。
 * **提案内容**:
-  * `package.json` の `files` フィールド（`dist` のみ）の設定。
-  * `prepublishOnly` での `pnpm build` 自動実行。
+  * `package.json` の `files` フィールドに `["dist", "README.md", "README.ja.md", "LICENSE"]` を設定し、ソースコードやテストファイルを除外して軽量化。
+  * `prepublishOnly` スクリプトに `pnpm check && pnpm test && pnpm build` を追加し、ビルド漏れやテスト失敗時の publish 事故を防止。
+  * npmjs.com 上でのパッケージ名空き状況の確認（重複時はスコープ付き `@<username>/vsub-cli` または別名を検討）。
+  * メタデータ（`repository`, `keywords`, `bugs`, `homepage` 等）の拡充。
 * **対応スコープ**: `package.json`
+
+### 4.4 GitHub Releases & スタンドアロンバイナリ配布 (Node.js 未導入ユーザー向け)
+* **背景/課題**: Node.js や pnpm をインストールしていない一般ユーザーにも CLI を使ってもらいたい。
+* **提案内容**:
+  * Node.js SEA (Single Executable Applications) 等を用いて、Windows (`.exe`), macOS, Linux 向けの単体実行バイナリをビルド。
+  * GitHub Releases に各 OS 向けバイナリを自動アップロードする Release ワークフローの構築。
+* **対応スコープ**: `.github/workflows/release.yml`, ビルドスクリプト
+
