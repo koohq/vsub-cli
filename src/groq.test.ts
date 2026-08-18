@@ -152,5 +152,24 @@ describe("groq.ts", () => {
         },
       ]);
     });
+
+    it("should call onProgress callback for each segment", async () => {
+      mockCreateTranscription
+        .mockResolvedValueOnce({
+          language: "ja",
+          segments: [{ id: 0, start: 1.0, end: 2.0, text: "Seg1" }],
+        })
+        .mockResolvedValueOnce({
+          language: "ja",
+          segments: [{ id: 0, start: 1.0, end: 2.0, text: "Seg2" }],
+        });
+
+      const onProgress = vi.fn();
+      await transcribeAudioSegments(["seg1.m4a", "seg2.m4a"], "fake-api-key", false, onProgress);
+
+      expect(onProgress).toHaveBeenCalledTimes(2);
+      expect(onProgress).toHaveBeenNthCalledWith(1, 1, 2);
+      expect(onProgress).toHaveBeenNthCalledWith(2, 2, 2);
+    });
   });
 });

@@ -134,5 +134,32 @@ describe("gemini.ts", () => {
 
       expect(mockGenerateContent).toHaveBeenCalledTimes(3);
     });
+
+    it("should call onProgress callback for each translated chunk", async () => {
+      const entries: SrtEntry[] = [];
+      for (let i = 1; i <= 60; i++) {
+        entries.push({
+          id: i,
+          startTime: "00:00:00,000",
+          endTime: "00:00:01,000",
+          text: `Entry ${i}`,
+        });
+      }
+
+      mockGenerateContent
+        .mockResolvedValueOnce({
+          text: JSON.stringify(Array.from({ length: 50 }, (_, i) => `Translated ${i + 1}`)),
+        })
+        .mockResolvedValueOnce({
+          text: JSON.stringify(Array.from({ length: 10 }, (_, i) => `Translated ${i + 51}`)),
+        });
+
+      const onProgress = vi.fn();
+      await translateSrtEntries(entries, "ja", "fake-key", false, onProgress);
+
+      expect(onProgress).toHaveBeenCalledTimes(2);
+      expect(onProgress).toHaveBeenNthCalledWith(1, 1, 2);
+      expect(onProgress).toHaveBeenNthCalledWith(2, 2, 2);
+    });
   });
 });
