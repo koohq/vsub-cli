@@ -25,6 +25,7 @@
 | **Low** | 13. ファイル上書き防止 / バックアップセーフティ | CLI UX | 低 | 既存ファイルの誤削除・上書き防止 |
 | **Low** | 14. npm パッケージ / `npx` 公開の最適化 | DevOps | 低 | インストール不要での即時実行 (`npx`) 対応・設定整備 |
 | **Low** | 15. GitHub Releases & スタンドアロンバイナリ配布 | DevOps | 中 | Node.js 未導入ユーザー向け単体バイナリ配布 |
+| **Low** | 16. Gemini デフォルトモデル更新 (`gemini-3.7-flash`) & モデル設定の柔軟化 | 信頼性/機能 | 低 | 最新モデルの翻訳品質活用 & Thinking/モデル切り替え対応 |
 
 ---
 
@@ -119,6 +120,18 @@
   * 並行実行数（例: 同時 3〜5 リクエスト）を制御（`p-limit` 等）しつつ並列翻訳を実行し、スループットを高速化。
   * レートリミット（429 Too Many Requests）発生時は指数バックオフで自動再試行。
 * **対応スコープ**: `src/gemini.ts`
+
+### 3.4 Gemini デフォルトモデル更新 (`gemini-3.7-flash`) & モデル設定の柔軟化
+* **背景/課題**:
+  * 現在のコードのデフォルトは `gemini-2.5-flash` となっているが、現在の最新世代は **`gemini-3.7-flash`**。
+  * `media-vault` 等の知見同様、字幕翻訳のような 1:1 構造化マッピングタスクでは Thinking Budget（思考バジェット）の適切な設定（オフまたは low）により、レイテンシ・トークンコスト・翻訳精度のバランスを最適化できる。
+  * Groq 側は現時点で `whisper-large-v3-turbo` 固定が最も費用対効果・速度に優れているが、将来の新世代モデル登場や Gemini 側の切り替え需要に備え、CLI / 環境変数 / `config.json` からモデル名を指定できるようにしておくと保守性が高まる。
+* **提案内容**:
+  * Gemini デフォルトモデルを `gemini-3.7-flash` に更新。
+  * 字幕翻訳用プロンプト・設定（Thinking Budget 設定やレスポンスフォーマット）の最適化。
+  * `--gemini-model <model>`, `--groq-model <model>` オプションおよび `vsub config set` への設定項目追加。
+* **対応スコープ**: `src/gemini.ts`, `src/groq.ts`, `src/config.ts`, `src/index.ts`
+
 
 ---
 
