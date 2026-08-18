@@ -34,7 +34,9 @@
     "commander": "^12.1.0",
     "dotenv": "^16.4.5",
     "execa": "^9.3.0",
-    "groq-sdk": "^0.7.0"
+    "groq-sdk": "^0.7.0",
+    "ora": "^9.4.1",
+    "picocolors": "^1.1.1"
   },
   "devDependencies": {
     "@biomejs/biome": "^2.5.7",

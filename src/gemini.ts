@@ -79,6 +79,7 @@ export async function translateSrtEntries(
   targetLang: string,
   apiKey: string,
   verbose = false,
+  onProgress?: (currentChunk: number, totalChunks: number) => void,
 ): Promise<SrtEntry[]> {
   if (entries.length === 0) return [];
 
@@ -92,6 +93,10 @@ export async function translateSrtEntries(
     const chunkIndex = Math.floor(i / DEFAULT_CHUNK_SIZE) + 1;
     const chunk = entries.slice(i, i + DEFAULT_CHUNK_SIZE);
     const originalTexts = chunk.map((e) => e.text);
+
+    if (onProgress) {
+      onProgress(chunkIndex, totalChunks);
+    }
 
     if (verbose) {
       console.log(

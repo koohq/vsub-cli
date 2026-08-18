@@ -3,11 +3,13 @@
 import fs from "node:fs";
 import path from "node:path";
 import { Command } from "commander";
+import pc from "picocolors";
 import { ensureApiKeys, getConfig, getGlobalConfigPath, saveGlobalConfig } from "./config.js";
 import { checkFfmpeg, extractAudio } from "./ffmpeg.js";
 import { translateSrtEntries } from "./gemini.js";
 import { transcribeAudioSegments } from "./groq.js";
 import { stringifySrt } from "./srt.js";
+import { createSpinner, formatFileSize, formatSummaryBox } from "./ui.js";
 
 const program = new Command();
 
@@ -122,10 +124,14 @@ program
         return;
       }
 
+      const startTime = Date.now();
+      const verbose = Boolean(options.verbose);
+      const spinner = createSpinner("", { isSilent: verbose });
+      const outputFiles: string[] = [];
+
       try {
         const resolvedVideoPath = path.resolve(process.cwd(), videoFile);
         const rawConfig = getConfig(options.ffmpegPath);
-        const verbose = Boolean(options.verbose);
 
         // Ensure API Key availability (Groq key is required; Gemini key will be validated lazily if translation is needed)
         const config = await ensureApiKeys(rawConfig, {
@@ -133,31 +139,58 @@ program
         });
         await checkFfmpeg(config.ffmpegPath);
 
-        console.log(`\n🎬 [vsub-cli] Starting process: ${path.basename(resolvedVideoPath)}`);
+        console.log(
+          `\n🎬 ${pc.bold("vsub-cli")} - 処理開始: ${pc.cyan(path.basename(resolvedVideoPath))}`,
+        );
 
         // 1. Audio extraction
-        console.log("🔊 [1/4] Extracting audio (16kHz mono / low bitrate)...");
+        spinner.start("🔊 [1/4] 音声を抽出中 (16kHz mono / low bitrate)...");
         const { audioPaths, cleanup } = await extractAudio(
           resolvedVideoPath,
           config.ffmpegPath,
           verbose,
         );
 
+        let totalAudioBytes = 0;
+        for (const p of audioPaths) {
+          try {
+            totalAudioBytes += fs.statSync(p).size;
+          } catch {
+            // ignore
+          }
+        }
+        spinner.succeed(
+          `🔊 [1/4] 音声抽出完了 (${audioPaths.length} セグメント / ${formatFileSize(totalAudioBytes)})`,
+        );
+
         try {
           // 2. Transcription with Groq
-          console.log("🎙️ [2/4] Transcribing audio with Groq API (Whisper)...");
+          const initialGroqText =
+            audioPaths.length > 1
+              ? `🎙️ [2/4] Groq Whisper API で文字起こし中 [1/${audioPaths.length}]...`
+              : "🎙️ [2/4] Groq Whisper API で文字起こし中...";
+          spinner.start(initialGroqText);
+
           const { entries: srtEntries, detectedLanguage } = await transcribeAudioSegments(
             audioPaths,
             config.groqApiKey,
             verbose,
+            (current, total) => {
+              if (total > 1) {
+                spinner.updateText(
+                  `🎙️ [2/4] Groq Whisper API で文字起こし中 [${current}/${total}]...`,
+                );
+              }
+            },
           );
 
-          if (detectedLanguage && verbose) {
-            console.log(`ℹ️ [Groq API] Detected speech language: ${detectedLanguage}`);
-          }
-
           if (srtEntries.length === 0) {
-            console.warn("⚠️ No valid subtitle entries were detected from transcription results.");
+            spinner.warn("⚠️ [2/4] 文字起こし結果から有効な字幕エントリが検出されませんでした");
+          } else {
+            const langDisplay = detectedLanguage ? ` (言語: ${detectedLanguage})` : "";
+            spinner.succeed(
+              `🎙️ [2/4] 文字起こし完了${langDisplay} - ${srtEntries.length} 行の字幕を生成`,
+            );
           }
 
           const isSameLanguage = Boolean(
@@ -182,7 +215,8 @@ program
             const originalPath = path.join(videoDir, originalFilename);
 
             fs.writeFileSync(originalPath, stringifySrt(srtEntries), "utf-8");
-            console.log(`📄 Saved original transcription subtitle: ${originalPath}`);
+            outputFiles.push(originalPath);
+            spinner.info(`📄 原文字幕を保存: ${path.basename(originalPath)}`);
           }
 
           let finalEntries = srtEntries;
@@ -192,46 +226,80 @@ program
 
           if (skipTranslation) {
             if (options.noTranslate) {
-              console.log("ℹ️ [3/4] [--no-translate] Skipping Gemini translation.");
+              spinner.info("ℹ️ [3/4] [--no-translate] Gemini 翻訳をスキップしました");
             } else if (isSameLanguage) {
-              console.log(
-                `ℹ️ [3/4] Skipping Gemini translation (detected language "${detectedLanguage}" matches target language "${options.targetLang}"). Use --force-translate to override.`,
+              spinner.info(
+                `ℹ️ [3/4] 検出言語 ("${detectedLanguage}") がターゲット言語 ("${options.targetLang}") と同一のため翻訳をスキップ (--force-translate で強制実行可能)`,
               );
             }
           } else {
             // Ensure Gemini key before proceeding with translation
             const activeConfig = await ensureApiKeys(config, { requireGemini: true });
 
-            console.log(
-              `🌐 [3/4] Translating subtitles to ${options.targetLang} with Gemini API (${srtEntries.length} items)...`,
+            const totalChunks = Math.max(1, Math.ceil(srtEntries.length / 50));
+            spinner.start(
+              `🌐 [3/4] Gemini API で ${options.targetLang} に翻訳中 [1/${totalChunks} チャンク]...`,
             );
+
             finalEntries = await translateSrtEntries(
               srtEntries,
               options.targetLang,
               activeConfig.geminiApiKey,
               verbose,
+              (currentChunk, chunksCount) => {
+                spinner.updateText(
+                  `🌐 [3/4] Gemini API で ${options.targetLang} に翻訳中 [${currentChunk}/${chunksCount} チャンク]...`,
+                );
+              },
+            );
+
+            spinner.succeed(
+              `🌐 [3/4] Gemini 翻訳完了 (${options.targetLang}) - ${finalEntries.length} 行`,
             );
           }
 
           // 4. Save output SRT
+          spinner.start("💾 [4/4] 字幕ファイルを保存中...");
           const finalSrtContent = stringifySrt(finalEntries);
           const outputPath = options.output
             ? path.resolve(process.cwd(), options.output)
             : path.join(videoDir, `${videoBaseName}.${outputLang}.srt`);
 
           fs.writeFileSync(outputPath, finalSrtContent, "utf-8");
-          console.log(`✨ [4/4] Subtitle file saved: ${outputPath}\n`);
+          outputFiles.push(outputPath);
+          spinner.succeed(`💾 [4/4] 字幕ファイルを保存完了: ${path.basename(outputPath)}`);
+
+          // 5. Output Summary Box
+          const durationMs = Date.now() - startTime;
+          console.log(
+            "\n" +
+              formatSummaryBox({
+                videoFile: path.basename(resolvedVideoPath),
+                durationMs,
+                audioSegmentsCount: audioPaths.length,
+                audioTotalBytes: totalAudioBytes,
+                detectedLanguage,
+                targetLanguage: outputLang,
+                entriesCount: finalEntries.length,
+                outputFiles,
+                skippedTranslation: skipTranslation,
+              }) +
+              "\n",
+          );
         } finally {
           if (!options.keepAudio) {
             await cleanup();
           } else {
-            console.log(`ℹ️ [--keep-audio] Kept intermediate audio files: ${audioPaths.join(", ")}`);
+            spinner.info(`ℹ️ [--keep-audio] 中間音声ファイルを保持: ${audioPaths.join(", ")}`);
           }
         }
       } catch (error) {
-        console.error(
-          `\n❌ Error occurred: ${error instanceof Error ? error.message : String(error)}\n`,
+        spinner.fail(
+          `処理中にエラーが発生しました: ${error instanceof Error ? error.message : String(error)}`,
         );
+        if (verbose && error instanceof Error && error.stack) {
+          console.error(error.stack);
+        }
         process.exit(1);
       }
     },

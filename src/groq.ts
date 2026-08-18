@@ -128,6 +128,7 @@ export async function transcribeAudioSegments(
   audioPaths: string[],
   apiKey: string,
   verbose = false,
+  onProgress?: (current: number, total: number) => void,
 ): Promise<TranscriptionResult> {
   const allEntries: SrtEntry[] = [];
   let timeOffsetSeconds = 0;
@@ -136,6 +137,10 @@ export async function transcribeAudioSegments(
   for (let i = 0; i < audioPaths.length; i++) {
     const audioPath = audioPaths[i];
     if (!audioPath) continue;
+
+    if (onProgress) {
+      onProgress(i + 1, audioPaths.length);
+    }
 
     if (verbose && audioPaths.length > 1) {
       console.log(`[Groq API] Transcribing segment (${i + 1}/${audioPaths.length})...`);
