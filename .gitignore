@@ -197,7 +197,7 @@ $RECYCLE.BIN/
 *.msm
 *.msp
 
-# Worktrees
-.worktrees/
-
 # End of https://www.toptal.com/developers/gitignore/api/windows,node,macos
+
+# Git Worktrees
+.worktrees/
