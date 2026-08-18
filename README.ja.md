@@ -84,6 +84,7 @@ Arguments:
 
 Options:
   -t, --target-lang <lang>  翻訳先の言語コード (例: ja, en, es) (デフォルト: "ja")
+  -f, --format <formats>    出力フォーマット: srt, vtt, txt, json をカンマ区切りで指定 (デフォルト: "srt")
   -o, --output <path>       出力する字幕ファイルの個別パス指定
   --ffmpeg-path <path>      ffmpeg 実行ファイルのパス (未指定時は VSUB_FFMPEG_PATH または PATH を探索)
   --keep-audio              中間生成した音声ファイルを削除せずに保持する (デフォルト: false)
@@ -109,6 +110,9 @@ pnpm dev config init
 
 # 英語字幕 (.en.srt) を生成
 pnpm dev sample.mp4 -t en
+
+# 複数フォーマットを同時に一括出力 (.srt, .vtt, .txt, .json)
+pnpm dev sample.mp4 -f srt,vtt,txt,json
 
 # 翻訳を行わず文字起こし（原語字幕）のみ出力 (Gemini API Key 未設定でも利用可能)
 pnpm dev sample.mp4 --no-translate

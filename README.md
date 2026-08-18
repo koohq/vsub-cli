@@ -84,6 +84,7 @@ Arguments:
 
 Options:
   -t, --target-lang <lang>  Target language code (e.g., ja, en, es) (default: "ja")
+  -f, --format <formats>    Output formats: comma-separated list of srt, vtt, txt, json (default: "srt")
   -o, --output <path>       Output path for the generated subtitle file
   --ffmpeg-path <path>      Path to ffmpeg executable (searches VSUB_FFMPEG_PATH or PATH if omitted)
   --keep-audio              Keep intermediate extracted audio files without deleting (default: false)
@@ -109,6 +110,9 @@ pnpm dev config init
 
 # Generate English subtitles (.en.srt)
 pnpm dev sample.mp4 -t en
+
+# Output multiple formats simultaneously (.srt, .vtt, .txt, .json)
+pnpm dev sample.mp4 -f srt,vtt,txt,json
 
 # Transcription only without translation (does not require Gemini API Key)
 pnpm dev sample.mp4 --no-translate

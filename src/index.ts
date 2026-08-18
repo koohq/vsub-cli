@@ -6,9 +6,9 @@ import { Command } from "commander";
 import pc from "picocolors";
 import { ensureApiKeys, getConfig, getGlobalConfigPath, saveGlobalConfig } from "./config.js";
 import { checkFfmpeg, extractAudio } from "./ffmpeg.js";
+import { formatEntries, parseOutputFormats } from "./formatter.js";
 import { translateSrtEntries } from "./gemini.js";
 import { transcribeAudioSegments } from "./groq.js";
-import { stringifySrt } from "./srt.js";
 import { createSpinner, formatFileSize, formatSummaryBox } from "./ui.js";
 
 const program = new Command();
@@ -16,7 +16,7 @@ const program = new Command();
 program
   .name("vsub")
   .description(
-    "CLI tool to extract audio from video, transcribe speech via Groq API, and generate multilingual SRT subtitles via Gemini API.",
+    "CLI tool to extract audio from video, transcribe speech via Groq API, and generate multilingual subtitles (.srt, .vtt, .txt, .json) via Gemini API.",
   );
 
 // Subcommand: config
@@ -87,6 +87,11 @@ configCmd
 program
   .argument("[video-file]", "Target video file path (.mp4, .mkv, .mov, etc.)")
   .option("-t, --target-lang <lang>", "Target language code (e.g., ja, en, es)", "ja")
+  .option(
+    "-f, --format <formats>",
+    "Output formats: comma-separated list of srt, vtt, txt, json",
+    "srt",
+  )
   .option("-o, --output <path>", "Output path for the generated subtitle file")
   .option(
     "--ffmpeg-path <path>",
@@ -110,6 +115,7 @@ program
       videoFile: string | undefined,
       options: {
         targetLang: string;
+        format: string;
         output?: string;
         ffmpegPath?: string;
         keepAudio?: boolean;
@@ -130,6 +136,7 @@ program
       const outputFiles: string[] = [];
 
       try {
+        const outputFormats = parseOutputFormats(options.format);
         const resolvedVideoPath = path.resolve(process.cwd(), videoFile);
         const rawConfig = getConfig(options.ffmpegPath);
 
@@ -209,14 +216,19 @@ program
             const rawLang = detectedLanguage || "raw";
             const isNameConflict =
               rawLang.toLowerCase() === options.targetLang.toLowerCase() && !skipTranslation;
-            const originalFilename = isNameConflict
-              ? `${videoBaseName}.orig.srt`
-              : `${videoBaseName}.${rawLang}.srt`;
-            const originalPath = path.join(videoDir, originalFilename);
+            const baseOriginalName = isNameConflict
+              ? `${videoBaseName}.orig`
+              : `${videoBaseName}.${rawLang}`;
 
-            fs.writeFileSync(originalPath, stringifySrt(srtEntries), "utf-8");
-            outputFiles.push(originalPath);
-            spinner.info(`📄 原文字幕を保存: ${path.basename(originalPath)}`);
+            const savedOriginalNames: string[] = [];
+            for (const fmt of outputFormats) {
+              const originalFilename = `${baseOriginalName}.${fmt}`;
+              const originalPath = path.join(videoDir, originalFilename);
+              fs.writeFileSync(originalPath, formatEntries(srtEntries, fmt), "utf-8");
+              outputFiles.push(originalPath);
+              savedOriginalNames.push(originalFilename);
+            }
+            spinner.info(`📄 原文字幕を保存: ${savedOriginalNames.join(", ")}`);
           }
 
           let finalEntries = srtEntries;
@@ -258,16 +270,33 @@ program
             );
           }
 
-          // 4. Save output SRT
+          // 4. Save output subtitle files
           spinner.start("💾 [4/4] 字幕ファイルを保存中...");
-          const finalSrtContent = stringifySrt(finalEntries);
-          const outputPath = options.output
-            ? path.resolve(process.cwd(), options.output)
-            : path.join(videoDir, `${videoBaseName}.${outputLang}.srt`);
 
-          fs.writeFileSync(outputPath, finalSrtContent, "utf-8");
-          outputFiles.push(outputPath);
-          spinner.succeed(`💾 [4/4] 字幕ファイルを保存完了: ${path.basename(outputPath)}`);
+          if (options.output) {
+            const resolvedOut = path.resolve(process.cwd(), options.output);
+            if (outputFormats.length === 1) {
+              const fmt = outputFormats[0] ?? "srt";
+              fs.writeFileSync(resolvedOut, formatEntries(finalEntries, fmt), "utf-8");
+              outputFiles.push(resolvedOut);
+            } else {
+              const parsedOut = path.parse(resolvedOut);
+              for (const fmt of outputFormats) {
+                const outFilePath = path.join(parsedOut.dir, `${parsedOut.name}.${fmt}`);
+                fs.writeFileSync(outFilePath, formatEntries(finalEntries, fmt), "utf-8");
+                outputFiles.push(outFilePath);
+              }
+            }
+          } else {
+            for (const fmt of outputFormats) {
+              const outFilePath = path.join(videoDir, `${videoBaseName}.${outputLang}.${fmt}`);
+              fs.writeFileSync(outFilePath, formatEntries(finalEntries, fmt), "utf-8");
+              outputFiles.push(outFilePath);
+            }
+          }
+
+          const formatListStr = outputFormats.map((f) => f.toUpperCase()).join(", ");
+          spinner.succeed(`💾 [4/4] 字幕ファイルを保存完了 (${formatListStr})`);
 
           // 5. Output Summary Box
           const durationMs = Date.now() - startTime;
