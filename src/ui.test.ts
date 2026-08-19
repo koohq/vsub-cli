@@ -161,6 +161,27 @@ describe("ui module", () => {
       expect(summary).toContain("ZH");
       expect(summary).toContain("キャッシュ");
     });
+
+    it("should display whisperPrompt, prompt, and glossary in summary box when present", () => {
+      const summary = formatSummaryBox({
+        videoFile: "glossary-video.mp4",
+        durationMs: 5000,
+        detectedLanguage: "en",
+        targetLanguage: "ja",
+        entriesCount: 20,
+        whisperPrompt: "Antigravity, vsub",
+        prompt: "Translate in polite tone",
+        glossaryTermsCount: 5,
+        outputFiles: ["/path/to/glossary-video.ja.srt"],
+      });
+
+      expect(summary).toContain("認識ヒント");
+      expect(summary).toContain("Antigravity, vsub");
+      expect(summary).toContain("用語集");
+      expect(summary).toContain("5 語適用");
+      expect(summary).toContain("翻訳指示");
+      expect(summary).toContain("Translate in polite tone");
+    });
   });
 
   describe("createSpinner", () => {

@@ -8,14 +8,52 @@ export interface CachedTranscription {
   detectedLanguage?: string | undefined;
   entries: SrtEntry[];
   model?: string | undefined;
+  prompt?: string | undefined;
   createdAt: number;
 }
 
 export interface CachedTranslation {
   targetLang: string;
   model?: string | undefined;
+  prompt?: string | undefined;
+  glossaryHash?: string | undefined;
   entries: SrtEntry[];
   createdAt: number;
+}
+
+/**
+ * Checks if cached transcription matches current prompt requirements.
+ */
+export function isTranscriptionCacheValid(
+  cached: CachedTranscription | undefined,
+  currentPrompt?: string,
+): boolean {
+  if (!cached) return false;
+  if (currentPrompt !== undefined && (cached.prompt ?? "") !== currentPrompt.trim()) {
+    return false;
+  }
+  return true;
+}
+
+/**
+ * Checks if cached translation matches current prompt and glossary requirements.
+ */
+export function isTranslationCacheValid(
+  cached: CachedTranslation | undefined,
+  currentPrompt?: string,
+  currentGlossaryHash?: string,
+): boolean {
+  if (!cached) return false;
+  if (currentPrompt !== undefined && (cached.prompt ?? "") !== currentPrompt.trim()) {
+    return false;
+  }
+  if (
+    currentGlossaryHash !== undefined &&
+    (cached.glossaryHash ?? "") !== currentGlossaryHash.trim()
+  ) {
+    return false;
+  }
+  return true;
 }
 
 export interface MediaCacheData {

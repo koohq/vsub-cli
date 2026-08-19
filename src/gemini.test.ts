@@ -161,5 +161,40 @@ describe("gemini.ts", () => {
       expect(onProgress).toHaveBeenNthCalledWith(1, 1, 2);
       expect(onProgress).toHaveBeenNthCalledWith(2, 2, 2);
     });
+
+    it("should inject custom prompt instructions and glossary rules into Gemini prompt", async () => {
+      const entries: SrtEntry[] = [
+        {
+          id: 1,
+          startTime: "00:00:01,000",
+          endTime: "00:00:02,000",
+          text: "We use Antigravity for agentic AI.",
+        },
+      ];
+
+      mockGenerateContent.mockResolvedValueOnce({
+        text: JSON.stringify([
+          "私たちはエージェンティックAIのためにアンチグラビティを使用します。",
+        ]),
+      });
+
+      await translateSrtEntries(entries, "ja", "fake-key", false, undefined, {
+        prompt: "Use polite and professional Japanese (です・ます調).",
+        glossary: {
+          Antigravity: "アンチグラビティ",
+          "agentic AI": "エージェンティックAI",
+        },
+      });
+
+      expect(mockGenerateContent).toHaveBeenCalledTimes(1);
+      const callArgs = mockGenerateContent.mock.calls[0]?.[0];
+      expect(callArgs.contents).toContain("ADDITIONAL TRANSLATION INSTRUCTIONS:");
+      expect(callArgs.contents).toContain("Use polite and professional Japanese (です・ます調).");
+      expect(callArgs.contents).toContain(
+        "GLOSSARY / TERMINOLOGY RULES (MUST USE THESE EXACT TRANSLATIONS):",
+      );
+      expect(callArgs.contents).toContain('- "Antigravity" -> "アンチグラビティ"');
+      expect(callArgs.contents).toContain('- "agentic AI" -> "エージェンティックAI"');
+    });
   });
 });

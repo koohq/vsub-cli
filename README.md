@@ -85,10 +85,13 @@ Arguments:
   media-file                Target video or audio file path (.mp4, .mp3, .wav, .m4a, .mov, etc.)
 
 Options:
-  -t, --target-lang <lang>  Target language code (e.g., ja, en, es) (default: "ja")
+  -t, --target-lang <langs> Target language code(s), comma-separated (e.g., ja,en,es) (default: "ja")
   -f, --format <formats>    Output formats: comma-separated list of srt, vtt, txt, json (default: "srt")
   -o, --output <path>       Output path for the generated subtitle file
   --ffmpeg-path <path>      Path to ffmpeg executable (searches VSUB_FFMPEG_PATH or PATH if omitted)
+  --whisper-prompt <text>   Prompt hint for Groq Whisper speech recognition (terminology, names, etc.)
+  --prompt <instruction>    Additional instruction prompt for Gemini translation (tone, style, brevity)
+  --glossary <path-or-terms> Glossary file path (JSON) or inline terms (Key=Val,Key=Val)
   --no-cache                Do not use or save intermediate cache (default: false)
   --fresh                   Ignore existing cache and generate fresh output, overwriting cache (default: false)
   --cache-dir <path>        Custom cache directory path
@@ -106,8 +109,45 @@ Commands:
   cache clean               Delete all intermediate cache files
   config path               Display global configuration file path
   config show               Display current settings (API Keys are masked)
-  config set                Save API Keys or FFmpeg path to global config
+  config set                Save API Keys, prompts, glossary, or FFmpeg path to global config
   config init               Initialize API Keys interactively
+```
+
+### Using Glossary & Custom Prompts
+
+#### 1. Inline Glossary Mapping
+Specify direct term-translation pairs on the CLI without creating a file:
+```bash
+pnpm dev video.mp4 -t ja --glossary "Antigravity=アンチグラビティ,vsub=ブイサブ"
+```
+
+#### 2. JSON Glossary File (Single & Multilingual)
+Provide structured JSON glossary files for domain terminology:
+```bash
+pnpm dev video.mp4 -t ja,zh --glossary ./glossary.json
+```
+
+**Example `glossary.json` format:**
+```json
+{
+  "ja": {
+    "Antigravity": "アンチグラビティ",
+    "Agentic AI": "エージェンティックAI"
+  },
+  "zh": {
+    "Antigravity": "反重力",
+    "Agentic AI": "智能体AI"
+  }
+}
+```
+*(Also supports flat schema `{"Antigravity": "アンチグラビティ"}` or term-based schema `{"Antigravity": {"ja": "...", "zh": "..."}}`)*
+
+> [!TIP]
+> If `--whisper-prompt` is omitted, source terms from `--glossary` (`Antigravity, Agentic AI`) are automatically passed to Whisper as recognition hints to boost both transcription and translation precision!
+
+#### 3. Custom Translation Tone & Style Prompts
+```bash
+pnpm dev video.mp4 -t ja --prompt "Translate in a polite and professional tone suited for software engineers. Keep subtitles concise."
 ```
 
 ### Examples
@@ -117,8 +157,11 @@ Commands:
 pnpm dev config show
 pnpm dev config init
 
-# Directly translate existing SRT file to English (requires Gemini only, no Groq needed)
-pnpm dev translate sample.ja.srt -t en
+# Save global default prompt or glossary
+pnpm dev config set --prompt "Translate politely" --glossary "./glossary.json"
+
+# Directly translate existing SRT file to English with glossary
+pnpm dev translate sample.ja.srt -t en --glossary "Antigravity=アンチグラビティ"
 
 # Translate existing SRT into multiple formats (.srt, .vtt, .txt, .json)
 pnpm dev translate sample.srt -t en -f srt,vtt,txt,json

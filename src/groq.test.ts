@@ -118,9 +118,43 @@ describe("groq.ts", () => {
         },
       ]);
     });
+
+    it("should pass prompt parameter to Groq API client if provided", async () => {
+      mockCreateTranscription.mockResolvedValueOnce({
+        language: "japanese",
+        segments: [{ id: 0, start: 0, end: 1, text: "テスト" }],
+      });
+
+      await transcribeAudioWithGroq("dummy.m4a", "fake-api-key", 0, false, {
+        prompt: "Antigravity, vsub",
+      });
+
+      expect(mockCreateTranscription).toHaveBeenCalledWith(
+        expect.objectContaining({
+          prompt: "Antigravity, vsub",
+        }),
+      );
+    });
   });
 
   describe("transcribeAudioSegments", () => {
+    it("should forward prompt option to transcribeAudioWithGroq for each segment", async () => {
+      mockCreateTranscription.mockResolvedValue({
+        language: "japanese",
+        segments: [{ id: 0, start: 0, end: 1, text: "セグメント" }],
+      });
+
+      await transcribeAudioSegments(["seg1.m4a", "seg2.m4a"], "fake-api-key", false, undefined, {
+        prompt: "GlossaryTerms",
+      });
+
+      expect(mockCreateTranscription).toHaveBeenCalledTimes(2);
+      expect(mockCreateTranscription).toHaveBeenCalledWith(
+        expect.objectContaining({
+          prompt: "GlossaryTerms",
+        }),
+      );
+    });
     it("should process multiple audio segments and accumulate 1200s time offsets", async () => {
       // Segment 1 (offset 0s)
       mockCreateTranscription.mockResolvedValueOnce({

@@ -31,6 +31,13 @@ describe("config.ts", () => {
     delete process.env["GEMINI_API_KEY"];
     delete process.env["VSUB_FFMPEG_PATH"];
     delete process.env["FFMPEG_PATH"];
+    delete process.env["VSUB_WHISPER_PROMPT"];
+    delete process.env["WHISPER_PROMPT"];
+    delete process.env["VSUB_PROMPT"];
+    delete process.env["VSUB_GEMINI_PROMPT"];
+    delete process.env["GEMINI_PROMPT"];
+    delete process.env["VSUB_GLOSSARY"];
+    delete process.env["GLOSSARY"];
   });
 
   afterEach(() => {
@@ -110,11 +117,25 @@ describe("config.ts", () => {
       expect(config.ffmpegPath).toBe("/standard/ffmpeg");
     });
 
+    it("should resolve whisperPrompt, prompt, and glossary from environment variables", () => {
+      process.env["VSUB_WHISPER_PROMPT"] = "WhisperPromptHint";
+      process.env["VSUB_PROMPT"] = "TranslationInstruction";
+      process.env["VSUB_GLOSSARY"] = "A=B,C=D";
+
+      const config = getConfig();
+      expect(config.whisperPrompt).toBe("WhisperPromptHint");
+      expect(config.prompt).toBe("TranslationInstruction");
+      expect(config.glossary).toBe("A=B,C=D");
+    });
+
     it("should fallback to default values when nothing is configured", () => {
       const config = getConfig();
       expect(config.groqApiKey).toBe("");
       expect(config.geminiApiKey).toBe("");
       expect(config.ffmpegPath).toBe("ffmpeg");
+      expect(config.whisperPrompt).toBeUndefined();
+      expect(config.prompt).toBeUndefined();
+      expect(config.glossary).toBeUndefined();
     });
   });
 

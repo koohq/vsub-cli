@@ -25,6 +25,9 @@ export interface AppConfig {
   groqApiKey: string;
   geminiApiKey: string;
   ffmpegPath: string;
+  whisperPrompt?: string | undefined;
+  prompt?: string | undefined;
+  glossary?: string | undefined;
 }
 
 export function getGlobalConfigPath(): string {
@@ -83,10 +86,32 @@ export function getConfig(cliFfmpegPath?: string): AppConfig {
     globalConfig.ffmpegPath?.trim() ||
     "ffmpeg";
 
+  const whisperPrompt =
+    process.env["VSUB_WHISPER_PROMPT"]?.trim() ||
+    process.env["WHISPER_PROMPT"]?.trim() ||
+    globalConfig.whisperPrompt?.trim() ||
+    undefined;
+
+  const prompt =
+    process.env["VSUB_PROMPT"]?.trim() ||
+    process.env["VSUB_GEMINI_PROMPT"]?.trim() ||
+    process.env["GEMINI_PROMPT"]?.trim() ||
+    globalConfig.prompt?.trim() ||
+    undefined;
+
+  const glossary =
+    process.env["VSUB_GLOSSARY"]?.trim() ||
+    process.env["GLOSSARY"]?.trim() ||
+    globalConfig.glossary?.trim() ||
+    undefined;
+
   return {
     groqApiKey,
     geminiApiKey,
     ffmpegPath,
+    whisperPrompt,
+    prompt,
+    glossary,
   };
 }
 

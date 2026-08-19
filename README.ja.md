@@ -85,10 +85,13 @@ Arguments:
   media-file                処理対象の動画または音声ファイルパス (.mp4, .mp3, .wav, .m4a, .mov 等)
 
 Options:
-  -t, --target-lang <lang>  翻訳先の言語コード (例: ja, en, es) (デフォルト: "ja")
+  -t, --target-lang <langs> 翻訳先の言語コード (カンマ区切りで複数指定可: ja,en,zh) (デフォルト: "ja")
   -f, --format <formats>    出力フォーマット: srt, vtt, txt, json をカンマ区切りで指定 (デフォルト: "srt")
   -o, --output <path>       出力する字幕ファイルの個別パス指定
   --ffmpeg-path <path>      ffmpeg 実行ファイルのパス (未指定時は VSUB_FFMPEG_PATH または PATH を探索)
+  --whisper-prompt <text>   Groq Whisper 音声認識のヒントプロンプト (専門用語・固有名詞等)
+  --prompt <instruction>    Gemini 翻訳時のカスタム指示プロンプト (口調・文字数制限等)
+  --glossary <path-or-terms> 用語集 JSON ファイルパスまたはインライン対訳 (Key=Val,Key=Val)
   --no-cache                中間キャッシュを使用・保存せずに実行 (デフォルト: false)
   --fresh                   既存キャッシュを無視して新規実行し、結果をキャッシュへ上書き (デフォルト: false)
   --cache-dir <path>        カスタムキャッシュ保存ディレクトリの指定
@@ -106,8 +109,46 @@ Commands:
   cache clean               全中間キャッシュファイルを削除
   config path               設定ファイルの保存場所を表示
   config show               現在の設定内容を表示 (API Key はマスク表示)
-  config set                グローバル設定に API Key や FFmpeg パスを保存
+  config set                グローバル設定に API Key や FFmpeg パス、デフォルトプロンプトを保存
   config init               対話形式で API Key を初期設定
+```
+
+### 用語集 (Glossary) & プロンプトの活用
+
+#### 1. インライン用語集の指定
+ファイルを作らず、コマンドラインから直接 1〜数語の対訳ルールを指定できます：
+```bash
+pnpm dev video.mp4 -t ja --glossary "Antigravity=アンチグラビティ,vsub=ブイサブ"
+```
+
+#### 2. JSON 用語集ファイルの指定
+大規模な専門用語や多言語対訳辞書を JSON ファイルで指定できます：
+```bash
+pnpm dev video.mp4 -t ja,zh --glossary ./glossary.json
+```
+
+**JSON 用語集のフォーマット例:**
+```json
+// 言語別形式（多言語翻訳時に各言語へ自動適用）
+{
+  "ja": {
+    "Antigravity": "アンチグラビティ",
+    "Agentic AI": "エージェンティックAI"
+  },
+  "zh": {
+    "Antigravity": "反重力",
+    "Agentic AI": "智能体AI"
+  }
+}
+```
+*(フラット形式 `{"Antigravity": "アンチグラビティ"}` や用語別形式 `{"Antigravity": {"ja": "...", "zh": "..."}}` にも自動対応)*
+
+> [!TIP]
+> `--whisper-prompt` を明示しない場合でも、`--glossary` で指定された元単語（`Antigravity, Agentic AI`）が自動的に Whisper の認識ヒントとして渡され、音声認識の聞き取り精度も同時に向上します。
+
+#### 3. 翻訳口調・スタイルのプロンプト指定
+```bash
+pnpm dev video.mp4 -t ja --prompt "ITエンジニア向けの丁寧なです・ます調で翻訳してください。各行は30文字以内で簡潔にまとめてください。"
 ```
 
 ### 使用例
@@ -117,8 +158,11 @@ Commands:
 pnpm dev config show
 pnpm dev config init
 
+# デフォルト用語集や翻訳プロンプトをグローバル保存
+pnpm dev config set --prompt "丁寧な敬体で翻訳" --glossary "./glossary.json"
+
 # 既存 SRT ファイルを直接英語に翻訳 (Groq API 不要・Gemini のみで動作)
-pnpm dev translate sample.ja.srt -t en
+pnpm dev translate sample.ja.srt -t en --glossary "Antigravity=アンチグラビティ"
 
 # 既存 SRT ファイルを多言語・マルチフォーマットに一括変換 (.vtt, .txt, .json)
 pnpm dev translate sample.srt -t en -f srt,vtt,txt,json

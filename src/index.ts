@@ -8,6 +8,8 @@ import {
   clearCache,
   getCacheDir,
   getCacheStats,
+  isTranscriptionCacheValid,
+  isTranslationCacheValid,
   loadMediaCache,
   saveTranscriptionCache,
   saveTranslationCache,
@@ -16,6 +18,7 @@ import { ensureApiKeys, getConfig, getGlobalConfigPath, saveGlobalConfig } from 
 import { checkFfmpeg, extractAudio, isAudioFile } from "./ffmpeg.js";
 import { formatEntries, type OutputFormat, parseOutputFormats } from "./formatter.js";
 import { translateSrtEntries } from "./gemini.js";
+import { computeGlossaryHash, extractWhisperPromptHints, parseGlossary } from "./glossary.js";
 import { transcribeAudioSegments } from "./groq.js";
 import { parseTargetLanguages } from "./languages.js";
 import type { SrtEntry } from "./srt.js";
@@ -91,31 +94,62 @@ configCmd
       `Gemini API Key : ${resolvedConfig.geminiApiKey ? `${resolvedConfig.geminiApiKey.slice(0, 4)}...${resolvedConfig.geminiApiKey.slice(-4)}` : "(Not configured)"}`,
     );
     console.log(`FFmpeg Path    : ${resolvedConfig.ffmpegPath}`);
+    if (resolvedConfig.whisperPrompt) {
+      console.log(`Whisper Prompt : "${resolvedConfig.whisperPrompt}"`);
+    }
+    if (resolvedConfig.prompt) {
+      console.log(`Translate Prompt: "${resolvedConfig.prompt}"`);
+    }
+    if (resolvedConfig.glossary) {
+      console.log(`Glossary       : "${resolvedConfig.glossary}"`);
+    }
     console.log("----------------------------------------\n");
   });
 
 configCmd
   .command("set")
-  .description("Save API Keys or FFmpeg path to global config")
+  .description("Save API Keys, prompts, glossary, or FFmpeg path to global config")
   .option("--groq-key <key>", "Groq API Key")
   .option("--gemini-key <key>", "Gemini API Key")
   .option("--ffmpeg-path <path>", "Path to ffmpeg executable")
-  .action((options: { groqKey?: string; geminiKey?: string; ffmpegPath?: string }) => {
-    if (!options.groqKey && !options.geminiKey && !options.ffmpegPath) {
-      console.log(
-        "⚠️ Please specify settings to save. (Example: vsub config set --groq-key YOUR_KEY)",
-      );
-      return;
-    }
+  .option("--whisper-prompt <text>", "Default Whisper recognition prompt hint")
+  .option("--prompt <instruction>", "Default Gemini translation instruction prompt")
+  .option("--glossary <path-or-terms>", "Default glossary file path (JSON) or inline terms")
+  .action(
+    (options: {
+      groqKey?: string;
+      geminiKey?: string;
+      ffmpegPath?: string;
+      whisperPrompt?: string;
+      prompt?: string;
+      glossary?: string;
+    }) => {
+      if (
+        !options.groqKey &&
+        !options.geminiKey &&
+        !options.ffmpegPath &&
+        !options.whisperPrompt &&
+        !options.prompt &&
+        !options.glossary
+      ) {
+        console.log(
+          "⚠️ Please specify settings to save. (Example: vsub config set --groq-key YOUR_KEY)",
+        );
+        return;
+      }
 
-    saveGlobalConfig({
-      ...(options.groqKey ? { groqApiKey: options.groqKey.trim() } : {}),
-      ...(options.geminiKey ? { geminiApiKey: options.geminiKey.trim() } : {}),
-      ...(options.ffmpegPath ? { ffmpegPath: options.ffmpegPath.trim() } : {}),
-    });
+      saveGlobalConfig({
+        ...(options.groqKey ? { groqApiKey: options.groqKey.trim() } : {}),
+        ...(options.geminiKey ? { geminiApiKey: options.geminiKey.trim() } : {}),
+        ...(options.ffmpegPath ? { ffmpegPath: options.ffmpegPath.trim() } : {}),
+        ...(options.whisperPrompt ? { whisperPrompt: options.whisperPrompt.trim() } : {}),
+        ...(options.prompt ? { prompt: options.prompt.trim() } : {}),
+        ...(options.glossary ? { glossary: options.glossary.trim() } : {}),
+      });
 
-    console.log(`✅ Configuration updated and saved: ${getGlobalConfigPath()}`);
-  });
+      console.log(`✅ Configuration updated and saved: ${getGlobalConfigPath()}`);
+    },
+  );
 
 configCmd
   .command("init")
@@ -184,6 +218,11 @@ program
     "srt",
   )
   .option("-o, --output <path>", "Output path or base name for the generated subtitle file")
+  .option("--prompt <instruction>", "Additional instruction prompt for Gemini translation")
+  .option(
+    "--glossary <path-or-terms>",
+    "Glossary file path (JSON) or inline terms (key=val,key=val)",
+  )
   .option("--no-cache", "Do not use or save intermediate translation cache", false)
   .option(
     "--fresh",
@@ -198,6 +237,8 @@ program
       targetLang: string;
       format: string;
       output?: string;
+      prompt?: string;
+      glossary?: string;
       noCache?: boolean;
       fresh?: boolean;
       cacheDir?: string;
@@ -258,11 +299,23 @@ program
       const resultsByLang = new Map<string, SrtEntry[]>();
       const cachedLanguages: string[] = [];
 
+      const translationPrompt = options.prompt?.trim() || config.prompt;
+      const glossaryInput = options.glossary?.trim() || config.glossary;
+      let totalGlossaryTerms = 0;
+
       for (let i = 0; i < targetLanguages.length; i++) {
         const lang = targetLanguages[i] ?? "ja";
-        const cachedTranslation = subtitleCache?.translations?.[lang.toLowerCase()];
+        const glossaryMap = glossaryInput ? parseGlossary(glossaryInput, lang) : undefined;
+        const glossaryHash = glossaryMap ? computeGlossaryHash(glossaryMap) : undefined;
+        if (glossaryMap) {
+          totalGlossaryTerms = Math.max(totalGlossaryTerms, Object.keys(glossaryMap).length);
+        }
 
-        if (useCache && cachedTranslation && cachedTranslation.entries.length > 0) {
+        const cachedTranslation = subtitleCache?.translations?.[lang.toLowerCase()];
+        const isCacheValid =
+          useCache && isTranslationCacheValid(cachedTranslation, translationPrompt, glossaryHash);
+
+        if (isCacheValid && cachedTranslation && cachedTranslation.entries.length > 0) {
           resultsByLang.set(lang, cachedTranslation.entries);
           cachedLanguages.push(lang);
           if (isMultiLang) {
@@ -295,6 +348,10 @@ program
               );
             }
           },
+          {
+            prompt: translationPrompt,
+            glossary: glossaryMap,
+          },
         );
 
         resultsByLang.set(lang, translatedEntries);
@@ -306,6 +363,8 @@ program
             lang,
             {
               targetLang: lang,
+              prompt: translationPrompt,
+              glossaryHash,
               entries: translatedEntries,
               createdAt: Date.now(),
             },
@@ -365,6 +424,8 @@ program
             entriesCount: srtEntries.length,
             outputFiles,
             skippedTranslation: false,
+            prompt: translationPrompt,
+            glossaryTermsCount: totalGlossaryTerms > 0 ? totalGlossaryTerms : undefined,
             cacheStatus: cachedLanguages.length > 0 ? { cachedLanguages } : undefined,
           }) +
           "\n",
@@ -398,6 +459,12 @@ program
     "--ffmpeg-path <path>",
     "Path to ffmpeg executable (searches VSUB_FFMPEG_PATH or PATH if omitted)",
   )
+  .option("--whisper-prompt <text>", "Prompt hint for Groq Whisper speech recognition")
+  .option("--prompt <instruction>", "Additional instruction prompt for Gemini translation")
+  .option(
+    "--glossary <path-or-terms>",
+    "Glossary file path (JSON) or inline terms (key=val,key=val)",
+  )
   .option("--no-cache", "Do not use or save intermediate transcription/translation cache", false)
   .option(
     "--fresh",
@@ -429,6 +496,9 @@ program
         format: string;
         output?: string;
         ffmpegPath?: string;
+        whisperPrompt?: string;
+        prompt?: string;
+        glossary?: string;
         noCache?: boolean;
         fresh?: boolean;
         cacheDir?: string;
@@ -455,6 +525,12 @@ program
         const resolvedMediaPath = path.resolve(process.cwd(), mediaFile);
         const rawConfig = getConfig(options.ffmpegPath);
 
+        const glossaryInput = options.glossary?.trim() || rawConfig.glossary;
+        let whisperPrompt = options.whisperPrompt?.trim() || rawConfig.whisperPrompt;
+        if (!whisperPrompt && glossaryInput) {
+          whisperPrompt = extractWhisperPromptHints(glossaryInput);
+        }
+
         const isAudio = isAudioFile(resolvedMediaPath);
         const mediaTypeName = isAudio ? "audio" : "video";
         const mediaIcon = isAudio ? "🎵" : "🎬";
@@ -473,8 +549,11 @@ program
         let totalAudioBytes = 0;
         let cleanupAudio: (() => Promise<void>) | null = null;
 
-        // Check if cached transcription is available
-        if (useCache && mediaCache?.transcription) {
+        // Check if cached transcription is available and compatible with whisperPrompt
+        const isTranscriptionCacheMatch =
+          useCache && isTranscriptionCacheValid(mediaCache?.transcription, whisperPrompt);
+
+        if (isTranscriptionCacheMatch && mediaCache?.transcription) {
           transcriptionCacheHit = true;
           srtEntries = mediaCache.transcription.entries;
           detectedLanguage = mediaCache.transcription.detectedLanguage;
@@ -531,6 +610,7 @@ program
                 );
               }
             },
+            whisperPrompt ? { prompt: whisperPrompt } : undefined,
           );
 
           srtEntries = transcriptResult.entries;
@@ -550,6 +630,7 @@ program
                 resolvedMediaPath,
                 {
                   detectedLanguage,
+                  prompt: whisperPrompt,
                   entries: srtEntries,
                   createdAt: Date.now(),
                 },
@@ -588,6 +669,8 @@ program
 
           let activeConfig: ReturnType<typeof getConfig> | null = null;
           const totalChunks = Math.max(1, Math.ceil(srtEntries.length / 50));
+          const translationPrompt = options.prompt?.trim() || rawConfig.prompt;
+          let totalGlossaryTerms = 0;
 
           for (let i = 0; i < targetLanguages.length; i++) {
             const lang = targetLanguages[i] ?? "ja";
@@ -606,76 +689,95 @@ program
                   `ℹ️ [3/4] [--no-translate] ${lang.toUpperCase()} の Gemini 翻訳をスキップしました`,
                 );
               } else if (isSameLanguage) {
-              } else if (useCache) {
-                const cachedTranslation = mediaCache?.translations?.[lang.toLowerCase()];
-                if (cachedTranslation && cachedTranslation.entries.length > 0) {
-                  // Translation cache hit for this language
-                  resultsByLang.set(lang, cachedTranslation.entries);
-                  cachedLanguages.push(lang);
-                  translatedLanguages.push(lang);
-
-                  if (isMultiLang) {
-                    spinner.info(
-                      `  ✔ ${lang.toUpperCase()} 翻訳 (キャッシュ利用: ${cachedTranslation.entries.length} 行) [⚡ キャッシュ利用]`,
-                    );
-                  }
-                  continue;
-                }
-                // If not cached, proceed with Gemini translation below
-              }
-
-              // Ensure Gemini key before running translation
-              if (!activeConfig) {
-                activeConfig = await ensureApiKeys(rawConfig, {
-                  requireGroq: false,
-                  requireGemini: true,
-                });
-              }
-
-              const initialText = isMultiLang
-                ? `🌐 [3/4] Gemini API で翻訳中 (${i + 1}/${targetLanguages.length} 言語: ${lang.toUpperCase()} [1/${totalChunks} チャンク])...`
-                : `🌐 [3/4] Gemini API で ${lang} に翻訳中 [1/${totalChunks} チャンク]...`;
-
-              spinner.start(initialText);
-
-              const translatedEntries = await translateSrtEntries(
-                srtEntries,
-                lang,
-                activeConfig.geminiApiKey,
-                verbose,
-                (currentChunk, chunksCount) => {
-                  if (isMultiLang) {
-                    spinner.updateText(
-                      `🌐 [3/4] Gemini API で翻訳中 (${i + 1}/${targetLanguages.length} 言語: ${lang.toUpperCase()} [${currentChunk}/${chunksCount} チャンク])...`,
-                    );
-                  } else {
-                    spinner.updateText(
-                      `🌐 [3/4] Gemini API で ${lang} に翻訳中 [${currentChunk}/${chunksCount} チャンク]...`,
-                    );
-                  }
-                },
-              );
-
-              resultsByLang.set(lang, translatedEntries);
-              translatedLanguages.push(lang);
-
-              // Save language translation to cache
-              if (!options.noCache) {
-                saveTranslationCache(
-                  resolvedMediaPath,
-                  lang,
-                  {
-                    targetLang: lang,
-                    entries: translatedEntries,
-                    createdAt: Date.now(),
-                  },
-                  options.cacheDir,
+                spinner.info(
+                  `ℹ️ [3/4] 検出言語 (${detectedLanguage?.toUpperCase()}) と一致するため ${lang.toUpperCase()} の翻訳をスキップしました`,
                 );
               }
+              continue;
+            }
+
+            const glossaryMap = glossaryInput ? parseGlossary(glossaryInput, lang) : undefined;
+            const glossaryHash = glossaryMap ? computeGlossaryHash(glossaryMap) : undefined;
+            if (glossaryMap) {
+              totalGlossaryTerms = Math.max(totalGlossaryTerms, Object.keys(glossaryMap).length);
+            }
+
+            const cachedTranslation = mediaCache?.translations?.[lang.toLowerCase()];
+            const isCacheValid =
+              useCache &&
+              isTranslationCacheValid(cachedTranslation, translationPrompt, glossaryHash);
+
+            if (isCacheValid && cachedTranslation && cachedTranslation.entries.length > 0) {
+              // Translation cache hit for this language
+              resultsByLang.set(lang, cachedTranslation.entries);
+              cachedLanguages.push(lang);
+              translatedLanguages.push(lang);
 
               if (isMultiLang) {
-                spinner.info(`  ✔ ${lang.toUpperCase()} 翻訳完了 (${translatedEntries.length} 行)`);
+                spinner.info(
+                  `  ✔ ${lang.toUpperCase()} 翻訳 (キャッシュ利用: ${cachedTranslation.entries.length} 行) [⚡ キャッシュ利用]`,
+                );
               }
+              continue;
+            }
+
+            // Ensure Gemini key before running translation
+            if (!activeConfig) {
+              activeConfig = await ensureApiKeys(rawConfig, {
+                requireGroq: false,
+                requireGemini: true,
+              });
+            }
+
+            const initialText = isMultiLang
+              ? `🌐 [3/4] Gemini API で翻訳中 (${i + 1}/${targetLanguages.length} 言語: ${lang.toUpperCase()} [1/${totalChunks} チャンク])...`
+              : `🌐 [3/4] Gemini API で ${lang} に翻訳中 [1/${totalChunks} チャンク]...`;
+
+            spinner.start(initialText);
+
+            const translatedEntries = await translateSrtEntries(
+              srtEntries,
+              lang,
+              activeConfig.geminiApiKey,
+              verbose,
+              (currentChunk, chunksCount) => {
+                if (isMultiLang) {
+                  spinner.updateText(
+                    `🌐 [3/4] Gemini API で翻訳中 (${i + 1}/${targetLanguages.length} 言語: ${lang.toUpperCase()} [${currentChunk}/${chunksCount} チャンク])...`,
+                  );
+                } else {
+                  spinner.updateText(
+                    `🌐 [3/4] Gemini API で ${lang} に翻訳中 [${currentChunk}/${chunksCount} チャンク]...`,
+                  );
+                }
+              },
+              {
+                prompt: translationPrompt,
+                glossary: glossaryMap,
+              },
+            );
+
+            resultsByLang.set(lang, translatedEntries);
+            translatedLanguages.push(lang);
+
+            // Save language translation to cache
+            if (!options.noCache) {
+              saveTranslationCache(
+                resolvedMediaPath,
+                lang,
+                {
+                  targetLang: lang,
+                  prompt: translationPrompt,
+                  glossaryHash,
+                  entries: translatedEntries,
+                  createdAt: Date.now(),
+                },
+                options.cacheDir,
+              );
+            }
+
+            if (isMultiLang) {
+              spinner.info(`  ✔ ${lang.toUpperCase()} 翻訳完了 (${translatedEntries.length} 行)`);
             }
           }
 
@@ -724,6 +826,9 @@ program
                 entriesCount: srtEntries.length,
                 outputFiles,
                 skippedTranslation: skippedLanguages.length === targetLanguages.length,
+                whisperPrompt,
+                prompt: translationPrompt,
+                glossaryTermsCount: totalGlossaryTerms > 0 ? totalGlossaryTerms : undefined,
                 cacheStatus:
                   transcriptionCacheHit || cachedLanguages.length > 0
                     ? {

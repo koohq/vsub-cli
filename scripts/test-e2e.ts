@@ -307,6 +307,7 @@ async function runE2ETest(): Promise<void> {
   console.log(sampleSrt);
   console.log(pc.dim("----------------------------------------"));
 
+  const totalElapsed = ((Date.now() - startTime) / 1000).toFixed(2);
   console.log(
     pc.bold(pc.green(`\n🎉 E2E Smoke Test PASSED! All outputs verified in ${totalElapsed}s.\n`)),
   );

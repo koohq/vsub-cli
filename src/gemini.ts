@@ -1,8 +1,46 @@
 import { GoogleGenAI } from "@google/genai";
+import { type FlatGlossary, formatGlossaryPrompt } from "./glossary.js";
 import type { SrtEntry } from "./srt.js";
 
 const DEFAULT_CHUNK_SIZE = 50;
 const MAX_RETRIES = 4;
+
+export interface TranslateOptions {
+  prompt?: string | undefined;
+  glossary?: FlatGlossary | undefined;
+}
+
+/**
+ * Builds the translation prompt with optional custom instructions and glossary rules.
+ */
+export function buildTranslationPrompt(
+  texts: string[],
+  targetLang: string,
+  options?: TranslateOptions,
+): string {
+  const customPrompt = options?.prompt?.trim();
+  const glossaryRules = options?.glossary ? formatGlossaryPrompt(options.glossary) : "";
+
+  let prompt = `You are a professional translator for video subtitles.
+Translate the following array of subtitle texts into target language code "${targetLang}".
+
+STRICT RULES:
+1. Return ONLY a valid JSON array of strings corresponding 1-to-1 with the input array.
+2. The output array MUST contain exactly ${texts.length} items in the same order as input.
+3. Translate into natural, clear conversational style suited for video subtitles.
+4. Do NOT include markdown code blocks (such as \`\`\`json), explanations, or any extra text outside the JSON array.`;
+
+  if (customPrompt) {
+    prompt += `\n\nADDITIONAL TRANSLATION INSTRUCTIONS:\n${customPrompt}`;
+  }
+
+  if (glossaryRules) {
+    prompt += `\n\nGLOSSARY / TERMINOLOGY RULES (MUST USE THESE EXACT TRANSLATIONS):\n${glossaryRules}`;
+  }
+
+  prompt += `\n\nInput Array:\n${JSON.stringify(texts, null, 2)}`;
+  return prompt;
+}
 
 /**
  * Translates an array of text strings using Google Gemini API.
@@ -13,18 +51,9 @@ async function translateChunkWithRetry(
   targetLang: string,
   modelName: string,
   verbose = false,
+  options?: TranslateOptions,
 ): Promise<string[]> {
-  const prompt = `You are a professional translator for video subtitles.
-Translate the following array of subtitle texts into target language code "${targetLang}".
-
-STRICT RULES:
-1. Return ONLY a valid JSON array of strings corresponding 1-to-1 with the input array.
-2. The output array MUST contain exactly ${texts.length} items in the same order as input.
-3. Translate into natural, clear conversational style suited for video subtitles.
-4. Do NOT include markdown code blocks (such as \`\`\`json), explanations, or any extra text outside the JSON array.
-
-Input Array:
-${JSON.stringify(texts, null, 2)}`;
+  const prompt = buildTranslationPrompt(texts, targetLang, options);
 
   let lastError: Error | null = null;
 
@@ -81,6 +110,7 @@ export async function translateSrtEntries(
   apiKey: string,
   verbose = false,
   onProgress?: (currentChunk: number, totalChunks: number) => void,
+  options?: TranslateOptions,
 ): Promise<SrtEntry[]> {
   if (entries.length === 0) return [];
 
@@ -112,6 +142,7 @@ export async function translateSrtEntries(
       targetLang,
       modelName,
       verbose,
+      options,
     );
 
     for (let j = 0; j < chunk.length; j++) {

@@ -19,9 +19,9 @@
 | **Completed** | 7. 既存 SRT ファイル直接翻訳 (`vsub translate`) | 機能拡張 | 中 | 動画再処理なしでの再翻訳・修正後翻訳 |
 | **Completed** | 8. 複数言語一括同時翻訳 (`-t ja,en,zh`) | 機能拡張 | 中 | 多言語展開時の API 呼び出し・時間の大幅節約 |
 | **Completed** | 10. 中間キャッシュ & 再開 (Resume) 機構 | 信頼性 | 中 | API エラー時・追加入力時の文字起こしやり直しコスト削減 |
+| **Completed** | 12. プロンプト / 用語集 (Glossary) 指定機能 | 機能拡張 | 低〜中 | 専門用語の誤認識防止・口調や訳語の統一 |
 | **Medium** | 9. 長尺音声分割時のタイムコード精度改善 | 信頼性 | 中 | 長時間動画でのミリ秒単位の字幕ズレ防止 |
 | **Medium** | 11. テストカバレッジ計測 & レポート (`vitest --coverage`) | DevOps | 低 | テスト網羅率の可視化と維持 |
-| **Low** | 12. プロンプト / 用語集 (Glossary) 指定機能 | 機能拡張 | 中 | 専門用語の誤認識防止・口調や訳語の統一 |
 | **Low** | 13. Gemini API 並列リクエストによる高速化 | 信頼性 | 中 | 長尺動画における翻訳待機時間の短縮 |
 | **Low** | 14. 動画への字幕焼き込み (Hardsub / Burn-in) | 機能拡張 | 中 | 字幕入り mp4 のワンストップ出力 |
 | **Low** | 15. ファイル上書き防止 / バックアップセーフティ | CLI UX | 低 | 既存ファイルの誤削除・上書き防止 |
@@ -85,12 +85,16 @@
   * `vsub translate` サブコマンドでも複数言語同時出力をサポート。
 * **対応ファイル**: `src/languages.ts`, `src/languages.test.ts`, `src/index.ts`, `src/ui.ts`, `src/ui.test.ts`, `scripts/test-e2e.ts`
 
-### 2.5 プロンプト / 用語集 (Glossary) 指定
-* **背景/課題**: 固有名詞や業界専門用語の誤認識、翻訳時の口調（敬体/常体）の揺れが発生しやすい。
-* **提案内容**:
-  * `--whisper-prompt <text>`: Whisper API の `prompt` パラメータにヒント語句を渡し、専門用語の認識精度を向上。
-  * `--prompt <instruction>` または `--glossary <file.json>`: Gemini 翻訳プロンプトに追加のコンテキストや用語対訳ルールを注入。
-* **対応スコープ**: `src/groq.ts`, `src/gemini.ts`, `src/index.ts`
+### 2.5 プロンプト / 用語集 (Glossary) 指定 【完了】
+* **対応内容**:
+  * `src/glossary.ts` モジュールを新設（JSON 用語集ファイルのフラット形式・言語別形式・用語別言語形式のパース、インライン文字列パース、Gemini 向け対訳ルール生成、Whisper 向けヒント語句自動抽出、決定論的キャッシュハッシュ計算）。
+  * `--whisper-prompt <text>`: Groq Whisper API の `prompt` パラメータにヒントテキストを渡し、専門用語・固有名詞の認識率を向上。
+  * `--glossary <path-or-terms>`: 用語集（JSON または `Key=Val,Key=Val`）を指定し、Gemini プロンプトへ対訳ルールを注入。未指定時は用語集キーを Whisper へ自動供給。
+  * `--prompt <instruction>`: Gemini 翻訳プロンプトに追加のスタイル・口調・文字数制限などのカスタム指示文を注入。
+  * グローバル設定 (`vsub config set --whisper-prompt ... --prompt ... --glossary ...`) によるデフォルト設定と `config show` での表示。
+  * プロンプト/用語集の変更を検出して古いキャッシュを誤適用しないプロンプト認識キャッシュ整合性。
+  * `vsub translate` サブコマンドへの `--prompt` / `--glossary` 連動。
+* **対応ファイル**: `src/glossary.ts`, `src/glossary.test.ts`, `src/groq.ts`, `src/groq.test.ts`, `src/gemini.ts`, `src/gemini.test.ts`, `src/config.ts`, `src/config.test.ts`, `src/cache.ts`, `src/cache.test.ts`, `src/index.ts`, `src/ui.ts`, `src/ui.test.ts`, `README.md`, `README.ja.md`
 
 ### 2.6 動画への字幕焼き込み (Hardsub / Burn-in)
 * **背景/課題**: 字幕ファイルを別体で扱うのではなく、動画自体に字幕が焼き込まれたファイルが欲しいケースがある。

@@ -7,6 +7,8 @@ import {
   getCacheDir,
   getCacheStats,
   getFileCacheKey,
+  isTranscriptionCacheValid,
+  isTranslationCacheValid,
   loadMediaCache,
   saveTranscriptionCache,
   saveTranslationCache,
@@ -181,6 +183,54 @@ describe("cache module", () => {
       expect(cache?.translations?.["ja"]?.entries).toHaveLength(2);
       expect(cache?.translations?.["zh"]?.entries).toHaveLength(2);
       expect(cache?.translations?.["zh"]?.entries[0]?.text).toBe("你好世界");
+    });
+
+    it("should preserve prompt and glossaryHash in translation cache", () => {
+      saveTranslationCache(
+        testMediaFile,
+        "ja",
+        {
+          targetLang: "ja",
+          prompt: "CustomPrompt",
+          glossaryHash: "a1b2c3d4",
+          entries: sampleJaEntries,
+          createdAt: Date.now(),
+        },
+        customCacheDir,
+      );
+
+      const cache = loadMediaCache(testMediaFile, customCacheDir);
+      expect(cache?.translations?.["ja"]?.prompt).toBe("CustomPrompt");
+      expect(cache?.translations?.["ja"]?.glossaryHash).toBe("a1b2c3d4");
+    });
+  });
+
+  describe("isTranscriptionCacheValid and isTranslationCacheValid", () => {
+    it("should check transcription cache prompt match", () => {
+      const cached = {
+        entries: [],
+        prompt: "MyWhisperPrompt",
+        createdAt: Date.now(),
+      };
+      expect(isTranscriptionCacheValid(cached)).toBe(true);
+      expect(isTranscriptionCacheValid(cached, "MyWhisperPrompt")).toBe(true);
+      expect(isTranscriptionCacheValid(cached, "DifferentPrompt")).toBe(false);
+      expect(isTranscriptionCacheValid(undefined)).toBe(false);
+    });
+
+    it("should check translation cache prompt and glossaryHash match", () => {
+      const cached = {
+        targetLang: "ja",
+        entries: [],
+        prompt: "MyPrompt",
+        glossaryHash: "hash123",
+        createdAt: Date.now(),
+      };
+      expect(isTranslationCacheValid(cached)).toBe(true);
+      expect(isTranslationCacheValid(cached, "MyPrompt", "hash123")).toBe(true);
+      expect(isTranslationCacheValid(cached, "DifferentPrompt", "hash123")).toBe(false);
+      expect(isTranslationCacheValid(cached, "MyPrompt", "differentHash")).toBe(false);
+      expect(isTranslationCacheValid(undefined)).toBe(false);
     });
   });
 

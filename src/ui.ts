@@ -57,6 +57,9 @@ export interface SummaryData {
   outputFiles: string[];
   skippedTranslation?: boolean | undefined;
   skippedLanguages?: string[] | undefined;
+  whisperPrompt?: string | undefined;
+  prompt?: string | undefined;
+  glossaryTermsCount?: number | undefined;
   cacheStatus?:
     | {
         transcriptionHit?: boolean | undefined;
@@ -113,6 +116,12 @@ export function formatSummaryBox(data: SummaryData): string {
     addRow(audioActionLabel, `${data.audioSegmentsCount} セグメント${sizeStr}`);
   }
 
+  if (data.whisperPrompt) {
+    const truncatedPrompt =
+      data.whisperPrompt.length > 25 ? `${data.whisperPrompt.slice(0, 25)}...` : data.whisperPrompt;
+    addRow("認識ヒント", pc.dim(`"${truncatedPrompt}"`));
+  }
+
   if (data.detectedLanguage) {
     addRow("検出言語", pc.yellow(data.detectedLanguage.toUpperCase()));
   }
@@ -136,6 +145,16 @@ export function formatSummaryBox(data: SummaryData): string {
       return `${pc.cyan(lang.toUpperCase())}${pc.dim(transStatus)}`;
     });
     addRow("出力言語", langDisplays.join(", "));
+  }
+
+  if (data.glossaryTermsCount !== undefined && data.glossaryTermsCount > 0) {
+    addRow("用語集", pc.cyan(`${data.glossaryTermsCount} 語適用`));
+  }
+
+  if (data.prompt) {
+    const truncatedPrompt =
+      data.prompt.length > 25 ? `${data.prompt.slice(0, 25)}...` : data.prompt;
+    addRow("翻訳指示", pc.dim(`"${truncatedPrompt}"`));
   }
 
   addRow("字幕行数", pc.magenta(`${data.entriesCount} 行`));

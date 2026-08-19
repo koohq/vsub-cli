@@ -83,17 +83,20 @@ export async function transcribeAudioWithGroq(
   apiKey: string,
   timeOffsetSeconds = 0,
   verbose = false,
+  options?: { prompt?: string },
 ): Promise<TranscriptionResult> {
   const groq = new Groq({ apiKey });
 
   if (verbose) {
-    console.log(`[Groq API] Requesting Whisper transcription: ${audioPath}`);
+    const promptInfo = options?.prompt ? ` (prompt: "${options.prompt.slice(0, 30)}...")` : "";
+    console.log(`[Groq API] Requesting Whisper transcription: ${audioPath}${promptInfo}`);
   }
 
   const response = await groq.audio.transcriptions.create({
     file: fs.createReadStream(audioPath),
     model: "whisper-large-v3-turbo",
     response_format: "verbose_json",
+    ...(options?.prompt ? { prompt: options.prompt } : {}),
   });
 
   const rawResponse = response as unknown as GroqVerboseJsonResponse;
@@ -129,6 +132,7 @@ export async function transcribeAudioSegments(
   apiKey: string,
   verbose = false,
   onProgress?: (current: number, total: number) => void,
+  options?: { prompt?: string },
 ): Promise<TranscriptionResult> {
   const allEntries: SrtEntry[] = [];
   let timeOffsetSeconds = 0;
@@ -151,6 +155,7 @@ export async function transcribeAudioSegments(
       apiKey,
       timeOffsetSeconds,
       verbose,
+      options,
     );
 
     if (!detectedLanguage && segmentLang) {
