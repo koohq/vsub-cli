@@ -21,17 +21,71 @@ export async function checkFfmpeg(ffmpegPath: string): Promise<void> {
   }
 }
 
+export const SUPPORTED_AUDIO_EXTENSIONS = new Set([
+  ".mp3",
+  ".wav",
+  ".m4a",
+  ".aac",
+  ".flac",
+  ".ogg",
+  ".opus",
+  ".wma",
+  ".aiff",
+  ".aif",
+  ".alac",
+  ".m4b",
+  ".oga",
+]);
+
+export const SUPPORTED_VIDEO_EXTENSIONS = new Set([
+  ".mp4",
+  ".mkv",
+  ".mov",
+  ".avi",
+  ".webm",
+  ".flv",
+  ".wmv",
+  ".m4v",
+  ".ts",
+  ".mts",
+  ".3gp",
+  ".ogv",
+]);
+
 /**
- * Extracts optimized 16kHz mono audio from a video file.
+ * Checks if the file extension corresponds to a supported audio format.
+ */
+export function isAudioFile(filePath: string): boolean {
+  const ext = path.extname(filePath).toLowerCase();
+  return SUPPORTED_AUDIO_EXTENSIONS.has(ext);
+}
+
+/**
+ * Checks if the file extension corresponds to a supported video format.
+ */
+export function isVideoFile(filePath: string): boolean {
+  const ext = path.extname(filePath).toLowerCase();
+  return SUPPORTED_VIDEO_EXTENSIONS.has(ext);
+}
+
+/**
+ * Checks if the file extension corresponds to a supported video or audio format.
+ */
+export function isSupportedMediaFile(filePath: string): boolean {
+  return isAudioFile(filePath) || isVideoFile(filePath);
+}
+
+/**
+ * Extracts and optimizes lightweight 16kHz mono audio from a video or audio file.
  * Handles audio splitting if the file size exceeds 24.5MB.
  */
 export async function extractAudio(
-  videoPath: string,
+  mediaPath: string,
   ffmpegPath: string,
   verbose = false,
 ): Promise<ExtractedAudioResult> {
-  if (!fs.existsSync(videoPath)) {
-    throw new Error(`Specified video file not found: ${videoPath}`);
+  if (!fs.existsSync(mediaPath)) {
+    throw new Error(`Specified media file not found: ${mediaPath}`);
   }
 
   const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "vsub-"));
@@ -40,7 +94,7 @@ export async function extractAudio(
   // Extract lightweight 16kHz mono audio at 48kbps
   const ffmpegArgs = [
     "-i",
-    videoPath,
+    mediaPath,
     "-vn",
     "-ar",
     "16000",
@@ -129,3 +183,5 @@ export async function extractAudio(
     cleanup,
   };
 }
+
+export const prepareAudio = extractAudio;

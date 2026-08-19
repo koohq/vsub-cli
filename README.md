@@ -2,14 +2,15 @@
 
 [English](README.md) | [日本語](README.ja.md)
 
-A CLI tool that automatically extracts audio from video files, transcribes speech at high speed using the **Groq API (`whisper-large-v3-turbo`)**, and translates text into multilingual subtitles (`.srt`) using the **Google Gemini API (`@google/genai`)**.
+A CLI tool that automatically extracts and optimizes audio from video or audio files, transcribes speech at high speed using the **Groq API (`whisper-large-v3-turbo`)**, and translates text into multilingual subtitles (`.srt`, `.vtt`, `.txt`, `.json`) using the **Google Gemini API (`@google/genai`)**.
 
 ---
 
 ## Features
 
 * ⚡ **Ultra-Fast Transcription**: Uses `whisper-large-v3-turbo` running on Groq LPUs for rapid speech recognition.
-* 🔊 **Automated Audio Optimization**: Uses `ffmpeg` to extract lightweight 16kHz mono audio (32–48kbps), automatically staying within Groq's 25MB file size limit (supports automatic splitting for ultra-long videos).
+* 🎵 **Video & Audio Support**: Processes video files (`.mp4`, `.mkv`, `.mov`, etc.) as well as audio files (`.mp3`, `.wav`, `.m4a`, `.aac`, `.flac`, `.ogg`, `.opus`, etc.).
+* 🔊 **Automated Audio Optimization**: Uses `ffmpeg` to extract and compress lightweight 16kHz mono audio (32–48kbps), automatically staying within Groq's 25MB file size limit (supports automatic splitting for ultra-long media).
 * 🎯 **Timecode Preservation**: Converts SRT structures into structured JSON to translate only text chunks, ensuring 100% accurate timecodes without line breaks or drift.
 * 🌍 **Multilingual Support**: Supports default Japanese (`ja`), English (`en`), Spanish (`es`), and any target language code.
 * 🛠️ **Flexible FFmpeg Path**: Configurable via system `PATH`, environment variable `VSUB_FFMPEG_PATH` (or `FFMPEG_PATH`), or the `--ffmpeg-path` CLI option.
@@ -66,8 +67,9 @@ VSUB_GEMINI_API_KEY=your_gemini_api_key_here
 ### Basic Command
 
 ```bash
-# Generate Japanese subtitles ([video_name].ja.srt) by default
+# Generate Japanese subtitles ([media_name].ja.srt) by default from video or audio
 pnpm dev path/to/video.mp4
+pnpm dev path/to/podcast.mp3
 
 # Or execute after building
 pnpm build
@@ -77,10 +79,10 @@ node ./dist/index.js path/to/video.mp4
 ### Command Line Help
 
 ```text
-Usage: vsub [options] [command] <video-file>
+Usage: vsub [options] [command] <media-file>
 
 Arguments:
-  video-file                Target video file path (.mp4, .mkv, .mov, etc.)
+  media-file                Target video or audio file path (.mp4, .mp3, .wav, .m4a, .mov, etc.)
 
 Options:
   -t, --target-lang <lang>  Target language code (e.g., ja, en, es) (default: "ja")
@@ -108,7 +110,10 @@ Commands:
 pnpm dev config show
 pnpm dev config init
 
-# Generate English subtitles (.en.srt)
+# Transcribe & translate audio files directly (.mp3, .wav, .m4a, etc.)
+pnpm dev podcast.mp3 -t ja
+
+# Generate English subtitles (.en.srt) from video
 pnpm dev sample.mp4 -t en
 
 # Output multiple formats simultaneously (.srt, .vtt, .txt, .json)
@@ -127,7 +132,7 @@ pnpm dev sample.mp4 -t ja --force-translate
 pnpm dev sample.mp4 -o ./subtitles/my_subtitle.srt
 
 # Specify custom ffmpeg executable path
-pnpm dev sample.mp4 --ffmpeg-path "C:\tools\ffmpeg\bin\ffmpeg.exe"
+pnpm dev sample.mp4 --ffmpeg-path "/usr/bin/ffmpeg"
 ```
 
 ---

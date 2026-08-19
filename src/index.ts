@@ -5,7 +5,7 @@ import path from "node:path";
 import { Command } from "commander";
 import pc from "picocolors";
 import { ensureApiKeys, getConfig, getGlobalConfigPath, saveGlobalConfig } from "./config.js";
-import { checkFfmpeg, extractAudio } from "./ffmpeg.js";
+import { checkFfmpeg, extractAudio, isAudioFile } from "./ffmpeg.js";
 import { formatEntries, parseOutputFormats } from "./formatter.js";
 import { translateSrtEntries } from "./gemini.js";
 import { transcribeAudioSegments } from "./groq.js";
@@ -16,7 +16,7 @@ const program = new Command();
 program
   .name("vsub")
   .description(
-    "CLI tool to extract audio from video, transcribe speech via Groq API, and generate multilingual subtitles (.srt, .vtt, .txt, .json) via Gemini API.",
+    "CLI tool to extract audio from video/audio files, transcribe speech via Groq API, and generate multilingual subtitles (.srt, .vtt, .txt, .json) via Gemini API.",
   );
 
 // Subcommand: config
@@ -83,9 +83,9 @@ configCmd
     });
   });
 
-// Main action (Video processing)
+// Main action (Media processing)
 program
-  .argument("[video-file]", "Target video file path (.mp4, .mkv, .mov, etc.)")
+  .argument("[media-file]", "Target video or audio file path (.mp4, .mp3, .wav, .m4a, .mov, etc.)")
   .option("-t, --target-lang <lang>", "Target language code (e.g., ja, en, es)", "ja")
   .option(
     "-f, --format <formats>",
@@ -112,7 +112,7 @@ program
   .option("--verbose", "Output detailed log messages", false)
   .action(
     async (
-      videoFile: string | undefined,
+      mediaFile: string | undefined,
       options: {
         targetLang: string;
         format: string;
@@ -125,7 +125,7 @@ program
         verbose?: boolean;
       },
     ) => {
-      if (!videoFile) {
+      if (!mediaFile) {
         program.help();
         return;
       }
@@ -137,7 +137,7 @@ program
 
       try {
         const outputFormats = parseOutputFormats(options.format);
-        const resolvedVideoPath = path.resolve(process.cwd(), videoFile);
+        const resolvedMediaPath = path.resolve(process.cwd(), mediaFile);
         const rawConfig = getConfig(options.ffmpegPath);
 
         // Ensure API Key availability (Groq key is required; Gemini key will be validated lazily if translation is needed)
@@ -146,14 +146,20 @@ program
         });
         await checkFfmpeg(config.ffmpegPath);
 
+        const isAudio = isAudioFile(resolvedMediaPath);
+        const mediaTypeName = isAudio ? "audio" : "video";
+        const mediaIcon = isAudio ? "🎵" : "🎬";
+
         console.log(
-          `\n🎬 ${pc.bold("vsub-cli")} - 処理開始: ${pc.cyan(path.basename(resolvedVideoPath))}`,
+          `\n${mediaIcon} ${pc.bold("vsub-cli")} - 処理開始: ${pc.cyan(path.basename(resolvedMediaPath))}`,
         );
 
-        // 1. Audio extraction
-        spinner.start("🔊 [1/4] 音声を抽出中 (16kHz mono / low bitrate)...");
+        // 1. Audio extraction / optimization
+        const audioAction = isAudio ? "最適化中" : "抽出中";
+        const audioDoneAction = isAudio ? "最適化完了" : "抽出完了";
+        spinner.start(`🔊 [1/4] 音声を${audioAction} (16kHz mono / low bitrate)...`);
         const { audioPaths, cleanup } = await extractAudio(
-          resolvedVideoPath,
+          resolvedMediaPath,
           config.ffmpegPath,
           verbose,
         );
@@ -167,7 +173,7 @@ program
           }
         }
         spinner.succeed(
-          `🔊 [1/4] 音声抽出完了 (${audioPaths.length} セグメント / ${formatFileSize(totalAudioBytes)})`,
+          `🔊 [1/4] 音声${audioDoneAction} (${audioPaths.length} セグメント / ${formatFileSize(totalAudioBytes)})`,
         );
 
         try {
@@ -207,9 +213,9 @@ program
           const skipTranslation =
             Boolean(options.noTranslate) || (isSameLanguage && !options.forceTranslate);
 
-          const videoDir = path.dirname(resolvedVideoPath);
-          const videoExt = path.extname(resolvedVideoPath);
-          const videoBaseName = path.basename(resolvedVideoPath, videoExt);
+          const mediaDir = path.dirname(resolvedMediaPath);
+          const mediaExt = path.extname(resolvedMediaPath);
+          const mediaBaseName = path.basename(resolvedMediaPath, mediaExt);
 
           // Save original raw subtitles if requested
           if (options.saveOriginal) {
@@ -217,13 +223,13 @@ program
             const isNameConflict =
               rawLang.toLowerCase() === options.targetLang.toLowerCase() && !skipTranslation;
             const baseOriginalName = isNameConflict
-              ? `${videoBaseName}.orig`
-              : `${videoBaseName}.${rawLang}`;
+              ? `${mediaBaseName}.orig`
+              : `${mediaBaseName}.${rawLang}`;
 
             const savedOriginalNames: string[] = [];
             for (const fmt of outputFormats) {
               const originalFilename = `${baseOriginalName}.${fmt}`;
-              const originalPath = path.join(videoDir, originalFilename);
+              const originalPath = path.join(mediaDir, originalFilename);
               fs.writeFileSync(originalPath, formatEntries(srtEntries, fmt), "utf-8");
               outputFiles.push(originalPath);
               savedOriginalNames.push(originalFilename);
@@ -289,7 +295,7 @@ program
             }
           } else {
             for (const fmt of outputFormats) {
-              const outFilePath = path.join(videoDir, `${videoBaseName}.${outputLang}.${fmt}`);
+              const outFilePath = path.join(mediaDir, `${mediaBaseName}.${outputLang}.${fmt}`);
               fs.writeFileSync(outFilePath, formatEntries(finalEntries, fmt), "utf-8");
               outputFiles.push(outFilePath);
             }
@@ -303,7 +309,8 @@ program
           console.log(
             "\n" +
               formatSummaryBox({
-                videoFile: path.basename(resolvedVideoPath),
+                mediaFile: path.basename(resolvedMediaPath),
+                mediaType: mediaTypeName,
                 durationMs,
                 audioSegmentsCount: audioPaths.length,
                 audioTotalBytes: totalAudioBytes,

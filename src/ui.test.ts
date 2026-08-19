@@ -62,6 +62,29 @@ describe("ui module", () => {
       expect(summary).toContain("/path/to/test-video.en.srt");
     });
 
+    it("should format summary box correctly for audio input", () => {
+      const summary = formatSummaryBox({
+        mediaFile: "podcast.mp3",
+        mediaType: "audio",
+        durationMs: 8200,
+        audioSegmentsCount: 1,
+        audioTotalBytes: 1.2 * 1024 * 1024,
+        detectedLanguage: "en",
+        targetLanguage: "ja",
+        entriesCount: 30,
+        outputFiles: ["/path/to/podcast.ja.srt"],
+      });
+
+      expect(summary).toContain("対象音声");
+      expect(summary).toContain("podcast.mp3");
+      expect(summary).toContain("音声最適化");
+      expect(summary).toContain("8.2s");
+      expect(summary).toContain("EN");
+      expect(summary).toContain("JA");
+      expect(summary).toContain("30 行");
+      expect(summary).toContain("/path/to/podcast.ja.srt");
+    });
+
     it("should indicate when translation was skipped", () => {
       const summary = formatSummaryBox({
         videoFile: "speech.mp4",

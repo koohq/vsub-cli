@@ -2,14 +2,15 @@
 
 [English](README.md) | [日本語](README.ja.md)
 
-動画ファイルから音声を自動抽出し、**Groq API (`whisper-large-v3-turbo`)** で高速文字起こしを行った後、**Google Gemini API (`@google/genai`)** を用いて多言語字幕（`.srt`）を自動生成する CLI ツールです。
+動画ファイルおよび音声ファイルから音声を最適化抽出し、**Groq API (`whisper-large-v3-turbo`)** で高速文字起こしを行った後、**Google Gemini API (`@google/genai`)** を用いて多言語字幕（`.srt`, `.vtt`, `.txt`, `.json`）を自動生成する CLI ツールです。
 
 ---
 
 ## 特徴
 
 * ⚡ **超高速文字起こし**: Groq LPU 上で動作する `whisper-large-v3-turbo` を採用し、音声認識を高速処理。
-* 🔊 **音質・ファイルサイズ自動最適化**: `ffmpeg` を用いて 16kHz モノラル / 低ビットレート（32〜48kbps）に圧縮抽出し、Groq の 25MB 上限を自動クリア（超長尺動画の自動分割にも対応）。
+* 🎵 **動画・音声両対応**: 動画ファイル（`.mp4`, `.mkv`, `.mov` 等）だけでなく、音声ファイル（`.mp3`, `.wav`, `.m4a`, `.aac`, `.flac`, `.ogg`, `.opus` 等）も直接入力可能。
+* 🔊 **音質・ファイルサイズ自動最適化**: `ffmpeg` を用いて 16kHz モノラル / 低ビットレート（32〜48kbps）に圧縮・最適化し、Groq の 25MB 上限を自動クリア（超長尺メディアの自動分割にも対応）。
 * 🎯 **タイムコード破綻防止翻訳**: SRT 構造を JSON 化し、字幕テキストのみをチャンク分割翻訳。タイムコードの行崩れやずれを 100% 防止。
 * 🌍 **多言語対応**: デフォルトの日本語（`ja`）をはじめ、英語（`en`）、スペイン語（`es`）など任意の言語コードを指定可能。
 * 🛠️ **柔軟な ffmpeg パス対応**: システム `PATH` に加え、環境変数 `FFMPEG_PATH` や `--ffmpeg-path` オプションで個別にファイルパスを指定可能。
@@ -66,8 +67,9 @@ VSUB_GEMINI_API_KEY=your_gemini_api_key_here
 ### 基本実行
 
 ```bash
-# デフォルトで日本語字幕 ([動画名].ja.srt) を生成
+# デフォルトで日本語字幕 ([メディア名].ja.srt) を生成（動画・音声両対応）
 pnpm dev path/to/video.mp4
+pnpm dev path/to/podcast.mp3
 
 # またはビルド後に実行
 pnpm build
@@ -77,10 +79,10 @@ node ./dist/index.js path/to/video.mp4
 ### コマンドヘルプ
 
 ```text
-Usage: vsub [options] [command] <video-file>
+Usage: vsub [options] [command] <media-file>
 
 Arguments:
-  video-file                処理対象の動画ファイルパス (.mp4, .mkv, .mov 等)
+  media-file                処理対象の動画または音声ファイルパス (.mp4, .mp3, .wav, .m4a, .mov 等)
 
 Options:
   -t, --target-lang <lang>  翻訳先の言語コード (例: ja, en, es) (デフォルト: "ja")
@@ -108,6 +110,9 @@ Commands:
 pnpm dev config show
 pnpm dev config init
 
+# 音声ファイル（.mp3, .wav, .m4a 等）を直接文字起こし・翻訳
+pnpm dev podcast.mp3 -t ja
+
 # 英語字幕 (.en.srt) を生成
 pnpm dev sample.mp4 -t en
 
@@ -127,7 +132,7 @@ pnpm dev sample.mp4 -t ja --force-translate
 pnpm dev sample.mp4 -o ./subtitles/my_subtitle.srt
 
 # ffmpeg のパスを直接指定して実行
-pnpm dev sample.mp4 --ffmpeg-path "C:\tools\ffmpeg\bin\ffmpeg.exe"
+pnpm dev sample.mp4 --ffmpeg-path "/usr/bin/ffmpeg"
 ```
 
 ---

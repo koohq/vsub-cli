@@ -16,25 +16,39 @@ async function runE2ETest(): Promise<void> {
 
   // 1. Prepare Fixtures
   console.log("📦 [1/4] Preparing test media fixtures...");
-  const { videoPath } = await generateFixtures(true);
+  const { videoPath, audioPath } = await generateFixtures(true);
 
   // 2. Build project to test production bundle
   console.log("\n🔨 [2/4] Compiling TypeScript build (tsc)...");
   await execa("pnpm", ["build"]);
   console.log(pc.green("   ✓ dist/index.js built successfully."));
 
-  // 3. Offline Pipeline Verification (FFmpeg audio extraction)
-  console.log("\n🔊 [3/4] Verifying local FFmpeg audio extraction pipeline...");
+  // 3. Offline Pipeline Verification (FFmpeg media extraction & optimization)
+  console.log("\n🔊 [3/4] Verifying local FFmpeg audio extraction & optimization pipeline...");
   const config = getConfig();
-  const extractResult = await extractAudio(videoPath, config.ffmpegPath);
-  if (extractResult.audioPaths.length === 0 || !fs.existsSync(extractResult.audioPaths[0] ?? "")) {
-    throw new Error("Local audio extraction failed to produce audio file.");
+  const extractVideoResult = await extractAudio(videoPath, config.ffmpegPath);
+  if (
+    extractVideoResult.audioPaths.length === 0 ||
+    !fs.existsSync(extractVideoResult.audioPaths[0] ?? "")
+  ) {
+    throw new Error("Local video audio extraction failed to produce audio file.");
   }
-  const audioSize = fs.statSync(extractResult.audioPaths[0] ?? "").size;
-  await extractResult.cleanup();
+  const videoAudioSize = fs.statSync(extractVideoResult.audioPaths[0] ?? "").size;
+  await extractVideoResult.cleanup();
+
+  const extractAudioResult = await extractAudio(audioPath, config.ffmpegPath);
+  if (
+    extractAudioResult.audioPaths.length === 0 ||
+    !fs.existsSync(extractAudioResult.audioPaths[0] ?? "")
+  ) {
+    throw new Error("Local audio optimization failed to produce audio file.");
+  }
+  const audioAudioSize = fs.statSync(extractAudioResult.audioPaths[0] ?? "").size;
+  await extractAudioResult.cleanup();
+
   console.log(
     pc.green(
-      `   ✓ Local FFmpeg audio extraction passed (Extracted: ${(audioSize / 1024).toFixed(1)} KB temp audio).`,
+      `   ✓ Local FFmpeg media pipeline passed (Video: ${(videoAudioSize / 1024).toFixed(1)} KB, Audio: ${(audioAudioSize / 1024).toFixed(1)} KB temp audio).`,
     ),
   );
 

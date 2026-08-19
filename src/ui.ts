@@ -44,7 +44,9 @@ export function formatFileSize(bytes: number): string {
 }
 
 export interface SummaryData {
-  videoFile: string;
+  mediaFile?: string | undefined;
+  videoFile?: string | undefined;
+  mediaType?: "video" | "audio" | undefined;
   durationMs: number;
   audioSegmentsCount?: number | undefined;
   audioTotalBytes?: number | undefined;
@@ -81,12 +83,21 @@ export function formatSummaryBox(data: SummaryData): string {
     lines.push(`  ${pc.gray(paddedLabel)}: ${value}`);
   };
 
-  addRow("対象動画", pc.bold(data.videoFile));
+  const fileName = data.mediaFile ?? data.videoFile ?? "";
+  const isAudio = data.mediaType === "audio";
+  const mediaLabel = isAudio
+    ? "対象音声"
+    : data.mediaType === "video"
+      ? "対象動画"
+      : "対象ファイル";
+  const audioActionLabel = isAudio ? "音声最適化" : "音声抽出";
+
+  addRow(mediaLabel, pc.bold(fileName));
   addRow("所要時間", pc.green(formatDuration(data.durationMs)));
 
   if (data.audioSegmentsCount !== undefined && data.audioSegmentsCount > 0) {
     const sizeStr = data.audioTotalBytes ? ` (${formatFileSize(data.audioTotalBytes)})` : "";
-    addRow("音声抽出", `${data.audioSegmentsCount} セグメント${sizeStr}`);
+    addRow(audioActionLabel, `${data.audioSegmentsCount} セグメント${sizeStr}`);
   }
 
   if (data.detectedLanguage) {
