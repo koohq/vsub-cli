@@ -2,7 +2,7 @@ import { GoogleGenAI } from "@google/genai";
 import type { SrtEntry } from "./srt.js";
 
 const DEFAULT_CHUNK_SIZE = 50;
-const MAX_RETRIES = 3;
+const MAX_RETRIES = 4;
 
 /**
  * Translates an array of text strings using Google Gemini API.
@@ -61,8 +61,9 @@ ${JSON.stringify(texts, null, 2)}`;
     } catch (err) {
       lastError = err instanceof Error ? err : new Error(String(err));
       if (attempt === MAX_RETRIES) break;
-      // Exponential backoff
-      await new Promise((resolve) => setTimeout(resolve, 1000 * attempt));
+      // Exponential backoff: 1.5s, 3s, 6s...
+      const delayMs = Math.min(8000, 1500 * 2 ** (attempt - 1));
+      await new Promise((resolve) => setTimeout(resolve, delayMs));
     }
   }
 
@@ -84,7 +85,10 @@ export async function translateSrtEntries(
   if (entries.length === 0) return [];
 
   const ai = new GoogleGenAI({ apiKey });
-  const modelName = process.env["GEMINI_MODEL"] || "gemini-2.5-flash";
+  const modelName =
+    process.env["VSUB_GEMINI_MODEL"] ||
+    process.env["GEMINI_MODEL"] ||
+    "gemini-3.6-flash";
 
   const totalChunks = Math.ceil(entries.length / DEFAULT_CHUNK_SIZE);
   const translatedEntries: SrtEntry[] = [];

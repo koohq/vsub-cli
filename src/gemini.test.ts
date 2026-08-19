@@ -129,11 +129,11 @@ describe("gemini.ts", () => {
       mockGenerateContent.mockRejectedValue(new Error("Network Timeout"));
 
       await expect(translateSrtEntries(entries, "ja", "fake-key")).rejects.toThrow(
-        /Gemini API translation failed after 3 attempts/,
+        /Gemini API translation failed after 4 attempts/,
       );
 
-      expect(mockGenerateContent).toHaveBeenCalledTimes(3);
-    });
+      expect(mockGenerateContent).toHaveBeenCalledTimes(4);
+    }, 15000);
 
     it("should call onProgress callback for each translated chunk", async () => {
       const entries: SrtEntry[] = [];

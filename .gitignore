@@ -201,3 +201,6 @@ $RECYCLE.BIN/
 
 # Git Worktrees
 .worktrees/
+
+# Test Fixtures & Outputs
+fixtures/

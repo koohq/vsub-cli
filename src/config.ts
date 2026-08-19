@@ -4,8 +4,22 @@ import path from "node:path";
 import readline from "node:readline/promises";
 import dotenv from "dotenv";
 
-// Load environment variables from .env file if present
-dotenv.config();
+// Load environment variables from .env file if present in current or parent directories
+function loadEnv(): void {
+  let currentDir = process.cwd();
+  while (true) {
+    const envPath = path.join(currentDir, ".env");
+    if (fs.existsSync(envPath)) {
+      dotenv.config({ path: envPath });
+      return;
+    }
+    const parentDir = path.dirname(currentDir);
+    if (parentDir === currentDir) break;
+    currentDir = parentDir;
+  }
+  dotenv.config();
+}
+loadEnv();
 
 export interface AppConfig {
   groqApiKey: string;
