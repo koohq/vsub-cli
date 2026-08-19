@@ -28,6 +28,7 @@ export interface AppConfig {
   whisperPrompt?: string | undefined;
   prompt?: string | undefined;
   glossary?: string | undefined;
+  concurrency?: number | undefined;
 }
 
 export function getGlobalConfigPath(): string {
@@ -105,6 +106,18 @@ export function getConfig(cliFfmpegPath?: string): AppConfig {
     globalConfig.glossary?.trim() ||
     undefined;
 
+  const envConcurrency = process.env["VSUB_CONCURRENCY"]?.trim();
+  let concurrency: number | undefined;
+  if (envConcurrency && !Number.isNaN(Number(envConcurrency)) && Number(envConcurrency) > 0) {
+    concurrency = Math.floor(Number(envConcurrency));
+  } else if (
+    globalConfig.concurrency !== undefined &&
+    !Number.isNaN(Number(globalConfig.concurrency)) &&
+    Number(globalConfig.concurrency) > 0
+  ) {
+    concurrency = Math.floor(Number(globalConfig.concurrency));
+  }
+
   return {
     groqApiKey,
     geminiApiKey,
@@ -112,6 +125,7 @@ export function getConfig(cliFfmpegPath?: string): AppConfig {
     whisperPrompt,
     prompt,
     glossary,
+    concurrency,
   };
 }
 

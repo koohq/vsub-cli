@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { translateSrtEntries } from "./gemini.js";
+import { asyncPool, translateSrtEntries } from "./gemini.js";
 import type { SrtEntry } from "./srt.js";
 
 // Mock @google/genai
@@ -17,6 +17,42 @@ vi.mock("@google/genai", () => {
 describe("gemini.ts", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+  });
+
+  describe("asyncPool", () => {
+    it("should return empty array for empty items", async () => {
+      const result = await asyncPool(3, [], async (x) => x);
+      expect(result).toEqual([]);
+    });
+
+    it("should process items with concurrency limit and preserve order", async () => {
+      const items = [1, 2, 3, 4, 5];
+      let activeCount = 0;
+      let maxActiveCount = 0;
+
+      const result = await asyncPool(2, items, async (item) => {
+        activeCount++;
+        maxActiveCount = Math.max(maxActiveCount, activeCount);
+        // Simulate variable delays: odd items take longer than even items
+        const delay = item % 2 === 1 ? 50 : 10;
+        await new Promise((resolve) => setTimeout(resolve, delay));
+        activeCount--;
+        return item * 10;
+      });
+
+      expect(result).toEqual([10, 20, 30, 40, 50]);
+      expect(maxActiveCount).toBeLessThanOrEqual(2);
+    });
+
+    it("should propagate errors from taskFn", async () => {
+      const items = [1, 2, 3];
+      await expect(
+        asyncPool(2, items, async (item) => {
+          if (item === 2) throw new Error("Worker failure");
+          return item;
+        }),
+      ).rejects.toThrow("Worker failure");
+    });
   });
 
   describe("translateSrtEntries", () => {
@@ -83,9 +119,9 @@ describe("gemini.ts", () => {
       expect(result[0]?.text).toBe("テスト");
     });
 
-    it("should split entries exceeding DEFAULT_CHUNK_SIZE (50) into multiple chunks", async () => {
+    it("should split entries exceeding DEFAULT_CHUNK_SIZE (50) into multiple chunks and preserve order with concurrency", async () => {
       const entries: SrtEntry[] = [];
-      for (let i = 1; i <= 60; i++) {
+      for (let i = 1; i <= 110; i++) {
         entries.push({
           id: i,
           startTime: "00:00:00,000",
@@ -94,26 +130,32 @@ describe("gemini.ts", () => {
         });
       }
 
-      // Chunk 1 (50 items)
-      const chunk1Translations = Array.from({ length: 50 }, (_, i) => `日本語 ${i + 1}`);
-      mockGenerateContent.mockResolvedValueOnce({
-        text: JSON.stringify(chunk1Translations),
+      // Chunk 1 (50 items), Chunk 2 (50 items), Chunk 3 (10 items)
+      // Make Chunk 1 slower than Chunk 2 to test out-of-order resolution
+      mockGenerateContent.mockImplementation(async (req: { contents: string }) => {
+        if (req.contents.includes('"English 1"')) {
+          await new Promise((resolve) => setTimeout(resolve, 40));
+          return { text: JSON.stringify(Array.from({ length: 50 }, (_, i) => `日本語 ${i + 1}`)) };
+        }
+        if (req.contents.includes('"English 51"')) {
+          await new Promise((resolve) => setTimeout(resolve, 10));
+          return { text: JSON.stringify(Array.from({ length: 50 }, (_, i) => `日本語 ${i + 51}`)) };
+        }
+        return { text: JSON.stringify(Array.from({ length: 10 }, (_, i) => `日本語 ${i + 101}`)) };
       });
 
-      // Chunk 2 (10 items)
-      const chunk2Translations = Array.from({ length: 10 }, (_, i) => `日本語 ${i + 51}`);
-      mockGenerateContent.mockResolvedValueOnce({
-        text: JSON.stringify(chunk2Translations),
+      const result = await translateSrtEntries(entries, "ja", "fake-key", false, undefined, {
+        concurrency: 3,
       });
 
-      const result = await translateSrtEntries(entries, "ja", "fake-key");
-
-      expect(mockGenerateContent).toHaveBeenCalledTimes(2);
-      expect(result).toHaveLength(60);
+      expect(mockGenerateContent).toHaveBeenCalledTimes(3);
+      expect(result).toHaveLength(110);
       expect(result[0]?.text).toBe("日本語 1");
       expect(result[49]?.text).toBe("日本語 50");
       expect(result[50]?.text).toBe("日本語 51");
-      expect(result[59]?.text).toBe("日本語 60");
+      expect(result[99]?.text).toBe("日本語 100");
+      expect(result[100]?.text).toBe("日本語 101");
+      expect(result[109]?.text).toBe("日本語 110");
     });
 
     it("should retry on error and throw after exhausting max attempts", async () => {
@@ -129,13 +171,13 @@ describe("gemini.ts", () => {
       mockGenerateContent.mockRejectedValue(new Error("Network Timeout"));
 
       await expect(translateSrtEntries(entries, "ja", "fake-key")).rejects.toThrow(
-        /Gemini API translation failed after 4 attempts/,
+        /Gemini API translation failed after 4 attempts on chunk 1\/1/,
       );
 
       expect(mockGenerateContent).toHaveBeenCalledTimes(4);
     }, 15000);
 
-    it("should call onProgress callback for each translated chunk", async () => {
+    it("should call onProgress callback for each completed chunk", async () => {
       const entries: SrtEntry[] = [];
       for (let i = 1; i <= 60; i++) {
         entries.push({
@@ -155,7 +197,7 @@ describe("gemini.ts", () => {
         });
 
       const onProgress = vi.fn();
-      await translateSrtEntries(entries, "ja", "fake-key", false, onProgress);
+      await translateSrtEntries(entries, "ja", "fake-key", false, onProgress, { concurrency: 2 });
 
       expect(onProgress).toHaveBeenCalledTimes(2);
       expect(onProgress).toHaveBeenNthCalledWith(1, 1, 2);
@@ -184,10 +226,12 @@ describe("gemini.ts", () => {
           Antigravity: "アンチグラビティ",
           "agentic AI": "エージェンティックAI",
         },
+        model: "gemini-3.7-flash",
       });
 
       expect(mockGenerateContent).toHaveBeenCalledTimes(1);
       const callArgs = mockGenerateContent.mock.calls[0]?.[0];
+      expect(callArgs.model).toBe("gemini-3.7-flash");
       expect(callArgs.contents).toContain("ADDITIONAL TRANSLATION INSTRUCTIONS:");
       expect(callArgs.contents).toContain("Use polite and professional Japanese (です・ます調).");
       expect(callArgs.contents).toContain(

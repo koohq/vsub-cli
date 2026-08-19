@@ -3,11 +3,42 @@ import { type FlatGlossary, formatGlossaryPrompt } from "./glossary.js";
 import type { SrtEntry } from "./srt.js";
 
 const DEFAULT_CHUNK_SIZE = 50;
+const DEFAULT_CONCURRENCY = 3;
 const MAX_RETRIES = 4;
 
 export interface TranslateOptions {
   prompt?: string | undefined;
   glossary?: FlatGlossary | undefined;
+  concurrency?: number | undefined;
+  model?: string | undefined;
+}
+
+/**
+ * Executes tasks concurrently with a maximum concurrency limit,
+ * preserving the exact input order in the returned results.
+ */
+export async function asyncPool<T, R>(
+  concurrency: number,
+  items: T[],
+  taskFn: (item: T, index: number) => Promise<R>,
+): Promise<R[]> {
+  if (items.length === 0) return [];
+  const results = new Array<R>(items.length);
+  const limit = Math.max(1, Math.min(concurrency, items.length));
+  let currentIndex = 0;
+
+  async function worker(): Promise<void> {
+    while (currentIndex < items.length) {
+      const idx = currentIndex++;
+      const item = items[idx];
+      if (item === undefined) break;
+      results[idx] = await taskFn(item, idx);
+    }
+  }
+
+  const workers = Array.from({ length: limit }, () => worker());
+  await Promise.all(workers);
+  return results;
 }
 
 /**
@@ -52,6 +83,8 @@ async function translateChunkWithRetry(
   modelName: string,
   verbose = false,
   options?: TranslateOptions,
+  chunkIndex = 1,
+  totalChunks = 1,
 ): Promise<string[]> {
   const prompt = buildTranslationPrompt(texts, targetLang, options);
 
@@ -60,7 +93,9 @@ async function translateChunkWithRetry(
   for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
     try {
       if (verbose && attempt > 1) {
-        console.log(`[Gemini API] Retry attempt ${attempt}/${MAX_RETRIES}...`);
+        console.log(
+          `[Gemini API] Retry attempt ${attempt}/${MAX_RETRIES} for chunk ${chunkIndex}/${totalChunks}...`,
+        );
       }
 
       const response = await ai.models.generateContent({
@@ -90,14 +125,28 @@ async function translateChunkWithRetry(
     } catch (err) {
       lastError = err instanceof Error ? err : new Error(String(err));
       if (attempt === MAX_RETRIES) break;
-      // Exponential backoff: 1.5s, 3s, 6s...
-      const delayMs = Math.min(8000, 1500 * 2 ** (attempt - 1));
+
+      const isRateLimit =
+        (err as { status?: number })?.status === 429 ||
+        /429|RESOURCE_EXHAUSTED|rate limit|quota/i.test(lastError.message);
+
+      // Exponential backoff: base 1.5s (or 3s on rate limit) + random jitter (0-1000ms)
+      const baseDelay = isRateLimit ? 3000 : 1500;
+      const jitter = Math.floor(Math.random() * 1000);
+      const delayMs = Math.min(20000, baseDelay * 2 ** (attempt - 1) + jitter);
+
+      if (verbose) {
+        console.log(
+          `[Gemini API] Error on chunk ${chunkIndex}/${totalChunks} (attempt ${attempt}/${MAX_RETRIES}, retrying in ${delayMs}ms): ${lastError.message}`,
+        );
+      }
+
       await new Promise((resolve) => setTimeout(resolve, delayMs));
     }
   }
 
   throw new Error(
-    `Gemini API translation failed after ${MAX_RETRIES} attempts: ${lastError?.message}`,
+    `Gemini API translation failed after ${MAX_RETRIES} attempts on chunk ${chunkIndex}/${totalChunks}: ${lastError?.message}`,
   );
 }
 
@@ -109,53 +158,68 @@ export async function translateSrtEntries(
   targetLang: string,
   apiKey: string,
   verbose = false,
-  onProgress?: (currentChunk: number, totalChunks: number) => void,
+  onProgress?: (completedChunks: number, totalChunks: number) => void,
   options?: TranslateOptions,
 ): Promise<SrtEntry[]> {
   if (entries.length === 0) return [];
 
   const ai = new GoogleGenAI({ apiKey });
   const modelName =
-    process.env["VSUB_GEMINI_MODEL"] || process.env["GEMINI_MODEL"] || "gemini-3.6-flash";
+    options?.model ||
+    process.env["VSUB_GEMINI_MODEL"] ||
+    process.env["GEMINI_MODEL"] ||
+    "gemini-3.7-flash";
 
   const totalChunks = Math.ceil(entries.length / DEFAULT_CHUNK_SIZE);
-  const translatedEntries: SrtEntry[] = [];
-
+  const chunks: SrtEntry[][] = [];
   for (let i = 0; i < entries.length; i += DEFAULT_CHUNK_SIZE) {
-    const chunkIndex = Math.floor(i / DEFAULT_CHUNK_SIZE) + 1;
-    const chunk = entries.slice(i, i + DEFAULT_CHUNK_SIZE);
-    const originalTexts = chunk.map((e) => e.text);
+    chunks.push(entries.slice(i, i + DEFAULT_CHUNK_SIZE));
+  }
 
-    if (onProgress) {
-      onProgress(chunkIndex, totalChunks);
-    }
+  const concurrency =
+    options?.concurrency && options.concurrency > 0
+      ? Math.floor(options.concurrency)
+      : DEFAULT_CONCURRENCY;
 
-    if (verbose) {
-      console.log(
-        `[Gemini API] Translating chunk (${chunkIndex}/${totalChunks}) [${chunk.length} items]...`,
+  let completedChunks = 0;
+
+  const chunkResults = await asyncPool(
+    concurrency,
+    chunks,
+    async (chunk, chunkIdx) => {
+      const chunkIndex = chunkIdx + 1;
+      const originalTexts = chunk.map((e) => e.text);
+
+      if (verbose) {
+        console.log(
+          `[Gemini API] Translating chunk (${chunkIndex}/${totalChunks}) [${chunk.length} items]...`,
+        );
+      }
+
+      const translatedTexts = await translateChunkWithRetry(
+        ai,
+        originalTexts,
+        targetLang,
+        modelName,
+        verbose,
+        options,
+        chunkIndex,
+        totalChunks,
       );
-    }
 
-    const translatedTexts = await translateChunkWithRetry(
-      ai,
-      originalTexts,
-      targetLang,
-      modelName,
-      verbose,
-      options,
-    );
+      completedChunks++;
+      if (onProgress) {
+        onProgress(completedChunks, totalChunks);
+      }
 
-    for (let j = 0; j < chunk.length; j++) {
-      const item = chunk[j];
-      if (!item) continue;
-      translatedEntries.push({
+      return chunk.map((item, j) => ({
         id: item.id,
         startTime: item.startTime,
         endTime: item.endTime,
         text: translatedTexts[j] ?? item.text,
-      });
-    }
-  }
+      }));
+    },
+  );
 
-  return translatedEntries;
+  return chunkResults.flat();
 }

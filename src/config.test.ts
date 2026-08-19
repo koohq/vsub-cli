@@ -38,6 +38,7 @@ describe("config.ts", () => {
     delete process.env["GEMINI_PROMPT"];
     delete process.env["VSUB_GLOSSARY"];
     delete process.env["GLOSSARY"];
+    delete process.env["VSUB_CONCURRENCY"];
   });
 
   afterEach(() => {
@@ -128,6 +129,20 @@ describe("config.ts", () => {
       expect(config.glossary).toBe("A=B,C=D");
     });
 
+    it("should resolve concurrency from VSUB_CONCURRENCY environment variable", () => {
+      process.env["VSUB_CONCURRENCY"] = "5";
+
+      const config = getConfig();
+      expect(config.concurrency).toBe(5);
+    });
+
+    it("should ignore invalid concurrency values", () => {
+      process.env["VSUB_CONCURRENCY"] = "invalid";
+
+      const config = getConfig();
+      expect(config.concurrency).toBeUndefined();
+    });
+
     it("should fallback to default values when nothing is configured", () => {
       const config = getConfig();
       expect(config.groqApiKey).toBe("");
@@ -136,6 +151,7 @@ describe("config.ts", () => {
       expect(config.whisperPrompt).toBeUndefined();
       expect(config.prompt).toBeUndefined();
       expect(config.glossary).toBeUndefined();
+      expect(config.concurrency).toBeUndefined();
     });
   });
 

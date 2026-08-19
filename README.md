@@ -92,6 +92,7 @@ Options:
   --whisper-prompt <text>   Prompt hint for Groq Whisper speech recognition (terminology, names, etc.)
   --prompt <instruction>    Additional instruction prompt for Gemini translation (tone, style, brevity)
   --glossary <path-or-terms> Glossary file path (JSON) or inline terms (Key=Val,Key=Val)
+  --concurrency <number>    Number of concurrent translation requests to Gemini API (default: 3)
   --no-cache                Do not use or save intermediate cache (default: false)
   --fresh                   Ignore existing cache and generate fresh output, overwriting cache (default: false)
   --cache-dir <path>        Custom cache directory path
@@ -109,7 +110,7 @@ Commands:
   cache clean               Delete all intermediate cache files
   config path               Display global configuration file path
   config show               Display current settings (API Keys are masked)
-  config set                Save API Keys, prompts, glossary, or FFmpeg path to global config
+  config set                Save API Keys, FFmpeg path, prompts, concurrency to global config
   config init               Initialize API Keys interactively
 ```
 

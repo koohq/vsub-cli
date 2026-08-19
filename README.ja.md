@@ -92,6 +92,7 @@ Options:
   --whisper-prompt <text>   Groq Whisper 音声認識のヒントプロンプト (専門用語・固有名詞等)
   --prompt <instruction>    Gemini 翻訳時のカスタム指示プロンプト (口調・文字数制限等)
   --glossary <path-or-terms> 用語集 JSON ファイルパスまたはインライン対訳 (Key=Val,Key=Val)
+  --concurrency <number>    Gemini API への同時並行リクエスト数 (デフォルト: 3)
   --no-cache                中間キャッシュを使用・保存せずに実行 (デフォルト: false)
   --fresh                   既存キャッシュを無視して新規実行し、結果をキャッシュへ上書き (デフォルト: false)
   --cache-dir <path>        カスタムキャッシュ保存ディレクトリの指定
@@ -109,7 +110,7 @@ Commands:
   cache clean               全中間キャッシュファイルを削除
   config path               設定ファイルの保存場所を表示
   config show               現在の設定内容を表示 (API Key はマスク表示)
-  config set                グローバル設定に API Key や FFmpeg パス、デフォルトプロンプトを保存
+  config set                グローバル設定に API Key や FFmpeg パス、デフォルトプロンプト、並行数を保存
   config init               対話形式で API Key を初期設定
 ```
 

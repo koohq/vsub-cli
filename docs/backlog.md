@@ -21,8 +21,8 @@
 | **Completed** | 10. 中間キャッシュ & 再開 (Resume) 機構 | 信頼性 | 中 | API エラー時・追加入力時の文字起こしやり直しコスト削減 |
 | **Completed** | 12. プロンプト / 用語集 (Glossary) 指定機能 | 機能拡張 | 低〜中 | 専門用語の誤認識防止・口調や訳語の統一 |
 | **Completed** | 9. 長尺音声分割時のタイムコード精度改善 | 信頼性 | 中 | 長時間動画でのミリ秒単位の字幕ズレ防止 |
+| **Completed** | 13. Gemini API 並列リクエストによる高速化 | 信頼性 | 中 | 長尺動画における翻訳待機時間の短縮 |
 | **Medium** | 11. テストカバレッジ計測 & レポート (`vitest --coverage`) | DevOps | 低 | テスト網羅率の可視化と維持 |
-| **Low** | 13. Gemini API 並列リクエストによる高速化 | 信頼性 | 中 | 長尺動画における翻訳待機時間の短縮 |
 | **Low** | 14. 動画への字幕焼き込み (Hardsub / Burn-in) | 機能拡張 | 中 | 字幕入り mp4 のワンストップ出力 |
 | **Low** | 15. ファイル上書き防止 / バックアップセーフティ | CLI UX | 低 | 既存ファイルの誤削除・上書き防止 |
 | **Low** | 16. npm パッケージ / `npx` 公開の最適化 | DevOps | 低 | インストール不要での即時実行 (`npx`) 対応・設定整備 |
@@ -124,12 +124,14 @@
   * `--no-cache`, `--fresh`, `--cache-dir` オプションおよび `vsub cache (path|stats|clean)` サブコマンドを提供。
 * **対応ファイル**: `src/cache.ts`, `src/cache.test.ts`, `src/index.ts`, `src/ui.ts`, `src/ui.test.ts`, `scripts/test-e2e.ts`, `README.md`, `README.ja.md`
 
-### 3.3 Gemini API 並列リクエスト制御
-* **背景/課題**: チャンク数が多い（長尺動画）場合、直列実行では翻訳待機時間が長くなる。
-* **提案内容**:
-  * 並行実行数（例: 同時 3〜5 リクエスト）を制御（`p-limit` 等）しつつ並列翻訳を実行し、スループットを高速化。
-  * レートリミット（429 Too Many Requests）発生時は指数バックオフで自動再試行。
-* **対応スコープ**: `src/gemini.ts`
+### 3.3 Gemini API 並列リクエスト制御 【完了】
+* **対応内容**:
+  * ゼロ依存の非同期ワーカプール（`asyncPool`）を実装し、指定並行数（デフォルト: 3 並列）でのチャンク並行翻訳を実現。
+  * 各ワーカの完了順序に左右されず元のインデックス位置（`results[chunkIndex]`）に結果を格納することで、字幕の厳密な順序を 100% 保証。
+  * 429 / `RESOURCE_EXHAUSTED` / レートリミット検知とランダムジッター（0〜1000ms）付き指数バックオフ再試行を実装。
+  * `--concurrency <num>` CLI オプション、`VSUB_CONCURRENCY` 環境変数、`vsub config set --concurrency <num>` による柔軟な並行度設定をサポート。
+  * Gemini デフォルトモデルを最新の `gemini-3.7-flash` に更新。
+* **対応ファイル**: `src/gemini.ts`, `src/gemini.test.ts`, `src/config.ts`, `src/config.test.ts`, `src/index.ts`, `README.md`, `README.ja.md`
 
 ### 3.4 Gemini デフォルトモデル更新 (`gemini-3.7-flash`) & モデル設定の柔軟化
 * **背景/課題**:

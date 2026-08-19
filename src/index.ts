@@ -103,18 +103,22 @@ configCmd
     if (resolvedConfig.glossary) {
       console.log(`Glossary       : "${resolvedConfig.glossary}"`);
     }
+    if (resolvedConfig.concurrency) {
+      console.log(`Concurrency    : ${resolvedConfig.concurrency}`);
+    }
     console.log("----------------------------------------\n");
   });
 
 configCmd
   .command("set")
-  .description("Save API Keys, prompts, glossary, or FFmpeg path to global config")
+  .description("Save API Keys, prompts, glossary, concurrency, or FFmpeg path to global config")
   .option("--groq-key <key>", "Groq API Key")
   .option("--gemini-key <key>", "Gemini API Key")
   .option("--ffmpeg-path <path>", "Path to ffmpeg executable")
   .option("--whisper-prompt <text>", "Default Whisper recognition prompt hint")
   .option("--prompt <instruction>", "Default Gemini translation instruction prompt")
   .option("--glossary <path-or-terms>", "Default glossary file path (JSON) or inline terms")
+  .option("--concurrency <number>", "Default concurrent translation requests to Gemini API (e.g. 3)")
   .action(
     (options: {
       groqKey?: string;
@@ -123,14 +127,24 @@ configCmd
       whisperPrompt?: string;
       prompt?: string;
       glossary?: string;
+      concurrency?: string;
     }) => {
+      let concurrencyNum: number | undefined;
+      if (options.concurrency) {
+        const n = Number(options.concurrency);
+        if (!Number.isNaN(n) && n > 0) {
+          concurrencyNum = Math.floor(n);
+        }
+      }
+
       if (
         !options.groqKey &&
         !options.geminiKey &&
         !options.ffmpegPath &&
         !options.whisperPrompt &&
         !options.prompt &&
-        !options.glossary
+        !options.glossary &&
+        concurrencyNum === undefined
       ) {
         console.log(
           "⚠️ Please specify settings to save. (Example: vsub config set --groq-key YOUR_KEY)",
@@ -145,6 +159,7 @@ configCmd
         ...(options.whisperPrompt ? { whisperPrompt: options.whisperPrompt.trim() } : {}),
         ...(options.prompt ? { prompt: options.prompt.trim() } : {}),
         ...(options.glossary ? { glossary: options.glossary.trim() } : {}),
+        ...(concurrencyNum !== undefined ? { concurrency: concurrencyNum } : {}),
       });
 
       console.log(`✅ Configuration updated and saved: ${getGlobalConfigPath()}`);
@@ -223,6 +238,7 @@ program
     "--glossary <path-or-terms>",
     "Glossary file path (JSON) or inline terms (key=val,key=val)",
   )
+  .option("--concurrency <number>", "Number of concurrent translation requests to Gemini API")
   .option("--no-cache", "Do not use or save intermediate translation cache", false)
   .option(
     "--fresh",
@@ -239,6 +255,7 @@ program
       output?: string;
       prompt?: string;
       glossary?: string;
+      concurrency?: string;
       noCache?: boolean;
       fresh?: boolean;
       cacheDir?: string;
@@ -301,6 +318,11 @@ program
 
       const translationPrompt = options.prompt?.trim() || config.prompt;
       const glossaryInput = options.glossary?.trim() || config.glossary;
+      const concurrencyVal = options.concurrency ? Number(options.concurrency) : config.concurrency;
+      const resolvedConcurrency =
+        concurrencyVal && !Number.isNaN(concurrencyVal) && concurrencyVal > 0
+          ? Math.floor(concurrencyVal)
+          : undefined;
       let totalGlossaryTerms = 0;
 
       for (let i = 0; i < targetLanguages.length; i++) {
@@ -351,6 +373,7 @@ program
           {
             prompt: translationPrompt,
             glossary: glossaryMap,
+            concurrency: resolvedConcurrency,
           },
         );
 
@@ -465,6 +488,7 @@ program
     "--glossary <path-or-terms>",
     "Glossary file path (JSON) or inline terms (key=val,key=val)",
   )
+  .option("--concurrency <number>", "Number of concurrent translation requests to Gemini API")
   .option("--no-cache", "Do not use or save intermediate transcription/translation cache", false)
   .option(
     "--fresh",
@@ -499,6 +523,7 @@ program
         whisperPrompt?: string;
         prompt?: string;
         glossary?: string;
+        concurrency?: string;
         noCache?: boolean;
         fresh?: boolean;
         cacheDir?: string;
@@ -732,6 +757,14 @@ program
               });
             }
 
+            const concurrencyVal = options.concurrency
+              ? Number(options.concurrency)
+              : activeConfig.concurrency;
+            const resolvedConcurrency =
+              concurrencyVal && !Number.isNaN(concurrencyVal) && concurrencyVal > 0
+                ? Math.floor(concurrencyVal)
+                : undefined;
+
             const initialText = isMultiLang
               ? `🌐 [3/4] Gemini API で翻訳中 (${i + 1}/${targetLanguages.length} 言語: ${lang.toUpperCase()} [1/${totalChunks} チャンク])...`
               : `🌐 [3/4] Gemini API で ${lang} に翻訳中 [1/${totalChunks} チャンク]...`;
@@ -757,6 +790,7 @@ program
               {
                 prompt: translationPrompt,
                 glossary: glossaryMap,
+                concurrency: resolvedConcurrency,
               },
             );
 
