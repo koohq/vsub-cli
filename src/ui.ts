@@ -57,6 +57,12 @@ export interface SummaryData {
   outputFiles: string[];
   skippedTranslation?: boolean | undefined;
   skippedLanguages?: string[] | undefined;
+  cacheStatus?:
+    | {
+        transcriptionHit?: boolean | undefined;
+        cachedLanguages?: string[] | undefined;
+      }
+    | undefined;
 }
 
 /**
@@ -100,7 +106,9 @@ export function formatSummaryBox(data: SummaryData): string {
   addRow(mediaLabel, pc.bold(fileName));
   addRow("所要時間", pc.green(formatDuration(data.durationMs)));
 
-  if (data.audioSegmentsCount !== undefined && data.audioSegmentsCount > 0) {
+  if (data.cacheStatus?.transcriptionHit) {
+    addRow("文字起こし", `${pc.green("キャッシュ利用")} ⚡`);
+  } else if (data.audioSegmentsCount !== undefined && data.audioSegmentsCount > 0) {
     const sizeStr = data.audioTotalBytes ? ` (${formatFileSize(data.audioTotalBytes)})` : "";
     addRow(audioActionLabel, `${data.audioSegmentsCount} セグメント${sizeStr}`);
   }
@@ -121,7 +129,10 @@ export function formatSummaryBox(data: SummaryData): string {
       const isSkipped =
         data.skippedTranslation ||
         Boolean(data.skippedLanguages?.some((s) => s.toLowerCase() === lang.toLowerCase()));
-      const transStatus = isSkipped ? " (スキップ)" : "";
+      const isCached = Boolean(
+        data.cacheStatus?.cachedLanguages?.some((c) => c.toLowerCase() === lang.toLowerCase()),
+      );
+      const transStatus = isSkipped ? " (スキップ)" : isCached ? " (キャッシュ)" : "";
       return `${pc.cyan(lang.toUpperCase())}${pc.dim(transStatus)}`;
     });
     addRow("出力言語", langDisplays.join(", "));

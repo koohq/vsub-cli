@@ -4,6 +4,14 @@ import fs from "node:fs";
 import path from "node:path";
 import { Command } from "commander";
 import pc from "picocolors";
+import {
+  clearCache,
+  getCacheDir,
+  getCacheStats,
+  loadMediaCache,
+  saveTranscriptionCache,
+  saveTranslationCache,
+} from "./cache.js";
 import { ensureApiKeys, getConfig, getGlobalConfigPath, saveGlobalConfig } from "./config.js";
 import { checkFfmpeg, extractAudio, isAudioFile } from "./ffmpeg.js";
 import { formatEntries, type OutputFormat, parseOutputFormats } from "./formatter.js";
@@ -121,6 +129,43 @@ configCmd
     });
   });
 
+// Subcommand: cache
+const cacheCmd = program
+  .command("cache")
+  .description("Manage intermediate transcription and translation cache");
+
+cacheCmd
+  .command("path")
+  .description("Display cache directory path")
+  .option("--cache-dir <path>", "Custom cache directory")
+  .action((options: { cacheDir?: string }) => {
+    console.log(`Cache directory: ${getCacheDir(options.cacheDir)}`);
+  });
+
+cacheCmd
+  .command("stats")
+  .description("Display cache usage and entry counts")
+  .option("--cache-dir <path>", "Custom cache directory")
+  .action((options: { cacheDir?: string }) => {
+    const stats = getCacheStats(options.cacheDir);
+    console.log(`\n📁 Cache Directory : ${stats.cacheDir}`);
+    console.log("----------------------------------------");
+    console.log(`Cached Files     : ${stats.count} files`);
+    console.log(`Total Size       : ${formatFileSize(stats.totalBytes)}`);
+    console.log("----------------------------------------\n");
+  });
+
+cacheCmd
+  .command("clean")
+  .description("Delete all intermediate cache files")
+  .option("--cache-dir <path>", "Custom cache directory")
+  .action((options: { cacheDir?: string }) => {
+    const result = clearCache(options.cacheDir);
+    console.log(
+      `✅ Cleared ${result.deletedCount} cache files (${formatFileSize(result.freedBytes)} freed) from: ${result.cacheDir}`,
+    );
+  });
+
 // Subcommand: translate
 program
   .command("translate")
@@ -139,6 +184,13 @@ program
     "srt",
   )
   .option("-o, --output <path>", "Output path or base name for the generated subtitle file")
+  .option("--no-cache", "Do not use or save intermediate translation cache", false)
+  .option(
+    "--fresh",
+    "Ignore existing cache and generate fresh translations, overwriting cache",
+    false,
+  )
+  .option("--cache-dir <path>", "Custom cache directory")
   .option("--gemini-key <key>", "Gemini API Key override")
   .option("--verbose", "Output detailed log messages", false)
   .action(async (subtitleFile: string, _actionOptions: Record<string, unknown>, cmd: Command) => {
@@ -146,6 +198,9 @@ program
       targetLang: string;
       format: string;
       output?: string;
+      noCache?: boolean;
+      fresh?: boolean;
+      cacheDir?: string;
       geminiKey?: string;
       verbose?: boolean;
     }>();
@@ -194,12 +249,30 @@ program
         `📖 [1/3] 字幕ファイル読み込み完了 - ${srtEntries.length} 行のエントリを検出`,
       );
 
-      // 2. Gemini Translation for each target language
+      // 2. Gemini Translation for each target language (with cache support)
+      const useCache = !options.noCache && !options.fresh;
+      const subtitleCache = useCache
+        ? loadMediaCache(resolvedSubtitlePath, options.cacheDir)
+        : null;
       const totalChunks = Math.max(1, Math.ceil(srtEntries.length / 50));
       const resultsByLang = new Map<string, SrtEntry[]>();
+      const cachedLanguages: string[] = [];
 
       for (let i = 0; i < targetLanguages.length; i++) {
         const lang = targetLanguages[i] ?? "ja";
+        const cachedTranslation = subtitleCache?.translations?.[lang.toLowerCase()];
+
+        if (useCache && cachedTranslation && cachedTranslation.entries.length > 0) {
+          resultsByLang.set(lang, cachedTranslation.entries);
+          cachedLanguages.push(lang);
+          if (isMultiLang) {
+            spinner.info(
+              `  ✔ ${lang.toUpperCase()} 翻訳 (キャッシュ利用: ${cachedTranslation.entries.length} 行)`,
+            );
+          }
+          continue;
+        }
+
         const initialText = isMultiLang
           ? `🌐 [2/3] Gemini API で翻訳中 (${i + 1}/${targetLanguages.length} 言語: ${lang.toUpperCase()} [1/${totalChunks} チャンク])...`
           : `🌐 [2/3] Gemini API で ${lang} に翻訳中 [1/${totalChunks} チャンク]...`;
@@ -225,6 +298,20 @@ program
         );
 
         resultsByLang.set(lang, translatedEntries);
+
+        // Save translation result to cache
+        if (!options.noCache) {
+          saveTranslationCache(
+            resolvedSubtitlePath,
+            lang,
+            {
+              targetLang: lang,
+              entries: translatedEntries,
+              createdAt: Date.now(),
+            },
+            options.cacheDir,
+          );
+        }
 
         if (isMultiLang) {
           spinner.info(`  ✔ ${lang.toUpperCase()} 翻訳完了 (${translatedEntries.length} 行)`);
@@ -278,6 +365,7 @@ program
             entriesCount: srtEntries.length,
             outputFiles,
             skippedTranslation: false,
+            cacheStatus: cachedLanguages.length > 0 ? { cachedLanguages } : undefined,
           }) +
           "\n",
       );
@@ -310,6 +398,13 @@ program
     "--ffmpeg-path <path>",
     "Path to ffmpeg executable (searches VSUB_FFMPEG_PATH or PATH if omitted)",
   )
+  .option("--no-cache", "Do not use or save intermediate transcription/translation cache", false)
+  .option(
+    "--fresh",
+    "Ignore existing cache and generate fresh transcription/translations, overwriting cache",
+    false,
+  )
+  .option("--cache-dir <path>", "Custom cache directory")
   .option("--keep-audio", "Keep intermediate extracted audio files without deleting", false)
   .option("--no-translate", "Skip translation and output raw transcribed subtitles", false)
   .option(
@@ -334,6 +429,9 @@ program
         format: string;
         output?: string;
         ffmpegPath?: string;
+        noCache?: boolean;
+        fresh?: boolean;
+        cacheDir?: string;
         keepAudio?: boolean;
         noTranslate?: boolean;
         saveOriginal?: boolean;
@@ -357,12 +455,6 @@ program
         const resolvedMediaPath = path.resolve(process.cwd(), mediaFile);
         const rawConfig = getConfig(options.ffmpegPath);
 
-        // Ensure API Key availability (Groq key is required; Gemini key will be validated lazily if translation is needed)
-        const config = await ensureApiKeys(rawConfig, {
-          requireGemini: false,
-        });
-        await checkFfmpeg(config.ffmpegPath);
-
         const isAudio = isAudioFile(resolvedMediaPath);
         const mediaTypeName = isAudio ? "audio" : "video";
         const mediaIcon = isAudio ? "🎵" : "🎬";
@@ -371,29 +463,56 @@ program
           `\n${mediaIcon} ${pc.bold("vsub-cli")} - 処理開始: ${pc.cyan(path.basename(resolvedMediaPath))}`,
         );
 
-        // 1. Audio extraction / optimization
-        const audioAction = isAudio ? "最適化中" : "抽出中";
-        const audioDoneAction = isAudio ? "最適化完了" : "抽出完了";
-        spinner.start(`🔊 [1/4] 音声を${audioAction} (16kHz mono / low bitrate)...`);
-        const { audioPaths, cleanup } = await extractAudio(
-          resolvedMediaPath,
-          config.ffmpegPath,
-          verbose,
-        );
+        const useCache = !options.noCache && !options.fresh;
+        const mediaCache = useCache ? loadMediaCache(resolvedMediaPath, options.cacheDir) : null;
 
+        let srtEntries: SrtEntry[] = [];
+        let detectedLanguage: string | undefined;
+        let transcriptionCacheHit = false;
+        let audioPaths: string[] = [];
         let totalAudioBytes = 0;
-        for (const p of audioPaths) {
-          try {
-            totalAudioBytes += fs.statSync(p).size;
-          } catch {
-            // ignore
-          }
-        }
-        spinner.succeed(
-          `🔊 [1/4] 音声${audioDoneAction} (${audioPaths.length} セグメント / ${formatFileSize(totalAudioBytes)})`,
-        );
+        let cleanupAudio: (() => Promise<void>) | null = null;
 
-        try {
+        // Check if cached transcription is available
+        if (useCache && mediaCache?.transcription) {
+          transcriptionCacheHit = true;
+          srtEntries = mediaCache.transcription.entries;
+          detectedLanguage = mediaCache.transcription.detectedLanguage;
+
+          const langDisplay = detectedLanguage ? ` (言語: ${detectedLanguage.toUpperCase()})` : "";
+          spinner.info(
+            `🔊 [1/4] 文字起こしキャッシュが存在するため音声抽出をスキップ [⚡ キャッシュ利用]`,
+          );
+          spinner.succeed(
+            `🎙️ [2/4] キャッシュされた文字起こし結果を利用${langDisplay} - ${srtEntries.length} 行の字幕 [⚡ キャッシュ利用]`,
+          );
+        } else {
+          // Ensure Groq API Key and FFmpeg only when transcription is needed
+          const config = await ensureApiKeys(rawConfig, {
+            requireGroq: true,
+            requireGemini: false,
+          });
+          await checkFfmpeg(config.ffmpegPath);
+
+          // 1. Audio extraction / optimization
+          const audioAction = isAudio ? "最適化中" : "抽出中";
+          const audioDoneAction = isAudio ? "最適化完了" : "抽出完了";
+          spinner.start(`🔊 [1/4] 音声を${audioAction} (16kHz mono / low bitrate)...`);
+          const extractResult = await extractAudio(resolvedMediaPath, config.ffmpegPath, verbose);
+          audioPaths = extractResult.audioPaths;
+          cleanupAudio = extractResult.cleanup;
+
+          for (const p of audioPaths) {
+            try {
+              totalAudioBytes += fs.statSync(p).size;
+            } catch {
+              // ignore
+            }
+          }
+          spinner.succeed(
+            `🔊 [1/4] 音声${audioDoneAction} (${audioPaths.length} セグメント / ${formatFileSize(totalAudioBytes)})`,
+          );
+
           // 2. Transcription with Groq
           const initialGroqText =
             audioPaths.length > 1
@@ -401,7 +520,7 @@ program
               : "🎙️ [2/4] Groq Whisper API で文字起こし中...";
           spinner.start(initialGroqText);
 
-          const { entries: srtEntries, detectedLanguage } = await transcribeAudioSegments(
+          const transcriptResult = await transcribeAudioSegments(
             audioPaths,
             config.groqApiKey,
             verbose,
@@ -414,6 +533,9 @@ program
             },
           );
 
+          srtEntries = transcriptResult.entries;
+          detectedLanguage = transcriptResult.detectedLanguage;
+
           if (srtEntries.length === 0) {
             spinner.warn("⚠️ [2/4] 文字起こし結果から有効な字幕エントリが検出されませんでした");
           } else {
@@ -421,14 +543,29 @@ program
             spinner.succeed(
               `🎙️ [2/4] 文字起こし完了${langDisplay} - ${srtEntries.length} 行の字幕を生成`,
             );
+
+            // Save transcription to cache
+            if (!options.noCache) {
+              saveTranscriptionCache(
+                resolvedMediaPath,
+                {
+                  detectedLanguage,
+                  entries: srtEntries,
+                  createdAt: Date.now(),
+                },
+                options.cacheDir,
+              );
+            }
           }
+        }
 
-          const mediaDir = path.dirname(resolvedMediaPath);
-          const mediaExt = path.extname(resolvedMediaPath);
-          const mediaBaseName = path.basename(resolvedMediaPath, mediaExt);
+        const mediaDir = path.dirname(resolvedMediaPath);
+        const mediaExt = path.extname(resolvedMediaPath);
+        const mediaBaseName = path.basename(resolvedMediaPath, mediaExt);
 
+        try {
           // Save original raw subtitles if requested
-          if (options.saveOriginal) {
+          if (options.saveOriginal && srtEntries.length > 0) {
             const rawLang = detectedLanguage || "raw";
             const baseOriginalName = `${mediaBaseName}.${rawLang}`;
 
@@ -447,8 +584,9 @@ program
           const resultsByLang = new Map<string, SrtEntry[]>();
           const skippedLanguages: string[] = [];
           const translatedLanguages: string[] = [];
+          const cachedLanguages: string[] = [];
 
-          let activeConfig: typeof config | null = null;
+          let activeConfig: ReturnType<typeof getConfig> | null = null;
           const totalChunks = Math.max(1, Math.ceil(srtEntries.length / 50));
 
           for (let i = 0; i < targetLanguages.length; i++) {
@@ -468,14 +606,30 @@ program
                   `ℹ️ [3/4] [--no-translate] ${lang.toUpperCase()} の Gemini 翻訳をスキップしました`,
                 );
               } else if (isSameLanguage) {
-                spinner.info(
-                  `ℹ️ [3/4] 検出言語 ("${detectedLanguage}") が "${lang}" と同一のため翻訳をスキップ (--force-translate で強制実行可能)`,
-                );
+              } else if (useCache) {
+                const cachedTranslation = mediaCache?.translations?.[lang.toLowerCase()];
+                if (cachedTranslation && cachedTranslation.entries.length > 0) {
+                  // Translation cache hit for this language
+                  resultsByLang.set(lang, cachedTranslation.entries);
+                  cachedLanguages.push(lang);
+                  translatedLanguages.push(lang);
+
+                  if (isMultiLang) {
+                    spinner.info(
+                      `  ✔ ${lang.toUpperCase()} 翻訳 (キャッシュ利用: ${cachedTranslation.entries.length} 行) [⚡ キャッシュ利用]`,
+                    );
+                  }
+                  continue;
+                }
+                // If not cached, proceed with Gemini translation below
               }
-            } else {
+
               // Ensure Gemini key before running translation
               if (!activeConfig) {
-                activeConfig = await ensureApiKeys(config, { requireGemini: true });
+                activeConfig = await ensureApiKeys(rawConfig, {
+                  requireGroq: false,
+                  requireGemini: true,
+                });
               }
 
               const initialText = isMultiLang
@@ -504,6 +658,20 @@ program
 
               resultsByLang.set(lang, translatedEntries);
               translatedLanguages.push(lang);
+
+              // Save language translation to cache
+              if (!options.noCache) {
+                saveTranslationCache(
+                  resolvedMediaPath,
+                  lang,
+                  {
+                    targetLang: lang,
+                    entries: translatedEntries,
+                    createdAt: Date.now(),
+                  },
+                  options.cacheDir,
+                );
+              }
 
               if (isMultiLang) {
                 spinner.info(`  ✔ ${lang.toUpperCase()} 翻訳完了 (${translatedEntries.length} 行)`);
@@ -548,22 +716,31 @@ program
                 mediaFile: path.basename(resolvedMediaPath),
                 mediaType: mediaTypeName,
                 durationMs,
-                audioSegmentsCount: audioPaths.length,
-                audioTotalBytes: totalAudioBytes,
+                audioSegmentsCount: audioPaths.length > 0 ? audioPaths.length : undefined,
+                audioTotalBytes: totalAudioBytes > 0 ? totalAudioBytes : undefined,
                 detectedLanguage,
                 targetLanguages,
                 skippedLanguages,
                 entriesCount: srtEntries.length,
                 outputFiles,
                 skippedTranslation: skippedLanguages.length === targetLanguages.length,
+                cacheStatus:
+                  transcriptionCacheHit || cachedLanguages.length > 0
+                    ? {
+                        transcriptionHit: transcriptionCacheHit,
+                        cachedLanguages,
+                      }
+                    : undefined,
               }) +
               "\n",
           );
         } finally {
-          if (!options.keepAudio) {
-            await cleanup();
-          } else {
-            spinner.info(`ℹ️ [--keep-audio] 中間音声ファイルを保持: ${audioPaths.join(", ")}`);
+          if (cleanupAudio) {
+            if (!options.keepAudio) {
+              await cleanupAudio();
+            } else {
+              spinner.info(`ℹ️ [--keep-audio] 中間音声ファイルを保持: ${audioPaths.join(", ")}`);
+            }
           }
         }
       } catch (error) {

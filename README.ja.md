@@ -89,6 +89,9 @@ Options:
   -f, --format <formats>    出力フォーマット: srt, vtt, txt, json をカンマ区切りで指定 (デフォルト: "srt")
   -o, --output <path>       出力する字幕ファイルの個別パス指定
   --ffmpeg-path <path>      ffmpeg 実行ファイルのパス (未指定時は VSUB_FFMPEG_PATH または PATH を探索)
+  --no-cache                中間キャッシュを使用・保存せずに実行 (デフォルト: false)
+  --fresh                   既存キャッシュを無視して新規実行し、結果をキャッシュへ上書き (デフォルト: false)
+  --cache-dir <path>        カスタムキャッシュ保存ディレクトリの指定
   --keep-audio              中間生成した音声ファイルを削除せずに保持する (デフォルト: false)
   --no-translate            Gemini翻訳をスキップし、Groqの文字起こし結果（原語字幕）のみを出力する
   --save-original           翻訳後字幕に加え、翻訳前の原語文字起こし字幕ファイルも同時に保存する (デフォルト: false)
@@ -98,6 +101,9 @@ Options:
 
 Commands:
   translate <subtitle-file> 既存の字幕ファイル (.srt) を Gemini API で直接別言語に翻訳
+  cache path                キャッシュディレクトリのパスを表示
+  cache stats               キャッシュファイル数と使用容量を表示
+  cache clean               全中間キャッシュファイルを削除
   config path               設定ファイルの保存場所を表示
   config show               現在の設定内容を表示 (API Key はマスク表示)
   config set                グローバル設定に API Key や FFmpeg パスを保存

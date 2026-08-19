@@ -268,7 +268,32 @@ async function runE2ETest(): Promise<void> {
     ),
   );
 
-  const totalElapsed = ((Date.now() - startTime) / 1000).toFixed(2);
+  // 6. Test Cache Reuse (Fast second execution)
+  console.log("\n⚡ [6/6] Testing intermediate cache reuse on sample video...");
+  const cachedStart = Date.now();
+  await execa(
+    "node",
+    [
+      "dist/index.js",
+      videoPath,
+      "-t",
+      "en,ja",
+      "-f",
+      "srt",
+      "-o",
+      path.join(OUTPUT_DIR, "cached_sample"),
+    ],
+    {
+      env: process.env,
+      stdio: "inherit",
+    },
+  );
+  const cachedElapsedSec = ((Date.now() - cachedStart) / 1000).toFixed(2);
+  console.log(pc.green(`   ✓ Cache-accelerated execution finished in ${cachedElapsedSec}s`));
+
+  // Check cache stats
+  const { stdout: cacheStatsOut } = await execa("node", ["dist/index.js", "cache", "stats"]);
+  console.log(pc.dim(`   Cache stats:\n${cacheStatsOut}`));
 
   if (!allPassed) {
     console.error(pc.red(`\n❌ E2E Smoke Test failed. See errors above.\n`));

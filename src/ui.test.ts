@@ -140,6 +140,27 @@ describe("ui module", () => {
       expect(summary).toContain("/path/to/presentation.en.srt");
       expect(summary).toContain("/path/to/presentation.zh.srt");
     });
+
+    it("should display cache hits for transcription and specific languages", () => {
+      const summary = formatSummaryBox({
+        videoFile: "cached-video.mp4",
+        durationMs: 1200,
+        detectedLanguage: "en",
+        targetLanguages: ["ja", "zh"],
+        entriesCount: 80,
+        outputFiles: ["/path/to/cached-video.ja.srt", "/path/to/cached-video.zh.srt"],
+        cacheStatus: {
+          transcriptionHit: true,
+          cachedLanguages: ["ja"],
+        },
+      });
+
+      expect(summary).toContain("文字起こし");
+      expect(summary).toContain("キャッシュ利用");
+      expect(summary).toContain("JA");
+      expect(summary).toContain("ZH");
+      expect(summary).toContain("キャッシュ");
+    });
   });
 
   describe("createSpinner", () => {

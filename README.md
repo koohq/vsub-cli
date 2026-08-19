@@ -89,6 +89,9 @@ Options:
   -f, --format <formats>    Output formats: comma-separated list of srt, vtt, txt, json (default: "srt")
   -o, --output <path>       Output path for the generated subtitle file
   --ffmpeg-path <path>      Path to ffmpeg executable (searches VSUB_FFMPEG_PATH or PATH if omitted)
+  --no-cache                Do not use or save intermediate cache (default: false)
+  --fresh                   Ignore existing cache and generate fresh output, overwriting cache (default: false)
+  --cache-dir <path>        Custom cache directory path
   --keep-audio              Keep intermediate extracted audio files without deleting (default: false)
   --no-translate            Skip translation and output raw transcribed subtitles
   --save-original           Save original transcription subtitle file alongside the result (default: false)
@@ -98,6 +101,9 @@ Options:
 
 Commands:
   translate <subtitle-file> Directly translate an existing subtitle file (.srt) into target language(s) via Gemini API
+  cache path                Display cache directory path
+  cache stats               Display cache usage and entry counts
+  cache clean               Delete all intermediate cache files
   config path               Display global configuration file path
   config show               Display current settings (API Keys are masked)
   config set                Save API Keys or FFmpeg path to global config
