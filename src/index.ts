@@ -118,7 +118,10 @@ configCmd
   .option("--whisper-prompt <text>", "Default Whisper recognition prompt hint")
   .option("--prompt <instruction>", "Default Gemini translation instruction prompt")
   .option("--glossary <path-or-terms>", "Default glossary file path (JSON) or inline terms")
-  .option("--concurrency <number>", "Default concurrent translation requests to Gemini API (e.g. 3)")
+  .option(
+    "--concurrency <number>",
+    "Default concurrent translation requests to Gemini API (e.g. 3)",
+  )
   .action(
     (options: {
       groqKey?: string;

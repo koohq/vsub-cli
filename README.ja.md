@@ -1,29 +1,34 @@
-# vsub-cli (Video Subtitle CLI)
+# vsub-cli (Video & Audio Subtitle CLI)
 
 [English](README.md) | [日本語](README.ja.md)
 
-動画ファイルおよび音声ファイルから音声を最適化抽出し、**Groq API (`whisper-large-v3-turbo`)** で高速文字起こしを行った後、**Google Gemini API (`@google/genai`)** を用いて多言語字幕（`.srt`, `.vtt`, `.txt`, `.json`）を自動生成する CLI ツールです。
+動画ファイルおよび音声ファイルから音声を最適化抽出し、**Groq API (`whisper-large-v3-turbo`)** で高速文字起こしを行った後、**Google Gemini API (`@google/genai`)** を用いて多言語字幕・テキスト（`.srt`, `.vtt`, `.txt`, `.json`）を自動生成する CLI ツールです。
 
 ---
 
-## 特徴
+## 主な特徴
 
 * ⚡ **超高速文字起こし**: Groq LPU 上で動作する `whisper-large-v3-turbo` を採用し、音声認識を高速処理。
 * 🎵 **動画・音声両対応**: 動画ファイル（`.mp4`, `.mkv`, `.mov` 等）だけでなく、音声ファイル（`.mp3`, `.wav`, `.m4a`, `.aac`, `.flac`, `.ogg`, `.opus` 等）も直接入力可能。
-* 🔊 **音質・ファイルサイズ自動最適化**: `ffmpeg` を用いて 16kHz モノラル / 低ビットレート（32〜48kbps）に圧縮・最適化し、Groq の 25MB 上限を自動クリア（超長尺メディアの自動分割にも対応）。
-* 🎯 **タイムコード破綻防止翻訳**: SRT 構造を JSON 化し、字幕テキストのみをチャンク分割翻訳。タイムコードの行崩れやずれを 100% 防止。
-* 🌍 **多言語対応**: デフォルトの日本語（`ja`）をはじめ、英語（`en`）、スペイン語（`es`）など任意の言語コードを指定可能。
-* 🛠️ **柔軟な ffmpeg パス対応**: システム `PATH` に加え、環境変数 `FFMPEG_PATH` や `--ffmpeg-path` オプションで個別にファイルパスを指定可能。
+* 🔊 **音質・ファイルサイズ自動最適化**: `ffmpeg` を用いて 16kHz モノラル / 低ビットレート（32〜48kbps）に圧縮・最適化し、Groq の 25MB 上限を自動クリア。超長尺メディアの自動分割時も、実測再生時間に基づくミリ秒精度のタイムコード補正で字幕ズレを防止。
+* 🎯 **タイムコード破綻防止翻訳**: SRT 構造を JSON 化し、字幕テキストのみを Gemini（`gemini-3.7-flash`）でチャンク分割翻訳。タイムコードの行崩れやズレを 100% 防止。
+* 🚀 **Gemini API 並列リクエスト制御**: 非同期ワーカプール（`--concurrency`、デフォルト 3 並列）による高速並行翻訳と、429 レートリミット時の自動指数バックオフ再試行を搭載。
+* 💾 **中間キャッシュ & 再開機構**: ファイルサイズと更新日時の SHA-256 ハッシュに基づき文字起こし・翻訳結果を自動保存。再実行時や別言語追加時の API コストと待ち時間をゼロ化（`vsub cache`）。
+* 📖 **用語集 (Glossary) & プロンプト制御**: 専門用語の誤訳を防ぐ `--glossary`（JSON またはインライン対訳）、翻訳口調を指定する `--prompt`、Whisper の認識精度を高める `--whisper-prompt` をサポート。
+* 🌍 **複数言語一括同時翻訳**: `-t ja,en,zh` のように指定することで、1 回の文字起こしから各言語の字幕ファイルを一括生成。
+* 📄 **マルチフォーマット一括出力**: `.srt` (SubRip), `.vtt` (WebVTT), `.txt` (全文テキスト), `.json` (構造化データ) の同時出力に対応。
+* 🔄 **既存字幕の直接翻訳サブコマンド**: 動画ファイルや Groq API を介さず、既存の `.srt` ファイルから直接翻訳・フォーマット変換を実行（`vsub translate`）。
+* 🛠️ **対話型初期セットアップ & グローバル設定**: 初回実行時の自動対話プロンプトおよび設定ファイル永続管理（`vsub config`）。
 
 ---
 
 ## 前提条件・外部依存
 
-1. **Node.js**: v24 / v26 以上
-2. **ffmpeg**: ローカル環境にインストール済みであること（または実行ファイルパスを指定）
+1. **Node.js**: v26+ (または v24+)
+2. **ffmpeg / ffprobe**: ローカル環境にインストール済みであること（または実行ファイルパスを指定）
 3. **API キー**:
-   * [Groq Console](https://console.groq.com/) にて取得できる `GROQ_API_KEY`
-   * [Google AI Studio](https://aistudio.google.com/) にて取得できる `GEMINI_API_KEY`
+   * [Groq Console](https://console.groq.com/) にて取得できる `VSUB_GROQ_API_KEY`
+   * [Google AI Studio](https://aistudio.google.com/) にて取得できる `VSUB_GEMINI_API_KEY`
 4. **pnpm**: パッケージマネージャー *(開発・ソースからのビルド時に必要)*
 
 ---
@@ -34,7 +39,7 @@ API キーの設定方法は **3つの方法** から選べます：
 
 ### 方法 1: 対話型セットアップ (推奨・一番簡単)
 キーが未設定の状態でコマンドを実行すると、自動的にターミナル上で対話入力プロンプトが起動します。
-入力されたキーは**ホームディレクトリのグローバル設定ファイル**（例: `~/.config/vsub/config.json` または `%APPDATA%\vsub\config.json`）に保存されるため、どのディレクトリから実行しても2回目以降は設定不要で利用できます。
+入力されたキーは**グローバル設定ファイル**（例: `~/.config/vsub/config.json` または `%APPDATA%\vsub\config.json`）に保存されるため、どのディレクトリから実行しても2回目以降は設定不要で利用できます。
 
 直接キーを登録・更新したい場合は以下を実行してください：
 ```bash
@@ -114,23 +119,37 @@ Commands:
   config init               対話形式で API Key を初期設定
 ```
 
-### 用語集 (Glossary) & プロンプトの活用
+---
 
-#### 1. インライン用語集の指定
-ファイルを作らず、コマンドラインから直接 1〜数語の対訳ルールを指定できます：
+## 応用機能・ユースケース別コマンド例
+
+### 1. 複数言語・マルチフォーマットの一括出力
+文字起こしは 1 回のみ実行し、多言語字幕とテキスト議事録を一括生成します：
+```bash
+# 日本語・英語・中国語の字幕 (.srt, .vtt) とテキスト (.txt, .json) を一括出力
+pnpm dev video.mp4 -t ja,en,zh -f srt,vtt,txt,json
+```
+
+### 2. 既存字幕ファイルの直接翻訳 (`vsub translate`)
+動画ファイルや Groq API なしで、既存の `.srt` ファイルから直接翻訳・フォーマット変換：
+```bash
+pnpm dev translate sample.ja.srt -t en -f srt,vtt
+```
+
+### 3. 用語集 (Glossary) & カスタムプロンプトの活用
+
+#### インライン用語集の指定
 ```bash
 pnpm dev video.mp4 -t ja --glossary "Antigravity=アンチグラビティ,vsub=ブイサブ"
 ```
 
-#### 2. JSON 用語集ファイルの指定
-大規模な専門用語や多言語対訳辞書を JSON ファイルで指定できます：
+#### JSON 用語集ファイルの指定 (多言語・フラット両対応)
 ```bash
 pnpm dev video.mp4 -t ja,zh --glossary ./glossary.json
 ```
 
-**JSON 用語集のフォーマット例:**
+**`glossary.json` のフォーマット例:**
 ```json
-// 言語別形式（多言語翻訳時に各言語へ自動適用）
 {
   "ja": {
     "Antigravity": "アンチグラビティ",
@@ -142,55 +161,43 @@ pnpm dev video.mp4 -t ja,zh --glossary ./glossary.json
   }
 }
 ```
-*(フラット形式 `{"Antigravity": "アンチグラビティ"}` や用語別形式 `{"Antigravity": {"ja": "...", "zh": "..."}}` にも自動対応)*
 
 > [!TIP]
 > `--whisper-prompt` を明示しない場合でも、`--glossary` で指定された元単語（`Antigravity, Agentic AI`）が自動的に Whisper の認識ヒントとして渡され、音声認識の聞き取り精度も同時に向上します。
 
-#### 3. 翻訳口調・スタイルのプロンプト指定
+#### 翻訳口調・スタイルのプロンプト指定
 ```bash
 pnpm dev video.mp4 -t ja --prompt "ITエンジニア向けの丁寧なです・ます調で翻訳してください。各行は30文字以内で簡潔にまとめてください。"
 ```
 
-### 使用例
+### 4. キャッシュ管理 & パフォーマンス最適化
+```bash
+# キャッシュ使用状況の確認
+pnpm dev cache stats
+
+# キャッシュを無視して最新のモデル・設定で再翻訳
+pnpm dev video.mp4 -t ja --fresh
+
+# キャッシュの全消去
+pnpm dev cache clean
+
+# 高速ネットワーク環境や上位APIプランでの並行リクエスト数引き上げ
+pnpm dev video.mp4 -t ja --concurrency 5
+```
+
+---
+
+## 設定管理コマンド (`vsub config`)
 
 ```bash
-# 設定の確認・初期化
+# 現在の設定内容（API Key はマスク表示）を確認
 pnpm dev config show
-pnpm dev config init
 
-# デフォルト用語集や翻訳プロンプトをグローバル保存
-pnpm dev config set --prompt "丁寧な敬体で翻訳" --glossary "./glossary.json"
+# デフォルトの翻訳プロンプト・用語集・並行数をグローバルに保存
+pnpm dev config set --prompt "丁寧な敬体で翻訳" --glossary "./glossary.json" --concurrency 4
 
-# 既存 SRT ファイルを直接英語に翻訳 (Groq API 不要・Gemini のみで動作)
-pnpm dev translate sample.ja.srt -t en --glossary "Antigravity=アンチグラビティ"
-
-# 既存 SRT ファイルを多言語・マルチフォーマットに一括変換 (.vtt, .txt, .json)
-pnpm dev translate sample.srt -t en -f srt,vtt,txt,json
-
-# 音声ファイル（.mp3, .wav, .m4a 等）を直接文字起こし・翻訳
-pnpm dev podcast.mp3 -t ja
-
-# 英語字幕 (.en.srt) を生成
-pnpm dev sample.mp4 -t en
-
-# 複数フォーマットを同時に一括出力 (.srt, .vtt, .txt, .json)
-pnpm dev sample.mp4 -f srt,vtt,txt,json
-
-# 翻訳を行わず文字起こし（原語字幕）のみ出力 (Gemini API Key 未設定でも利用可能)
-pnpm dev sample.mp4 --no-translate
-
-# 翻訳後字幕と同時に、翻訳前の原語字幕も保存
-pnpm dev sample.mp4 -t ja --save-original
-
-# 音声言語と出力言語が同じ場合でも、あえて Gemini 翻訳を実行
-pnpm dev sample.mp4 -t ja --force-translate
-
-# 出力先パスを指定
-pnpm dev sample.mp4 -o ./subtitles/my_subtitle.srt
-
-# ffmpeg のパスを直接指定して実行
-pnpm dev sample.mp4 --ffmpeg-path "/usr/bin/ffmpeg"
+# 設定ファイルの物理パスを表示
+pnpm dev config path
 ```
 
 ---

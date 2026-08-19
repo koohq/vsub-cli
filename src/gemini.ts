@@ -183,43 +183,39 @@ export async function translateSrtEntries(
 
   let completedChunks = 0;
 
-  const chunkResults = await asyncPool(
-    concurrency,
-    chunks,
-    async (chunk, chunkIdx) => {
-      const chunkIndex = chunkIdx + 1;
-      const originalTexts = chunk.map((e) => e.text);
+  const chunkResults = await asyncPool(concurrency, chunks, async (chunk, chunkIdx) => {
+    const chunkIndex = chunkIdx + 1;
+    const originalTexts = chunk.map((e) => e.text);
 
-      if (verbose) {
-        console.log(
-          `[Gemini API] Translating chunk (${chunkIndex}/${totalChunks}) [${chunk.length} items]...`,
-        );
-      }
-
-      const translatedTexts = await translateChunkWithRetry(
-        ai,
-        originalTexts,
-        targetLang,
-        modelName,
-        verbose,
-        options,
-        chunkIndex,
-        totalChunks,
+    if (verbose) {
+      console.log(
+        `[Gemini API] Translating chunk (${chunkIndex}/${totalChunks}) [${chunk.length} items]...`,
       );
+    }
 
-      completedChunks++;
-      if (onProgress) {
-        onProgress(completedChunks, totalChunks);
-      }
+    const translatedTexts = await translateChunkWithRetry(
+      ai,
+      originalTexts,
+      targetLang,
+      modelName,
+      verbose,
+      options,
+      chunkIndex,
+      totalChunks,
+    );
 
-      return chunk.map((item, j) => ({
-        id: item.id,
-        startTime: item.startTime,
-        endTime: item.endTime,
-        text: translatedTexts[j] ?? item.text,
-      }));
-    },
-  );
+    completedChunks++;
+    if (onProgress) {
+      onProgress(completedChunks, totalChunks);
+    }
+
+    return chunk.map((item, j) => ({
+      id: item.id,
+      startTime: item.startTime,
+      endTime: item.endTime,
+      text: translatedTexts[j] ?? item.text,
+    }));
+  });
 
   return chunkResults.flat();
 }

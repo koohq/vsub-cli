@@ -1,26 +1,31 @@
-# vsub-cli (Video Subtitle CLI)
+# vsub-cli (Video & Audio Subtitle CLI)
 
 [English](README.md) | [日本語](README.ja.md)
 
-A CLI tool that automatically extracts and optimizes audio from video or audio files, transcribes speech at high speed using the **Groq API (`whisper-large-v3-turbo`)**, and translates text into multilingual subtitles (`.srt`, `.vtt`, `.txt`, `.json`) using the **Google Gemini API (`@google/genai`)**.
+A fast, resilient CLI tool that extracts and optimizes audio from video or audio files, performs ultra-fast speech recognition with the **Groq API (`whisper-large-v3-turbo`)**, and generates multilingual subtitles & transcripts (`.srt`, `.vtt`, `.txt`, `.json`) using the **Google Gemini API (`@google/genai`)**.
 
 ---
 
-## Features
+## Key Features
 
-* ⚡ **Ultra-Fast Transcription**: Uses `whisper-large-v3-turbo` running on Groq LPUs for rapid speech recognition.
-* 🎵 **Video & Audio Support**: Processes video files (`.mp4`, `.mkv`, `.mov`, etc.) as well as audio files (`.mp3`, `.wav`, `.m4a`, `.aac`, `.flac`, `.ogg`, `.opus`, etc.).
-* 🔊 **Automated Audio Optimization**: Uses `ffmpeg` to extract and compress lightweight 16kHz mono audio (32–48kbps), automatically staying within Groq's 25MB file size limit (supports automatic splitting for ultra-long media).
-* 🎯 **Timecode Preservation**: Converts SRT structures into structured JSON to translate only text chunks, ensuring 100% accurate timecodes without line breaks or drift.
-* 🌍 **Multilingual Support**: Supports default Japanese (`ja`), English (`en`), Spanish (`es`), and any target language code.
-* 🛠️ **Flexible FFmpeg Path**: Configurable via system `PATH`, environment variable `VSUB_FFMPEG_PATH` (or `FFMPEG_PATH`), or the `--ffmpeg-path` CLI option.
+* ⚡ **Ultra-Fast Transcription**: Powered by `whisper-large-v3-turbo` running on Groq LPUs for near-instant speech recognition.
+* 🎵 **Video & Audio File Support**: Directly accepts video files (`.mp4`, `.mkv`, `.mov`, etc.) and audio files (`.mp3`, `.wav`, `.m4a`, `.aac`, `.flac`, `.ogg`, `.opus`, etc.).
+* 🔊 **Automated Audio Optimization**: Compresses media to 16kHz mono (32–48kbps) via `ffmpeg` to stay under Groq's 25MB limit. Automatically splits ultra-long media and calculates timecodes with millisecond precision based on measured segment durations.
+* 🎯 **100% Timecode-Preserving Translation**: Converts subtitle structures to JSON and translates only text chunks via Google Gemini (`gemini-3.7-flash`), eliminating timecode corruption or line-drift.
+* 🚀 **Concurrent Translation Control**: Translates subtitle chunks concurrently using an asynchronous worker pool (`--concurrency`, default: 3) with jittered exponential backoff for 429/rate-limit recovery.
+* 💾 **Smart Intermediate Caching**: Automatically caches transcription and language-specific translations by media content hash (size + mtime). Resume immediately without repeating API calls (`vsub cache`).
+* 📖 **Glossary & Custom Prompting**: Pass custom translation instructions (`--prompt`), domain glossaries (`--glossary` via JSON or inline `Key=Val`), and Whisper recognition hints (`--whisper-prompt`).
+* 🌍 **Simultaneous Multi-Language Output**: Generate subtitles for multiple target languages in one pass (e.g., `-t ja,en,zh`) with only a single transcription step.
+* 📄 **Multi-Format Export**: Supports `.srt` (SubRip), `.vtt` (WebVTT), `.txt` (plain text transcripts), and `.json` (structured data).
+* 🔄 **Direct Subtitle Translation**: Translate existing `.srt` subtitle files directly into other languages and formats without needing media files or Groq API (`vsub translate`).
+* 🛠️ **Interactive Setup & Persistent Config**: Interactive key prompts and global configuration management (`vsub config`).
 
 ---
 
 ## Prerequisites & Dependencies
 
-1. **Node.js**: v24 / v26 or higher
-2. **ffmpeg**: Must be installed on your system (or specify executable path)
+1. **Node.js**: v26+ (or v24+)
+2. **ffmpeg / ffprobe**: Must be installed on your system (or specify executable path)
 3. **API Keys**:
    * `VSUB_GROQ_API_KEY` obtained from [Groq Console](https://console.groq.com/)
    * `VSUB_GEMINI_API_KEY` obtained from [Google AI Studio](https://aistudio.google.com/)
@@ -34,7 +39,7 @@ You can configure API keys using **3 different methods**:
 
 ### Method 1: Interactive Setup (Recommended & Easiest)
 If API keys are not set, running any command will automatically launch an interactive terminal prompt.
-Keys are saved in a **global configuration file** (e.g., `~/.config/vsub/config.json` or `%APPDATA%\vsub\config.json`), so you only need to set them once across your system.
+Keys are saved in a **global configuration file** (`~/.config/vsub/config.json` or `%APPDATA%\vsub\config.json`), so you only need to configure them once across your entire system.
 
 To manually register or update keys interactively:
 ```bash
@@ -64,10 +69,10 @@ VSUB_GEMINI_API_KEY=your_gemini_api_key_here
 
 ## Usage
 
-### Basic Command
+### Basic Commands
 
 ```bash
-# Generate Japanese subtitles ([media_name].ja.srt) by default from video or audio
+# Generate Japanese subtitles ([media_name].ja.srt) from video or audio
 pnpm dev path/to/video.mp4
 pnpm dev path/to/podcast.mp3
 
@@ -114,21 +119,36 @@ Commands:
   config init               Initialize API Keys interactively
 ```
 
-### Using Glossary & Custom Prompts
+---
 
-#### 1. Inline Glossary Mapping
-Specify direct term-translation pairs on the CLI without creating a file:
+## Advanced Features & Examples
+
+### 1. Multi-Language & Multi-Format Output
+Extract audio once, transcribe once, and generate all subtitles and transcripts simultaneously:
+```bash
+# Output Japanese, English, and Chinese subtitles in SRT and WebVTT formats
+pnpm dev video.mp4 -t ja,en,zh -f srt,vtt,txt,json
+```
+
+### 2. Direct Subtitle Translation (`vsub translate`)
+Translate an existing `.srt` file without needing video files or Groq API:
+```bash
+pnpm dev translate sample.ja.srt -t en -f srt,vtt
+```
+
+### 3. Using Glossary & Custom Prompts
+
+#### Inline Glossary Mapping
 ```bash
 pnpm dev video.mp4 -t ja --glossary "Antigravity=アンチグラビティ,vsub=ブイサブ"
 ```
 
-#### 2. JSON Glossary File (Single & Multilingual)
-Provide structured JSON glossary files for domain terminology:
+#### JSON Glossary File (Multilingual / Flat)
 ```bash
 pnpm dev video.mp4 -t ja,zh --glossary ./glossary.json
 ```
 
-**Example `glossary.json` format:**
+**`glossary.json` format example:**
 ```json
 {
   "ja": {
@@ -141,55 +161,43 @@ pnpm dev video.mp4 -t ja,zh --glossary ./glossary.json
   }
 }
 ```
-*(Also supports flat schema `{"Antigravity": "アンチグラビティ"}` or term-based schema `{"Antigravity": {"ja": "...", "zh": "..."}}`)*
 
 > [!TIP]
-> If `--whisper-prompt` is omitted, source terms from `--glossary` (`Antigravity, Agentic AI`) are automatically passed to Whisper as recognition hints to boost both transcription and translation precision!
+> If `--whisper-prompt` is omitted, source terms from `--glossary` (`Antigravity, Agentic AI`) are automatically passed to Whisper as recognition hints to improve speech recognition accuracy as well!
 
-#### 3. Custom Translation Tone & Style Prompts
+#### Custom Translation Tone & Instructions
 ```bash
 pnpm dev video.mp4 -t ja --prompt "Translate in a polite and professional tone suited for software engineers. Keep subtitles concise."
 ```
 
-### Examples
+### 4. Cache Management & Performance Tuning
+```bash
+# View cache usage statistics
+pnpm dev cache stats
+
+# Force fresh translation bypassing cache
+pnpm dev video.mp4 -t ja --fresh
+
+# Clean up all cached items
+pnpm dev cache clean
+
+# Increase translation concurrency for high-bandwidth API tiers
+pnpm dev video.mp4 -t ja --concurrency 5
+```
+
+---
+
+## Global Configuration Commands
 
 ```bash
-# Check or initialize configuration
+# Show current configuration (API keys masked)
 pnpm dev config show
-pnpm dev config init
 
-# Save global default prompt or glossary
-pnpm dev config set --prompt "Translate politely" --glossary "./glossary.json"
+# Save persistent default prompts, glossary, or concurrency
+pnpm dev config set --prompt "Translate politely" --glossary "./glossary.json" --concurrency 4
 
-# Directly translate existing SRT file to English with glossary
-pnpm dev translate sample.ja.srt -t en --glossary "Antigravity=アンチグラビティ"
-
-# Translate existing SRT into multiple formats (.srt, .vtt, .txt, .json)
-pnpm dev translate sample.srt -t en -f srt,vtt,txt,json
-
-# Transcribe & translate audio files directly (.mp3, .wav, .m4a, etc.)
-pnpm dev podcast.mp3 -t ja
-
-# Generate English subtitles (.en.srt) from video
-pnpm dev sample.mp4 -t en
-
-# Output multiple formats simultaneously (.srt, .vtt, .txt, .json)
-pnpm dev sample.mp4 -f srt,vtt,txt,json
-
-# Transcription only without translation (does not require Gemini API Key)
-pnpm dev sample.mp4 --no-translate
-
-# Save both translated subtitles and original transcription subtitles
-pnpm dev sample.mp4 -t ja --save-original
-
-# Force Gemini translation even if speech language matches target language
-pnpm dev sample.mp4 -t ja --force-translate
-
-# Specify custom output path
-pnpm dev sample.mp4 -o ./subtitles/my_subtitle.srt
-
-# Specify custom ffmpeg executable path
-pnpm dev sample.mp4 --ffmpeg-path "/usr/bin/ffmpeg"
+# View configuration file path
+pnpm dev config path
 ```
 
 ---
