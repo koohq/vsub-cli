@@ -116,6 +116,30 @@ describe("ui module", () => {
 
       expect(summary).toContain("スキップ");
     });
+
+    it("should format multiple target languages with partial skip", () => {
+      const summary = formatSummaryBox({
+        videoFile: "presentation.mp4",
+        durationMs: 9000,
+        detectedLanguage: "ja",
+        targetLanguages: ["ja", "en", "zh"],
+        skippedLanguages: ["ja"],
+        entriesCount: 100,
+        outputFiles: [
+          "/path/to/presentation.ja.srt",
+          "/path/to/presentation.en.srt",
+          "/path/to/presentation.zh.srt",
+        ],
+      });
+
+      expect(summary).toContain("JA");
+      expect(summary).toContain("EN");
+      expect(summary).toContain("ZH");
+      expect(summary).toContain("スキップ");
+      expect(summary).toContain("/path/to/presentation.ja.srt");
+      expect(summary).toContain("/path/to/presentation.en.srt");
+      expect(summary).toContain("/path/to/presentation.zh.srt");
+    });
   });
 
   describe("createSpinner", () => {

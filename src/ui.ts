@@ -52,9 +52,11 @@ export interface SummaryData {
   audioTotalBytes?: number | undefined;
   detectedLanguage?: string | undefined;
   targetLanguage?: string | undefined;
+  targetLanguages?: string[] | undefined;
   entriesCount: number;
   outputFiles: string[];
   skippedTranslation?: boolean | undefined;
+  skippedLanguages?: string[] | undefined;
 }
 
 /**
@@ -107,9 +109,22 @@ export function formatSummaryBox(data: SummaryData): string {
     addRow("検出言語", pc.yellow(data.detectedLanguage.toUpperCase()));
   }
 
-  if (data.targetLanguage) {
-    const transStatus = data.skippedTranslation ? " (スキップ)" : "";
-    addRow("出力言語", `${pc.cyan(data.targetLanguage.toUpperCase())}${pc.dim(transStatus)}`);
+  const rawLangs =
+    data.targetLanguages && data.targetLanguages.length > 0
+      ? data.targetLanguages
+      : data.targetLanguage
+        ? [data.targetLanguage]
+        : [];
+
+  if (rawLangs.length > 0) {
+    const langDisplays = rawLangs.map((lang) => {
+      const isSkipped =
+        data.skippedTranslation ||
+        Boolean(data.skippedLanguages?.some((s) => s.toLowerCase() === lang.toLowerCase()));
+      const transStatus = isSkipped ? " (スキップ)" : "";
+      return `${pc.cyan(lang.toUpperCase())}${pc.dim(transStatus)}`;
+    });
+    addRow("出力言語", langDisplays.join(", "));
   }
 
   addRow("字幕行数", pc.magenta(`${data.entriesCount} 行`));

@@ -6,11 +6,48 @@ import { Command } from "commander";
 import pc from "picocolors";
 import { ensureApiKeys, getConfig, getGlobalConfigPath, saveGlobalConfig } from "./config.js";
 import { checkFfmpeg, extractAudio, isAudioFile } from "./ffmpeg.js";
-import { formatEntries, parseOutputFormats } from "./formatter.js";
+import { formatEntries, type OutputFormat, parseOutputFormats } from "./formatter.js";
 import { translateSrtEntries } from "./gemini.js";
 import { transcribeAudioSegments } from "./groq.js";
+import { parseTargetLanguages } from "./languages.js";
+import type { SrtEntry } from "./srt.js";
 import { parseSrt } from "./srt.js";
 import { createSpinner, formatFileSize, formatSummaryBox } from "./ui.js";
+
+/**
+ * Resolves destination file paths for output formats, handling single-language and multi-language naming.
+ */
+function resolveOutputFilePaths(
+  baseDir: string,
+  baseName: string,
+  lang: string,
+  formats: OutputFormat[],
+  outputOption?: string,
+  isSingleLanguage = true,
+): { format: OutputFormat; filePath: string }[] {
+  if (outputOption) {
+    const resolvedOut = path.resolve(process.cwd(), outputOption);
+    const parsedOut = path.parse(resolvedOut);
+    if (isSingleLanguage) {
+      if (formats.length === 1) {
+        return [{ format: formats[0] ?? "srt", filePath: resolvedOut }];
+      }
+      return formats.map((fmt) => ({
+        format: fmt,
+        filePath: path.join(parsedOut.dir, `${parsedOut.name}.${fmt}`),
+      }));
+    }
+    return formats.map((fmt) => ({
+      format: fmt,
+      filePath: path.join(parsedOut.dir, `${parsedOut.name}.${lang}.${fmt}`),
+    }));
+  }
+
+  return formats.map((fmt) => ({
+    format: fmt,
+    filePath: path.join(baseDir, `${baseName}.${lang}.${fmt}`),
+  }));
+}
 
 const program = new Command();
 
@@ -91,7 +128,11 @@ program
     "Directly translate an existing subtitle file (.srt) into target language(s) via Gemini API",
   )
   .argument("<subtitle-file>", "Input subtitle file path (.srt)")
-  .option("-t, --target-lang <lang>", "Target language code (e.g., ja, en, es)", "ja")
+  .option(
+    "-t, --target-lang <langs>",
+    "Target language code(s), comma-separated (e.g., ja, en, es, zh-TW)",
+    "ja",
+  )
   .option(
     "-f, --format <formats>",
     "Output formats: comma-separated list of srt, vtt, txt, json",
@@ -115,6 +156,8 @@ program
 
     try {
       const outputFormats = parseOutputFormats(options.format);
+      const targetLanguages = parseTargetLanguages(options.targetLang);
+      const isMultiLang = targetLanguages.length > 1;
       const resolvedSubtitlePath = path.resolve(process.cwd(), subtitleFile);
 
       if (!fs.existsSync(resolvedSubtitlePath)) {
@@ -151,27 +194,45 @@ program
         `📖 [1/3] 字幕ファイル読み込み完了 - ${srtEntries.length} 行のエントリを検出`,
       );
 
-      // 2. Gemini Translation
+      // 2. Gemini Translation for each target language
       const totalChunks = Math.max(1, Math.ceil(srtEntries.length / 50));
-      spinner.start(
-        `🌐 [2/3] Gemini API で ${options.targetLang} に翻訳中 [1/${totalChunks} チャンク]...`,
-      );
+      const resultsByLang = new Map<string, SrtEntry[]>();
 
-      const finalEntries = await translateSrtEntries(
-        srtEntries,
-        options.targetLang,
-        config.geminiApiKey,
-        verbose,
-        (currentChunk, chunksCount) => {
-          spinner.updateText(
-            `🌐 [2/3] Gemini API で ${options.targetLang} に翻訳中 [${currentChunk}/${chunksCount} チャンク]...`,
-          );
-        },
-      );
+      for (let i = 0; i < targetLanguages.length; i++) {
+        const lang = targetLanguages[i] ?? "ja";
+        const initialText = isMultiLang
+          ? `🌐 [2/3] Gemini API で翻訳中 (${i + 1}/${targetLanguages.length} 言語: ${lang.toUpperCase()} [1/${totalChunks} チャンク])...`
+          : `🌐 [2/3] Gemini API で ${lang} に翻訳中 [1/${totalChunks} チャンク]...`;
 
-      spinner.succeed(
-        `🌐 [2/3] Gemini 翻訳完了 (${options.targetLang}) - ${finalEntries.length} 行`,
-      );
+        spinner.start(initialText);
+
+        const translatedEntries = await translateSrtEntries(
+          srtEntries,
+          lang,
+          config.geminiApiKey,
+          verbose,
+          (currentChunk, chunksCount) => {
+            if (isMultiLang) {
+              spinner.updateText(
+                `🌐 [2/3] Gemini API で翻訳中 (${i + 1}/${targetLanguages.length} 言語: ${lang.toUpperCase()} [${currentChunk}/${chunksCount} チャンク])...`,
+              );
+            } else {
+              spinner.updateText(
+                `🌐 [2/3] Gemini API で ${lang} に翻訳中 [${currentChunk}/${chunksCount} チャンク]...`,
+              );
+            }
+          },
+        );
+
+        resultsByLang.set(lang, translatedEntries);
+
+        if (isMultiLang) {
+          spinner.info(`  ✔ ${lang.toUpperCase()} 翻訳完了 (${translatedEntries.length} 行)`);
+        }
+      }
+
+      const langListDisplay = targetLanguages.map((l) => l.toUpperCase()).join(", ");
+      spinner.succeed(`🌐 [2/3] Gemini 翻訳完了 (${langListDisplay}) - ${srtEntries.length} 行`);
 
       // 3. Save output subtitle files
       spinner.start("💾 [3/3] 字幕ファイルを保存中...");
@@ -181,31 +242,24 @@ program
       let subBaseName = path.basename(resolvedSubtitlePath, subExt);
 
       // If base name ends with language tag like .en, .ja, strip it to avoid .en.ja
-      // e.g. sample.en.srt -> sample -> sample.ja.srt
-      const langSuffixMatch = subBaseName.match(/^(.+)\.([a-zA-Z]{2,3})$/);
+      const langSuffixMatch = subBaseName.match(/^(.+)\.([a-zA-Z]{2,3}(?:-[a-zA-Z0-9]{2,4})?)$/);
       if (langSuffixMatch?.[1]) {
         subBaseName = langSuffixMatch[1];
       }
 
-      if (options.output) {
-        const resolvedOut = path.resolve(process.cwd(), options.output);
-        if (outputFormats.length === 1) {
-          const fmt = outputFormats[0] ?? "srt";
-          fs.writeFileSync(resolvedOut, formatEntries(finalEntries, fmt), "utf-8");
-          outputFiles.push(resolvedOut);
-        } else {
-          const parsedOut = path.parse(resolvedOut);
-          for (const fmt of outputFormats) {
-            const outFilePath = path.join(parsedOut.dir, `${parsedOut.name}.${fmt}`);
-            fs.writeFileSync(outFilePath, formatEntries(finalEntries, fmt), "utf-8");
-            outputFiles.push(outFilePath);
-          }
-        }
-      } else {
-        for (const fmt of outputFormats) {
-          const outFilePath = path.join(subDir, `${subBaseName}.${options.targetLang}.${fmt}`);
-          fs.writeFileSync(outFilePath, formatEntries(finalEntries, fmt), "utf-8");
-          outputFiles.push(outFilePath);
+      for (const lang of targetLanguages) {
+        const entries = resultsByLang.get(lang) ?? srtEntries;
+        const targets = resolveOutputFilePaths(
+          subDir,
+          subBaseName,
+          lang,
+          outputFormats,
+          options.output,
+          !isMultiLang,
+        );
+        for (const { format, filePath } of targets) {
+          fs.writeFileSync(filePath, formatEntries(entries, format), "utf-8");
+          outputFiles.push(filePath);
         }
       }
 
@@ -220,8 +274,8 @@ program
             mediaFile: path.basename(resolvedSubtitlePath),
             mediaType: "subtitle",
             durationMs,
-            targetLanguage: options.targetLang,
-            entriesCount: finalEntries.length,
+            targetLanguages,
+            entriesCount: srtEntries.length,
             outputFiles,
             skippedTranslation: false,
           }) +
@@ -241,13 +295,17 @@ program
 // Main action (Media processing)
 program
   .argument("[media-file]", "Target video or audio file path (.mp4, .mp3, .wav, .m4a, .mov, etc.)")
-  .option("-t, --target-lang <lang>", "Target language code (e.g., ja, en, es)", "ja")
+  .option(
+    "-t, --target-lang <langs>",
+    "Target language code(s), comma-separated (e.g., ja, en, es, zh-TW)",
+    "ja",
+  )
   .option(
     "-f, --format <formats>",
     "Output formats: comma-separated list of srt, vtt, txt, json",
     "srt",
   )
-  .option("-o, --output <path>", "Output path for the generated subtitle file")
+  .option("-o, --output <path>", "Output path or base name for the generated subtitle file(s)")
   .option(
     "--ffmpeg-path <path>",
     "Path to ffmpeg executable (searches VSUB_FFMPEG_PATH or PATH if omitted)",
@@ -294,6 +352,8 @@ program
 
       try {
         const outputFormats = parseOutputFormats(options.format);
+        const targetLanguages = parseTargetLanguages(options.targetLang);
+        const isMultiLang = targetLanguages.length > 1;
         const resolvedMediaPath = path.resolve(process.cwd(), mediaFile);
         const rawConfig = getConfig(options.ffmpegPath);
 
@@ -363,13 +423,6 @@ program
             );
           }
 
-          const isSameLanguage = Boolean(
-            detectedLanguage && detectedLanguage.toLowerCase() === options.targetLang.toLowerCase(),
-          );
-
-          const skipTranslation =
-            Boolean(options.noTranslate) || (isSameLanguage && !options.forceTranslate);
-
           const mediaDir = path.dirname(resolvedMediaPath);
           const mediaExt = path.extname(resolvedMediaPath);
           const mediaBaseName = path.basename(resolvedMediaPath, mediaExt);
@@ -377,11 +430,7 @@ program
           // Save original raw subtitles if requested
           if (options.saveOriginal) {
             const rawLang = detectedLanguage || "raw";
-            const isNameConflict =
-              rawLang.toLowerCase() === options.targetLang.toLowerCase() && !skipTranslation;
-            const baseOriginalName = isNameConflict
-              ? `${mediaBaseName}.orig`
-              : `${mediaBaseName}.${rawLang}`;
+            const baseOriginalName = `${mediaBaseName}.${rawLang}`;
 
             const savedOriginalNames: string[] = [];
             for (const fmt of outputFormats) {
@@ -394,67 +443,97 @@ program
             spinner.info(`📄 原文字幕を保存: ${savedOriginalNames.join(", ")}`);
           }
 
-          let finalEntries = srtEntries;
-          const outputLang = skipTranslation
-            ? detectedLanguage || options.targetLang
-            : options.targetLang;
+          // 3. Gemini Translation for each target language
+          const resultsByLang = new Map<string, SrtEntry[]>();
+          const skippedLanguages: string[] = [];
+          const translatedLanguages: string[] = [];
 
-          if (skipTranslation) {
-            if (options.noTranslate) {
-              spinner.info("ℹ️ [3/4] [--no-translate] Gemini 翻訳をスキップしました");
-            } else if (isSameLanguage) {
-              spinner.info(
-                `ℹ️ [3/4] 検出言語 ("${detectedLanguage}") がターゲット言語 ("${options.targetLang}") と同一のため翻訳をスキップ (--force-translate で強制実行可能)`,
-              );
-            }
-          } else {
-            // Ensure Gemini key before proceeding with translation
-            const activeConfig = await ensureApiKeys(config, { requireGemini: true });
+          let activeConfig: typeof config | null = null;
+          const totalChunks = Math.max(1, Math.ceil(srtEntries.length / 50));
 
-            const totalChunks = Math.max(1, Math.ceil(srtEntries.length / 50));
-            spinner.start(
-              `🌐 [3/4] Gemini API で ${options.targetLang} に翻訳中 [1/${totalChunks} チャンク]...`,
+          for (let i = 0; i < targetLanguages.length; i++) {
+            const lang = targetLanguages[i] ?? "ja";
+            const isSameLanguage = Boolean(
+              detectedLanguage && detectedLanguage.toLowerCase() === lang.toLowerCase(),
             );
+            const shouldSkip =
+              Boolean(options.noTranslate) || (isSameLanguage && !options.forceTranslate);
 
-            finalEntries = await translateSrtEntries(
-              srtEntries,
-              options.targetLang,
-              activeConfig.geminiApiKey,
-              verbose,
-              (currentChunk, chunksCount) => {
-                spinner.updateText(
-                  `🌐 [3/4] Gemini API で ${options.targetLang} に翻訳中 [${currentChunk}/${chunksCount} チャンク]...`,
+            if (shouldSkip) {
+              skippedLanguages.push(lang);
+              resultsByLang.set(lang, srtEntries);
+
+              if (options.noTranslate) {
+                spinner.info(
+                  `ℹ️ [3/4] [--no-translate] ${lang.toUpperCase()} の Gemini 翻訳をスキップしました`,
                 );
-              },
-            );
+              } else if (isSameLanguage) {
+                spinner.info(
+                  `ℹ️ [3/4] 検出言語 ("${detectedLanguage}") が "${lang}" と同一のため翻訳をスキップ (--force-translate で強制実行可能)`,
+                );
+              }
+            } else {
+              // Ensure Gemini key before running translation
+              if (!activeConfig) {
+                activeConfig = await ensureApiKeys(config, { requireGemini: true });
+              }
 
+              const initialText = isMultiLang
+                ? `🌐 [3/4] Gemini API で翻訳中 (${i + 1}/${targetLanguages.length} 言語: ${lang.toUpperCase()} [1/${totalChunks} チャンク])...`
+                : `🌐 [3/4] Gemini API で ${lang} に翻訳中 [1/${totalChunks} チャンク]...`;
+
+              spinner.start(initialText);
+
+              const translatedEntries = await translateSrtEntries(
+                srtEntries,
+                lang,
+                activeConfig.geminiApiKey,
+                verbose,
+                (currentChunk, chunksCount) => {
+                  if (isMultiLang) {
+                    spinner.updateText(
+                      `🌐 [3/4] Gemini API で翻訳中 (${i + 1}/${targetLanguages.length} 言語: ${lang.toUpperCase()} [${currentChunk}/${chunksCount} チャンク])...`,
+                    );
+                  } else {
+                    spinner.updateText(
+                      `🌐 [3/4] Gemini API で ${lang} に翻訳中 [${currentChunk}/${chunksCount} チャンク]...`,
+                    );
+                  }
+                },
+              );
+
+              resultsByLang.set(lang, translatedEntries);
+              translatedLanguages.push(lang);
+
+              if (isMultiLang) {
+                spinner.info(`  ✔ ${lang.toUpperCase()} 翻訳完了 (${translatedEntries.length} 行)`);
+              }
+            }
+          }
+
+          if (translatedLanguages.length > 0) {
+            const langListDisplay = translatedLanguages.map((l) => l.toUpperCase()).join(", ");
             spinner.succeed(
-              `🌐 [3/4] Gemini 翻訳完了 (${options.targetLang}) - ${finalEntries.length} 行`,
+              `🌐 [3/4] Gemini 翻訳完了 (${langListDisplay}) - ${srtEntries.length} 行`,
             );
           }
 
           // 4. Save output subtitle files
           spinner.start("💾 [4/4] 字幕ファイルを保存中...");
 
-          if (options.output) {
-            const resolvedOut = path.resolve(process.cwd(), options.output);
-            if (outputFormats.length === 1) {
-              const fmt = outputFormats[0] ?? "srt";
-              fs.writeFileSync(resolvedOut, formatEntries(finalEntries, fmt), "utf-8");
-              outputFiles.push(resolvedOut);
-            } else {
-              const parsedOut = path.parse(resolvedOut);
-              for (const fmt of outputFormats) {
-                const outFilePath = path.join(parsedOut.dir, `${parsedOut.name}.${fmt}`);
-                fs.writeFileSync(outFilePath, formatEntries(finalEntries, fmt), "utf-8");
-                outputFiles.push(outFilePath);
-              }
-            }
-          } else {
-            for (const fmt of outputFormats) {
-              const outFilePath = path.join(mediaDir, `${mediaBaseName}.${outputLang}.${fmt}`);
-              fs.writeFileSync(outFilePath, formatEntries(finalEntries, fmt), "utf-8");
-              outputFiles.push(outFilePath);
+          for (const lang of targetLanguages) {
+            const entries = resultsByLang.get(lang) ?? srtEntries;
+            const targets = resolveOutputFilePaths(
+              mediaDir,
+              mediaBaseName,
+              lang,
+              outputFormats,
+              options.output,
+              !isMultiLang,
+            );
+            for (const { format, filePath } of targets) {
+              fs.writeFileSync(filePath, formatEntries(entries, format), "utf-8");
+              outputFiles.push(filePath);
             }
           }
 
@@ -472,10 +551,11 @@ program
                 audioSegmentsCount: audioPaths.length,
                 audioTotalBytes: totalAudioBytes,
                 detectedLanguage,
-                targetLanguage: outputLang,
-                entriesCount: finalEntries.length,
+                targetLanguages,
+                skippedLanguages,
+                entriesCount: srtEntries.length,
                 outputFiles,
-                skippedTranslation: skipTranslation,
+                skippedTranslation: skippedLanguages.length === targetLanguages.length,
               }) +
               "\n",
           );

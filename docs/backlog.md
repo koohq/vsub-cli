@@ -17,9 +17,9 @@
 | **Completed** | 5. Gemini デフォルトモデル更新 (`gemini-3.7-flash`) | 信頼性 | 低 | 最新モデルへの追従と 404/エラー解消 |
 | **Completed** | 6. 音声ファイル直接入力 (`.mp3`, `.wav`, `.m4a` 等) | 機能拡張 | 低 | ポッドキャストやボイスメモ対応 |
 | **Completed** | 7. 既存 SRT ファイル直接翻訳 (`vsub translate`) | 機能拡張 | 中 | 動画再処理なしでの再翻訳・修正後翻訳 |
-| **Medium** | 8. 長尺音声分割時のタイムコード精度改善 | 信頼性 | 中 | 長時間動画でのミリ秒単位の字幕ズレ防止 |
-| **Medium** | 9. 中間キャッシュ & 再開 (Resume) 機構 | 信頼性 | 中 | API エラー時の文字起こしやり直しコスト削減 |
-| **Medium** | 10. 複数言語一括同時翻訳 (`-t ja,en,zh`) | 機能拡張 | 中 | 多言語展開時の API 呼び出し・時間の大幅節約 |
+| **Completed** | 8. 複数言語一括同時翻訳 (`-t ja,en,zh`) | 機能拡張 | 中 | 多言語展開時の API 呼び出し・時間の大幅節約 |
+| **Medium** | 9. 長尺音声分割時のタイムコード精度改善 | 信頼性 | 中 | 長時間動画でのミリ秒単位の字幕ズレ防止 |
+| **Medium** | 10. 中間キャッシュ & 再開 (Resume) 機構 | 信頼性 | 中 | API エラー時の文字起こしやり直しコスト削減 |
 | **Medium** | 11. テストカバレッジ計測 & レポート (`vitest --coverage`) | DevOps | 低 | テスト網羅率の可視化と維持 |
 | **Low** | 12. プロンプト / 用語集 (Glossary) 指定機能 | 機能拡張 | 中 | 専門用語の誤認識防止・口調や訳語の統一 |
 | **Low** | 13. Gemini API 並列リクエストによる高速化 | 信頼性 | 中 | 長尺動画における翻訳待機時間の短縮 |
@@ -77,12 +77,13 @@
   * `isAudioFile`, `isVideoFile`, `isSupportedMediaFile` ヘルパー関数の追加および `prepareAudio` エイリアス提供。
 * **対応ファイル**: `src/ffmpeg.ts`, `src/ffmpeg.test.ts`, `src/ui.ts`, `src/ui.test.ts`, `src/index.ts`, `scripts/test-e2e.ts`
 
-### 2.4 複数言語への一括同時翻訳
-* **背景/課題**: YouTube 等で日英中など複数言語の字幕を作成したい場合、言語ごとにコマンドを実行すると Whisper 文字起こしが重複して実行される。
-* **提案内容**:
-  * `-t ja,en,zh` のようにカンマ区切りで複数ターゲット言語を指定可能にする。
+### 2.4 複数言語への一括同時翻訳 【完了】
+* **対応内容**:
+  * `-t ja,en,zh` のようにカンマ区切りで複数ターゲット言語を指定可能にするパーサー `parseTargetLanguages` を実装。
   * Groq 文字起こしは 1 回のみ実行し、Gemini 翻訳を各言語ごとに実行して `sample.ja.srt`, `sample.en.srt`, `sample.zh.srt` を一括出力。
-* **対応スコープ**: `src/index.ts`, `src/gemini.ts`
+  * 検出言語と一致する言語は自動で Whisper 原文を採用し、無駄な API 呼び出しを抑制。
+  * `vsub translate` サブコマンドでも複数言語同時出力をサポート。
+* **対応ファイル**: `src/languages.ts`, `src/languages.test.ts`, `src/index.ts`, `src/ui.ts`, `src/ui.test.ts`, `scripts/test-e2e.ts`
 
 ### 2.5 プロンプト / 用語集 (Glossary) 指定
 * **背景/課題**: 固有名詞や業界専門用語の誤認識、翻訳時の口調（敬体/常体）の揺れが発生しやすい。

@@ -94,10 +94,12 @@ async function runE2ETest(): Promise<void> {
   }
   fs.mkdirSync(OUTPUT_DIR, { recursive: true });
 
-  console.log("   🚀 Executing CLI end-to-end pipeline on sample video...");
+  console.log(
+    "   🚀 Executing CLI multi-language end-to-end pipeline (-t en,ja) on sample video...",
+  );
   console.log(
     pc.dim(
-      `      node dist/index.js ${videoPath} -t en -f srt,vtt,txt,json -o ${OUTPUT_BASE} --save-original`,
+      `      node dist/index.js ${videoPath} -t en,ja -f srt,vtt,txt,json -o ${OUTPUT_BASE} --save-original`,
     ),
   );
 
@@ -108,7 +110,7 @@ async function runE2ETest(): Promise<void> {
       "dist/index.js",
       videoPath,
       "-t",
-      "en",
+      "en,ja",
       "-f",
       "srt,vtt,txt,json",
       "-o",
@@ -125,12 +127,12 @@ async function runE2ETest(): Promise<void> {
   console.log(pc.green(`   ✓ CLI execution finished in ${cliElapsedSec}s`));
 
   // Assert and Validate Output Files
-  console.log("\n🔍 Validating generated output formats...");
+  console.log("\n🔍 Validating generated output formats (English & Japanese)...");
 
   const expectedFiles = [
     {
-      file: `${OUTPUT_BASE}.srt`,
-      name: "Translated SRT",
+      file: `${OUTPUT_BASE}.en.srt`,
+      name: "Translated EN SRT",
       validate: (content: string) => {
         if (!content.includes("-->")) {
           throw new Error("Missing timecode separator '-->'");
@@ -141,8 +143,8 @@ async function runE2ETest(): Promise<void> {
       },
     },
     {
-      file: `${OUTPUT_BASE}.vtt`,
-      name: "Translated WebVTT",
+      file: `${OUTPUT_BASE}.en.vtt`,
+      name: "Translated EN WebVTT",
       validate: (content: string) => {
         if (!content.startsWith("WEBVTT")) {
           throw new Error("Missing WEBVTT header");
@@ -153,8 +155,8 @@ async function runE2ETest(): Promise<void> {
       },
     },
     {
-      file: `${OUTPUT_BASE}.txt`,
-      name: "Translated Plain Text",
+      file: `${OUTPUT_BASE}.en.txt`,
+      name: "Translated EN Plain Text",
       validate: (content: string) => {
         if (content.includes("-->")) {
           throw new Error("Plain text should not contain timecodes");
@@ -165,8 +167,8 @@ async function runE2ETest(): Promise<void> {
       },
     },
     {
-      file: `${OUTPUT_BASE}.json`,
-      name: "Structured JSON",
+      file: `${OUTPUT_BASE}.en.json`,
+      name: "Structured EN JSON",
       validate: (content: string) => {
         const parsed = JSON.parse(content);
         if (!Array.isArray(parsed) || parsed.length === 0) {
@@ -175,6 +177,15 @@ async function runE2ETest(): Promise<void> {
         const first = parsed[0];
         if (typeof first.startTime !== "string" || typeof first.text !== "string") {
           throw new Error("JSON entry format invalid (missing startTime or text)");
+        }
+      },
+    },
+    {
+      file: `${OUTPUT_BASE}.ja.srt`,
+      name: "Translated JA SRT",
+      validate: (content: string) => {
+        if (!content.includes("-->")) {
+          throw new Error("Missing timecode separator in JA SRT");
         }
       },
     },
@@ -213,12 +224,12 @@ async function runE2ETest(): Promise<void> {
     }
   }
 
-  // 5. Test `vsub translate` subcommand on generated subtitle
-  console.log("\n🔄 Testing 'vsub translate' direct subtitle translation subcommand...");
+  // 5. Test `vsub translate` subcommand with multi-language
+  console.log("\n🔄 Testing 'vsub translate' multi-language translation (-t es,fr)...");
   const translateOutputBase = path.join(OUTPUT_DIR, "translate_e2e_sample");
   console.log(
     pc.dim(
-      `      node dist/index.js translate ${OUTPUT_BASE}.srt -t ja -f srt,vtt -o ${translateOutputBase}`,
+      `      node dist/index.js translate ${OUTPUT_BASE}.en.srt -t es,fr -f srt,vtt -o ${translateOutputBase}`,
     ),
   );
 
@@ -228,9 +239,9 @@ async function runE2ETest(): Promise<void> {
     [
       "dist/index.js",
       "translate",
-      `${OUTPUT_BASE}.srt`,
+      `${OUTPUT_BASE}.en.srt`,
       "-t",
-      "ja",
+      "es,fr",
       "-f",
       "srt,vtt",
       "-o",
@@ -245,15 +256,15 @@ async function runE2ETest(): Promise<void> {
   const translateElapsed = ((Date.now() - translateStart) / 1000).toFixed(2);
   console.log(pc.green(`   ✓ 'vsub translate' completed in ${translateElapsed}s`));
 
-  const translateSrtPath = `${translateOutputBase}.srt`;
-  const translateVttPath = `${translateOutputBase}.vtt`;
+  const translateEsSrtPath = `${translateOutputBase}.es.srt`;
+  const translateFrVttPath = `${translateOutputBase}.fr.vtt`;
 
-  if (!fs.existsSync(translateSrtPath) || !fs.existsSync(translateVttPath)) {
-    throw new Error("'vsub translate' failed to generate expected output files.");
+  if (!fs.existsSync(translateEsSrtPath) || !fs.existsSync(translateFrVttPath)) {
+    throw new Error("'vsub translate' failed to generate expected multi-language output files.");
   }
   console.log(
     pc.green(
-      `   ✓ [PASS] Translated SRT (${path.basename(translateSrtPath)}) & VTT (${path.basename(translateVttPath)}) generated successfully.`,
+      `   ✓ [PASS] Translated ES SRT (${path.basename(translateEsSrtPath)}) & FR VTT (${path.basename(translateFrVttPath)}) generated successfully.`,
     ),
   );
 
@@ -265,8 +276,8 @@ async function runE2ETest(): Promise<void> {
   }
 
   // Display sample output
-  const sampleSrt = fs.readFileSync(`${OUTPUT_BASE}.srt`, "utf-8").trim();
-  console.log(pc.bold(pc.cyan("\n📄 Sample Translated SRT Output:")));
+  const sampleSrt = fs.readFileSync(`${OUTPUT_BASE}.en.srt`, "utf-8").trim();
+  console.log(pc.bold(pc.cyan("\n📄 Sample Translated EN SRT Output:")));
   console.log(pc.dim("----------------------------------------"));
   console.log(sampleSrt);
   console.log(pc.dim("----------------------------------------"));
