@@ -5,7 +5,72 @@ import { execa } from "execa";
 
 export interface ExtractedAudioResult {
   audioPaths: string[];
+  durations?: number[] | undefined;
   cleanup: () => Promise<void>;
+}
+
+/**
+ * Resolves the path to the ffprobe executable corresponding to the given ffmpeg path.
+ */
+export function resolveFfprobePath(ffmpegPath: string): string {
+  const parsed = path.parse(ffmpegPath);
+  const ext = parsed.ext;
+  const probeName = ext ? `ffprobe${ext}` : "ffprobe";
+  if (!parsed.dir) {
+    return probeName;
+  }
+  return ffmpegPath.slice(0, ffmpegPath.length - parsed.base.length) + probeName;
+}
+
+/**
+ * Accurately measures the duration of a media file in seconds (with millisecond precision).
+ * Uses ffprobe if available, falling back to parsing ffmpeg stderr.
+ */
+export async function getMediaDurationInSeconds(
+  filePath: string,
+  ffmpegPath = "ffmpeg",
+): Promise<number> {
+  // 1. Try ffprobe first for high-precision float duration
+  const ffprobePath = resolveFfprobePath(ffmpegPath);
+  try {
+    const { stdout } = await execa(ffprobePath, [
+      "-v",
+      "error",
+      "-show_entries",
+      "format=duration",
+      "-of",
+      "default=noprint_wrappers=1:nokey=1",
+      filePath,
+    ]);
+    const duration = parseFloat(stdout.trim());
+    if (!Number.isNaN(duration) && Number.isFinite(duration) && duration > 0) {
+      return duration;
+    }
+  } catch (_ffprobeErr) {
+    // Fallback to ffmpeg if ffprobe is unavailable or failed
+  }
+
+  // 2. Fallback: Parse "Duration: HH:MM:SS.xx" from ffmpeg stderr
+  try {
+    const result = await execa(ffmpegPath, ["-i", filePath, "-f", "null", "-"]).catch(
+      (err: { stdout?: string; stderr?: string }) => err,
+    );
+    const output = `${result.stdout || ""} ${result.stderr || ""}`;
+    const match = output.match(/Duration:\s*(\d{2}):(\d{2}):(\d{2}(?:\.\d+)?)/);
+    if (match?.[1] && match[2] && match[3]) {
+      const hours = parseInt(match[1], 10);
+      const minutes = parseInt(match[2], 10);
+      const seconds = parseFloat(match[3]);
+      const totalSeconds = hours * 3600 + minutes * 60 + seconds;
+      if (!Number.isNaN(totalSeconds) && Number.isFinite(totalSeconds) && totalSeconds > 0) {
+        return totalSeconds;
+      }
+    }
+  } catch (_ffmpegErr) {
+    // Ignore error
+  }
+
+  return 0;
 }
 
 /**
@@ -122,6 +187,7 @@ export async function extractAudio(
   const createdTempFiles: string[] = [tempAudioFile];
 
   let finalAudioPaths: string[] = [];
+  let finalDurations: number[] | undefined;
 
   if (stats.size <= maxSizeBytes) {
     finalAudioPaths = [tempAudioFile];
@@ -158,6 +224,18 @@ export async function extractAudio(
     if (segments.length > 0) {
       finalAudioPaths = segments;
       createdTempFiles.push(...segments);
+
+      // Accurately measure each segment's playback duration
+      const segmentDurations: number[] = [];
+      for (const segmentPath of segments) {
+        try {
+          const dur = await getMediaDurationInSeconds(segmentPath, ffmpegPath);
+          segmentDurations.push(dur > 0 ? dur : 1200);
+        } catch {
+          segmentDurations.push(1200);
+        }
+      }
+      finalDurations = segmentDurations;
     } else {
       finalAudioPaths = [tempAudioFile];
     }
@@ -180,6 +258,7 @@ export async function extractAudio(
 
   return {
     audioPaths: finalAudioPaths,
+    durations: finalDurations,
     cleanup,
   };
 }

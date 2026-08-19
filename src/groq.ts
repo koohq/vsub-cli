@@ -83,7 +83,7 @@ export async function transcribeAudioWithGroq(
   apiKey: string,
   timeOffsetSeconds = 0,
   verbose = false,
-  options?: { prompt?: string },
+  options?: { prompt?: string | undefined },
 ): Promise<TranscriptionResult> {
   const groq = new Groq({ apiKey });
 
@@ -124,6 +124,11 @@ export async function transcribeAudioWithGroq(
   return { entries, detectedLanguage };
 }
 
+export interface TranscribeAudioSegmentsOptions {
+  prompt?: string | undefined;
+  durations?: number[] | undefined;
+}
+
 /**
  * Transcribes multiple audio segment files using Groq API and combines SrtEntry array.
  */
@@ -132,7 +137,7 @@ export async function transcribeAudioSegments(
   apiKey: string,
   verbose = false,
   onProgress?: (current: number, total: number) => void,
-  options?: { prompt?: string },
+  options?: TranscribeAudioSegmentsOptions,
 ): Promise<TranscriptionResult> {
   const allEntries: SrtEntry[] = [];
   let timeOffsetSeconds = 0;
@@ -170,8 +175,9 @@ export async function transcribeAudioSegments(
       });
     }
 
-    // Each segment is 20 minutes (1200 seconds) if split
-    timeOffsetSeconds += 1200;
+    // Use accurately measured duration if available, otherwise default to 1200 seconds (20 min)
+    const segmentDuration = options?.durations?.[i] ?? 1200;
+    timeOffsetSeconds += segmentDuration;
   }
 
   return { entries: allEntries, detectedLanguage };

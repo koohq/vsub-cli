@@ -155,7 +155,59 @@ describe("groq.ts", () => {
         }),
       );
     });
-    it("should process multiple audio segments and accumulate 1200s time offsets", async () => {
+    it("should process multiple audio segments and accumulate accurately measured durations", async () => {
+      // Segment 1 (duration: 1200.450s)
+      mockCreateTranscription.mockResolvedValueOnce({
+        language: "japanese",
+        segments: [{ id: 0, start: 10.0, end: 15.0, text: "セグメント1" }],
+      });
+
+      // Segment 2 (duration: 1199.800s, offset: 1200.450s)
+      mockCreateTranscription.mockResolvedValueOnce({
+        language: "japanese",
+        segments: [{ id: 0, start: 5.0, end: 10.0, text: "セグメント2" }],
+      });
+
+      // Segment 3 (offset: 1200.450 + 1199.800 = 2400.250s)
+      mockCreateTranscription.mockResolvedValueOnce({
+        language: "japanese",
+        segments: [{ id: 0, start: 1.0, end: 3.5, text: "セグメント3" }],
+      });
+
+      const result = await transcribeAudioSegments(
+        ["seg1.m4a", "seg2.m4a", "seg3.m4a"],
+        "fake-api-key",
+        false,
+        undefined,
+        {
+          durations: [1200.45, 1199.8, 1200.0],
+        },
+      );
+
+      expect(result.detectedLanguage).toBe("ja");
+      expect(result.entries).toEqual([
+        {
+          id: 1,
+          startTime: "00:00:10,000",
+          endTime: "00:00:15,000",
+          text: "セグメント1",
+        },
+        {
+          id: 2,
+          startTime: "00:20:05,450", // 1200.450 + 5.0
+          endTime: "00:20:10,450", // 1200.450 + 10.0
+          text: "セグメント2",
+        },
+        {
+          id: 3,
+          startTime: "00:40:01,250", // 2400.250 + 1.0
+          endTime: "00:40:03,750", // 2400.250 + 3.5
+          text: "セグメント3",
+        },
+      ]);
+    });
+
+    it("should fallback to 1200s time offsets when durations option is not provided", async () => {
       // Segment 1 (offset 0s)
       mockCreateTranscription.mockResolvedValueOnce({
         language: "japanese",

@@ -610,7 +610,10 @@ program
                 );
               }
             },
-            whisperPrompt ? { prompt: whisperPrompt } : undefined,
+            {
+              ...(whisperPrompt ? { prompt: whisperPrompt } : {}),
+              ...(extractResult.durations ? { durations: extractResult.durations } : {}),
+            },
           );
 
           srtEntries = transcriptResult.entries;

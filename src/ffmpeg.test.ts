@@ -2,10 +2,12 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import {
   checkFfmpeg,
   extractAudio,
+  getMediaDurationInSeconds,
   isAudioFile,
   isSupportedMediaFile,
   isVideoFile,
   prepareAudio,
+  resolveFfprobePath,
 } from "./ffmpeg.js";
 
 // Mock execa
@@ -50,6 +52,74 @@ describe("ffmpeg.ts", () => {
       expect(isSupportedMediaFile("clip.mp4")).toBe(true);
       expect(isSupportedMediaFile("podcast.mp3")).toBe(true);
       expect(isSupportedMediaFile("notes.txt")).toBe(false);
+    });
+  });
+
+  describe("resolveFfprobePath", () => {
+    it("should resolve probe command for simple command names", () => {
+      expect(resolveFfprobePath("ffmpeg")).toBe("ffprobe");
+      expect(resolveFfprobePath("ffmpeg.exe")).toBe("ffprobe.exe");
+    });
+
+    it("should resolve probe executable path in same directory", () => {
+      expect(resolveFfprobePath("/usr/local/bin/ffmpeg")).toBe("/usr/local/bin/ffprobe");
+      expect(resolveFfprobePath("C:\\tools\\ffmpeg\\bin\\ffmpeg.exe")).toBe(
+        "C:\\tools\\ffmpeg\\bin\\ffprobe.exe",
+      );
+    });
+  });
+
+  describe("getMediaDurationInSeconds", () => {
+    it("should retrieve duration from ffprobe successfully", async () => {
+      mockExeca.mockResolvedValueOnce({ stdout: "1200.45678\n" });
+
+      const duration = await getMediaDurationInSeconds("segment_001.m4a", "ffmpeg");
+
+      expect(duration).toBe(1200.45678);
+      expect(mockExeca).toHaveBeenCalledWith("ffprobe", [
+        "-v",
+        "error",
+        "-show_entries",
+        "format=duration",
+        "-of",
+        "default=noprint_wrappers=1:nokey=1",
+        "segment_001.m4a",
+      ]);
+    });
+
+    it("should fallback to ffmpeg stderr parsing if ffprobe fails", async () => {
+      // ffprobe fails
+      mockExeca.mockRejectedValueOnce(new Error("ffprobe not found"));
+      // ffmpeg succeeds with Duration info
+      mockExeca.mockResolvedValueOnce({
+        stdout: "",
+        stderr: "Input #0, aac... Duration: 00:20:00.45, start: 0.000000, bitrate: 48 kb/s",
+      });
+
+      const duration = await getMediaDurationInSeconds("segment_001.m4a", "ffmpeg");
+
+      expect(duration).toBeCloseTo(1200.45, 2);
+    });
+
+    it("should parse hours, minutes, and fractional seconds correctly from ffmpeg stderr", async () => {
+      mockExeca.mockRejectedValueOnce(new Error("ffprobe error"));
+      mockExeca.mockResolvedValueOnce({
+        stdout: "",
+        stderr: "Duration: 01:05:30.850, bitrate: 128 kb/s",
+      });
+
+      const duration = await getMediaDurationInSeconds("segment.m4a", "ffmpeg");
+
+      expect(duration).toBeCloseTo(3600 + 5 * 60 + 30.85, 3);
+    });
+
+    it("should return 0 if both ffprobe and ffmpeg fail", async () => {
+      mockExeca.mockRejectedValueOnce(new Error("ffprobe error"));
+      mockExeca.mockRejectedValueOnce(new Error("ffmpeg error"));
+
+      const duration = await getMediaDurationInSeconds("invalid.m4a", "ffmpeg");
+
+      expect(duration).toBe(0);
     });
   });
 
