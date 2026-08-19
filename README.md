@@ -87,36 +87,36 @@ node ./dist/index.js path/to/video.mp4
 Usage: vsub [options] [command] <media-file>
 
 Arguments:
-  media-file                Target video or audio file path (.mp4, .mp3, .wav, .m4a, .mov, etc.)
+  media-file                    Target video or audio file path (.mp4, .mp3, .wav, .m4a, .mov, etc.)
 
 Options:
-  -t, --target-lang <langs> Target language code(s), comma-separated (e.g., ja,en,es) (default: "ja")
-  -f, --format <formats>    Output formats: comma-separated list of srt, vtt, txt, json (default: "srt")
-  -o, --output <path>       Output path for the generated subtitle file
-  --ffmpeg-path <path>      Path to ffmpeg executable (searches VSUB_FFMPEG_PATH or PATH if omitted)
-  --whisper-prompt <text>   Prompt hint for Groq Whisper speech recognition (terminology, names, etc.)
-  --prompt <instruction>    Additional instruction prompt for Gemini translation (tone, style, brevity)
-  --glossary <path-or-terms> Glossary file path (JSON) or inline terms (Key=Val,Key=Val)
-  --concurrency <number>    Number of concurrent translation requests to Gemini API (default: 3)
-  --no-cache                Do not use or save intermediate cache (default: false)
-  --fresh                   Ignore existing cache and generate fresh output, overwriting cache (default: false)
-  --cache-dir <path>        Custom cache directory path
-  --keep-audio              Keep intermediate extracted audio files without deleting (default: false)
-  --no-translate            Skip translation and output raw transcribed subtitles
-  --save-original           Save original transcription subtitle file alongside the result (default: false)
-  --force-translate         Force Gemini translation even if detected language matches target language (default: false)
-  --verbose                 Output detailed log messages (API requests, etc.) (default: false)
-  -h, --help                Display help for command
+  -t, --target-lang <langs>     Target language code(s), comma-separated (e.g., ja,en,es) (default: "ja")
+  -f, --format <formats>        Output formats: comma-separated list of srt, vtt, txt, json (default: "srt")
+  -o, --output <path>           Output path for the generated subtitle file
+  --ffmpeg-path <path>          Path to ffmpeg executable (searches VSUB_FFMPEG_PATH or PATH if omitted)
+  --whisper-prompt <text>       Prompt hint for Groq Whisper speech recognition (terminology, names, etc.)
+  --prompt <instruction>        Additional instruction prompt for Gemini translation (tone, style, brevity)
+  --glossary <path-or-terms>    Glossary file path (JSON) or inline terms (Key=Val,Key=Val)
+  --concurrency <number>        Number of concurrent translation requests to Gemini API (default: 3)
+  --no-cache                    Do not use or save intermediate cache (default: false)
+  --fresh                       Ignore existing cache and generate fresh output, overwriting cache (default: false)
+  --cache-dir <path>            Custom cache directory path
+  --keep-audio                  Keep intermediate extracted audio files without deleting (default: false)
+  --no-translate                Skip translation and output raw transcribed subtitles
+  --save-original               Save original transcription subtitle file alongside the result (default: false)
+  --force-translate             Force Gemini translation even if detected language matches target language (default: false)
+  --verbose                     Output detailed log messages (API requests, etc.) (default: false)
+  -h, --help                    Display help for command
 
 Commands:
-  translate <subtitle-file> Directly translate an existing subtitle file (.srt) into target language(s) via Gemini API
-  cache path                Display cache directory path
-  cache stats               Display cache usage and entry counts
-  cache clean               Delete all intermediate cache files
-  config path               Display global configuration file path
-  config show               Display current settings (API Keys are masked)
-  config set                Save API Keys, FFmpeg path, prompts, concurrency to global config
-  config init               Initialize API Keys interactively
+  translate <subtitle-file>     Directly translate an existing subtitle file (.srt) into target language(s) via Gemini API
+  cache path                    Display cache directory path
+  cache stats                   Display cache usage and entry counts
+  cache clean                   Delete all intermediate cache files
+  config path                   Display global configuration file path
+  config show                   Display current settings (API Keys are masked)
+  config set                    Save API Keys, FFmpeg path, prompts, concurrency to global config
+  config init                   Initialize API Keys interactively
 ```
 
 ---

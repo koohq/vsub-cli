@@ -87,36 +87,36 @@ node ./dist/index.js path/to/video.mp4
 Usage: vsub [options] [command] <media-file>
 
 Arguments:
-  media-file                処理対象の動画または音声ファイルパス (.mp4, .mp3, .wav, .m4a, .mov 等)
+  media-file                    処理対象の動画または音声ファイルパス (.mp4, .mp3, .wav, .m4a, .mov 等)
 
 Options:
-  -t, --target-lang <langs> 翻訳先の言語コード (カンマ区切りで複数指定可: ja,en,zh) (デフォルト: "ja")
-  -f, --format <formats>    出力フォーマット: srt, vtt, txt, json をカンマ区切りで指定 (デフォルト: "srt")
-  -o, --output <path>       出力する字幕ファイルの個別パス指定
-  --ffmpeg-path <path>      ffmpeg 実行ファイルのパス (未指定時は VSUB_FFMPEG_PATH または PATH を探索)
-  --whisper-prompt <text>   Groq Whisper 音声認識のヒントプロンプト (専門用語・固有名詞等)
-  --prompt <instruction>    Gemini 翻訳時のカスタム指示プロンプト (口調・文字数制限等)
-  --glossary <path-or-terms> 用語集 JSON ファイルパスまたはインライン対訳 (Key=Val,Key=Val)
-  --concurrency <number>    Gemini API への同時並行リクエスト数 (デフォルト: 3)
-  --no-cache                中間キャッシュを使用・保存せずに実行 (デフォルト: false)
-  --fresh                   既存キャッシュを無視して新規実行し、結果をキャッシュへ上書き (デフォルト: false)
-  --cache-dir <path>        カスタムキャッシュ保存ディレクトリの指定
-  --keep-audio              中間生成した音声ファイルを削除せずに保持する (デフォルト: false)
-  --no-translate            Gemini翻訳をスキップし、Groqの文字起こし結果（原語字幕）のみを出力する
-  --save-original           翻訳後字幕に加え、翻訳前の原語文字起こし字幕ファイルも同時に保存する (デフォルト: false)
-  --force-translate         検出言語と出力言語が同一の場合でも強制的にGemini翻訳を実行する (デフォルト: false)
-  --verbose                 詳細なログ（APIリクエスト等）を出力する (デフォルト: false)
-  -h, --help                ヘルプを表示
+  -t, --target-lang <langs>     翻訳先の言語コード (カンマ区切りで複数指定可: ja,en,zh) (デフォルト: "ja")
+  -f, --format <formats>        出力フォーマット: srt, vtt, txt, json をカンマ区切りで指定 (デフォルト: "srt")
+  -o, --output <path>           出力する字幕ファイルの個別パス指定
+  --ffmpeg-path <path>          ffmpeg 実行ファイルのパス (未指定時は VSUB_FFMPEG_PATH または PATH を探索)
+  --whisper-prompt <text>       Groq Whisper 音声認識のヒントプロンプト (専門用語・固有名詞等)
+  --prompt <instruction>        Gemini 翻訳時のカスタム指示プロンプト (口調・文字数制限等)
+  --glossary <path-or-terms>    用語集 JSON ファイルパスまたはインライン対訳 (Key=Val,Key=Val)
+  --concurrency <number>        Gemini API への同時並行リクエスト数 (デフォルト: 3)
+  --no-cache                    中間キャッシュを使用・保存せずに実行 (デフォルト: false)
+  --fresh                       既存キャッシュを無視して新規実行し、結果をキャッシュへ上書き (デフォルト: false)
+  --cache-dir <path>            カスタムキャッシュ保存ディレクトリの指定
+  --keep-audio                  中間生成した音声ファイルを削除せずに保持する (デフォルト: false)
+  --no-translate                Gemini翻訳をスキップし、Groqの文字起こし結果（原語字幕）のみを出力する
+  --save-original               翻訳後字幕に加え、翻訳前の原語文字起こし字幕ファイルも同時に保存する (デフォルト: false)
+  --force-translate             検出言語と出力言語が同一の場合でも強制的にGemini翻訳を実行する (デフォルト: false)
+  --verbose                     詳細なログ（APIリクエスト等）を出力する (デフォルト: false)
+  -h, --help                    ヘルプを表示
 
 Commands:
-  translate <subtitle-file> 既存の字幕ファイル (.srt) を Gemini API で直接別言語に翻訳
-  cache path                キャッシュディレクトリのパスを表示
-  cache stats               キャッシュファイル数と使用容量を表示
-  cache clean               全中間キャッシュファイルを削除
-  config path               設定ファイルの保存場所を表示
-  config show               現在の設定内容を表示 (API Key はマスク表示)
-  config set                グローバル設定に API Key や FFmpeg パス、デフォルトプロンプト、並行数を保存
-  config init               対話形式で API Key を初期設定
+  translate <subtitle-file>     既存の字幕ファイル (.srt) を Gemini API で直接別言語に翻訳
+  cache path                    キャッシュディレクトリのパスを表示
+  cache stats                   キャッシュファイル数と使用容量を表示
+  cache clean                   全中間キャッシュファイルを削除
+  config path                   設定ファイルの保存場所を表示
+  config show                   現在の設定内容を表示 (API Key はマスク表示)
+  config set                    グローバル設定に API Key や FFmpeg パス、デフォルトプロンプト、並行数を保存
+  config init                   対話形式で API Key を初期設定
 ```
 
 ---
