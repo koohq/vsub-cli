@@ -86,9 +86,7 @@ export async function translateSrtEntries(
 
   const ai = new GoogleGenAI({ apiKey });
   const modelName =
-    process.env["VSUB_GEMINI_MODEL"] ||
-    process.env["GEMINI_MODEL"] ||
-    "gemini-3.6-flash";
+    process.env["VSUB_GEMINI_MODEL"] || process.env["GEMINI_MODEL"] || "gemini-3.6-flash";
 
   const totalChunks = Math.ceil(entries.length / DEFAULT_CHUNK_SIZE);
   const translatedEntries: SrtEntry[] = [];
