@@ -46,7 +46,7 @@ export function formatFileSize(bytes: number): string {
 export interface SummaryData {
   mediaFile?: string | undefined;
   videoFile?: string | undefined;
-  mediaType?: "video" | "audio" | undefined;
+  mediaType?: "video" | "audio" | "subtitle" | undefined;
   durationMs: number;
   audioSegmentsCount?: number | undefined;
   audioTotalBytes?: number | undefined;
@@ -85,11 +85,14 @@ export function formatSummaryBox(data: SummaryData): string {
 
   const fileName = data.mediaFile ?? data.videoFile ?? "";
   const isAudio = data.mediaType === "audio";
+  const isSubtitle = data.mediaType === "subtitle";
   const mediaLabel = isAudio
     ? "対象音声"
-    : data.mediaType === "video"
-      ? "対象動画"
-      : "対象ファイル";
+    : isSubtitle
+      ? "対象字幕"
+      : data.mediaType === "video"
+        ? "対象動画"
+        : "対象ファイル";
   const audioActionLabel = isAudio ? "音声最適化" : "音声抽出";
 
   addRow(mediaLabel, pc.bold(fileName));

@@ -85,6 +85,24 @@ describe("ui module", () => {
       expect(summary).toContain("/path/to/podcast.ja.srt");
     });
 
+    it("should format summary box correctly for subtitle input", () => {
+      const summary = formatSummaryBox({
+        mediaFile: "captions.srt",
+        mediaType: "subtitle",
+        durationMs: 3400,
+        targetLanguage: "en",
+        entriesCount: 45,
+        outputFiles: ["/path/to/captions.en.srt"],
+      });
+
+      expect(summary).toContain("対象字幕");
+      expect(summary).toContain("captions.srt");
+      expect(summary).toContain("3.4s");
+      expect(summary).toContain("EN");
+      expect(summary).toContain("45 行");
+      expect(summary).toContain("/path/to/captions.en.srt");
+    });
+
     it("should indicate when translation was skipped", () => {
       const summary = formatSummaryBox({
         videoFile: "speech.mp4",

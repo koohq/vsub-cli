@@ -97,6 +97,7 @@ Options:
   -h, --help                ヘルプを表示
 
 Commands:
+  translate <subtitle-file> 既存の字幕ファイル (.srt) を Gemini API で直接別言語に翻訳
   config path               設定ファイルの保存場所を表示
   config show               現在の設定内容を表示 (API Key はマスク表示)
   config set                グローバル設定に API Key や FFmpeg パスを保存
@@ -109,6 +110,12 @@ Commands:
 # 設定の確認・初期化
 pnpm dev config show
 pnpm dev config init
+
+# 既存 SRT ファイルを直接英語に翻訳 (Groq API 不要・Gemini のみで動作)
+pnpm dev translate sample.ja.srt -t en
+
+# 既存 SRT ファイルを多言語・マルチフォーマットに一括変換 (.vtt, .txt, .json)
+pnpm dev translate sample.srt -t en -f srt,vtt,txt,json
 
 # 音声ファイル（.mp3, .wav, .m4a 等）を直接文字起こし・翻訳
 pnpm dev podcast.mp3 -t ja

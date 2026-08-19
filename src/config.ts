@@ -92,15 +92,16 @@ export function getConfig(cliFfmpegPath?: string): AppConfig {
 
 export async function ensureApiKeys(
   config: AppConfig,
-  options: { requireGemini?: boolean } = {},
+  options: { requireGroq?: boolean; requireGemini?: boolean } = {},
 ): Promise<AppConfig> {
+  const requireGroq = options.requireGroq ?? true;
   const requireGemini = options.requireGemini ?? true;
   let groqApiKey = config.groqApiKey;
   let geminiApiKey = config.geminiApiKey;
 
   const isInteractive = Boolean(process.stdin.isTTY && process.stdout.isTTY);
 
-  const missingGroq = !groqApiKey;
+  const missingGroq = requireGroq && !groqApiKey;
   const missingGemini = requireGemini && !geminiApiKey;
 
   if ((missingGroq || missingGemini) && isInteractive) {
@@ -114,7 +115,7 @@ export async function ensureApiKeys(
     });
 
     try {
-      if (!groqApiKey) {
+      if (requireGroq && !groqApiKey) {
         groqApiKey = (
           await rl.question("1. Enter Groq API Key (https://console.groq.com/): ")
         ).trim();
@@ -144,18 +145,19 @@ export async function ensureApiKeys(
     geminiApiKey,
   };
 
-  validateApiKeys(updatedConfig, { requireGemini });
+  validateApiKeys(updatedConfig, { requireGroq, requireGemini });
   return updatedConfig;
 }
 
 export function validateApiKeys(
   config: AppConfig,
-  options: { requireGemini?: boolean } = {},
+  options: { requireGroq?: boolean; requireGemini?: boolean } = {},
 ): void {
+  const requireGroq = options.requireGroq ?? true;
   const requireGemini = options.requireGemini ?? true;
   const missingKeys: string[] = [];
 
-  if (!config.groqApiKey) {
+  if (requireGroq && !config.groqApiKey) {
     missingKeys.push("VSUB_GROQ_API_KEY / GROQ_API_KEY (Get at: https://console.groq.com/)");
   }
   if (requireGemini && !config.geminiApiKey) {

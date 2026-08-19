@@ -164,5 +164,31 @@ describe("config.ts", () => {
         );
       }).not.toThrow();
     });
+
+    it("should not throw error if Groq API key is missing when requireGroq is false", () => {
+      expect(() => {
+        validateApiKeys(
+          {
+            groqApiKey: "",
+            geminiApiKey: "gem-key",
+            ffmpegPath: "ffmpeg",
+          },
+          { requireGroq: false, requireGemini: true },
+        );
+      }).not.toThrow();
+    });
+
+    it("should throw error if Gemini API key is missing when requireGroq is false and requireGemini is true", () => {
+      expect(() => {
+        validateApiKeys(
+          {
+            groqApiKey: "",
+            geminiApiKey: "",
+            ffmpegPath: "ffmpeg",
+          },
+          { requireGroq: false, requireGemini: true },
+        );
+      }).toThrow(/VSUB_GEMINI_API_KEY \/ GEMINI_API_KEY/);
+    });
   });
 });

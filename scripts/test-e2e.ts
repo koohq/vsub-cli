@@ -213,6 +213,50 @@ async function runE2ETest(): Promise<void> {
     }
   }
 
+  // 5. Test `vsub translate` subcommand on generated subtitle
+  console.log("\n🔄 Testing 'vsub translate' direct subtitle translation subcommand...");
+  const translateOutputBase = path.join(OUTPUT_DIR, "translate_e2e_sample");
+  console.log(
+    pc.dim(
+      `      node dist/index.js translate ${OUTPUT_BASE}.srt -t ja -f srt,vtt -o ${translateOutputBase}`,
+    ),
+  );
+
+  const translateStart = Date.now();
+  await execa(
+    "node",
+    [
+      "dist/index.js",
+      "translate",
+      `${OUTPUT_BASE}.srt`,
+      "-t",
+      "ja",
+      "-f",
+      "srt,vtt",
+      "-o",
+      translateOutputBase,
+    ],
+    {
+      env: process.env,
+      stdio: "inherit",
+    },
+  );
+
+  const translateElapsed = ((Date.now() - translateStart) / 1000).toFixed(2);
+  console.log(pc.green(`   ✓ 'vsub translate' completed in ${translateElapsed}s`));
+
+  const translateSrtPath = `${translateOutputBase}.srt`;
+  const translateVttPath = `${translateOutputBase}.vtt`;
+
+  if (!fs.existsSync(translateSrtPath) || !fs.existsSync(translateVttPath)) {
+    throw new Error("'vsub translate' failed to generate expected output files.");
+  }
+  console.log(
+    pc.green(
+      `   ✓ [PASS] Translated SRT (${path.basename(translateSrtPath)}) & VTT (${path.basename(translateVttPath)}) generated successfully.`,
+    ),
+  );
+
   const totalElapsed = ((Date.now() - startTime) / 1000).toFixed(2);
 
   if (!allPassed) {

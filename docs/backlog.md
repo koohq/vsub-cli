@@ -16,7 +16,7 @@
 | **Completed** | 4. ローカル E2E / 一気通貫スモークテスト機構 (`pnpm test:e2e`) | DevOps/品質 | 低 | 実ファイル・実APIによる全パイプライン自動保証 |
 | **Completed** | 5. Gemini デフォルトモデル更新 (`gemini-3.7-flash`) | 信頼性 | 低 | 最新モデルへの追従と 404/エラー解消 |
 | **Completed** | 6. 音声ファイル直接入力 (`.mp3`, `.wav`, `.m4a` 等) | 機能拡張 | 低 | ポッドキャストやボイスメモ対応 |
-| **Medium** | 7. 既存 SRT ファイル直接翻訳 (`vsub translate`) | 機能拡張 | 中 | 動画再処理なしでの再翻訳・修正後翻訳 |
+| **Completed** | 7. 既存 SRT ファイル直接翻訳 (`vsub translate`) | 機能拡張 | 中 | 動画再処理なしでの再翻訳・修正後翻訳 |
 | **Medium** | 8. 長尺音声分割時のタイムコード精度改善 | 信頼性 | 中 | 長時間動画でのミリ秒単位の字幕ズレ防止 |
 | **Medium** | 9. 中間キャッシュ & 再開 (Resume) 機構 | 信頼性 | 中 | API エラー時の文字起こしやり直しコスト削減 |
 | **Medium** | 10. 複数言語一括同時翻訳 (`-t ja,en,zh`) | 機能拡張 | 中 | 多言語展開時の API 呼び出し・時間の大幅節約 |
@@ -63,12 +63,12 @@
   * カンマ区切りによる複数フォーマット同時一括出力、フォーマットバリデーション、`--save-original` 連動対応。
 * **対応ファイル**: `src/formatter.ts`, `src/formatter.test.ts`, `src/index.ts`
 
-### 2.2 既存 SRT ファイル直接翻訳サブコマンド (`vsub translate`)
-* **背景/課題**: 既に文字起こし済みの SRT や手動修正した SRT を別言語に翻訳したい場合でも、動画ファイルからの再実行が必要になってしまう。
-* **提案内容**:
-  * `vsub translate <file.srt> -t <targetLang>` サブコマンドを新設。
-  * 音声抽出・Whisper 処理をスキップし、SRT のパース → Gemini 翻訳 → 保存のみを実行。
-* **対応スコープ**: `src/index.ts`, `src/gemini.ts`
+### 2.2 既存 SRT ファイル直接翻訳サブコマンド (`vsub translate`) 【完了】
+* **対応内容**:
+  * `vsub translate <file.srt> -t <targetLang> [-f formats] [-o output]` サブコマンドを新設。
+  * 音声抽出・Whisper 処理（Groq）をスキップし、Gemini API のみで SRT のパース → チャンク翻訳 → マルチフォーマット（`.srt`, `.vtt`, `.txt`, `.json`）保存を実行。
+  * `sample.en.srt` 等の既存言語サフィックスをスマートに置換する出力ファイル命名処理を実装。
+* **対応ファイル**: `src/index.ts`, `src/config.ts`, `src/ui.ts`, `src/ui.test.ts`, `src/config.test.ts`, `scripts/test-e2e.ts`
 
 ### 2.3 音声ファイル直接入力対応 【完了】
 * **対応内容**:

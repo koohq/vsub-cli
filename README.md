@@ -97,6 +97,7 @@ Options:
   -h, --help                Display help for command
 
 Commands:
+  translate <subtitle-file> Directly translate an existing subtitle file (.srt) into target language(s) via Gemini API
   config path               Display global configuration file path
   config show               Display current settings (API Keys are masked)
   config set                Save API Keys or FFmpeg path to global config
@@ -109,6 +110,12 @@ Commands:
 # Check or initialize configuration
 pnpm dev config show
 pnpm dev config init
+
+# Directly translate existing SRT file to English (requires Gemini only, no Groq needed)
+pnpm dev translate sample.ja.srt -t en
+
+# Translate existing SRT into multiple formats (.srt, .vtt, .txt, .json)
+pnpm dev translate sample.srt -t en -f srt,vtt,txt,json
 
 # Transcribe & translate audio files directly (.mp3, .wav, .m4a, etc.)
 pnpm dev podcast.mp3 -t ja

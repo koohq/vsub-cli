@@ -9,6 +9,7 @@ import { checkFfmpeg, extractAudio, isAudioFile } from "./ffmpeg.js";
 import { formatEntries, parseOutputFormats } from "./formatter.js";
 import { translateSrtEntries } from "./gemini.js";
 import { transcribeAudioSegments } from "./groq.js";
+import { parseSrt } from "./srt.js";
 import { createSpinner, formatFileSize, formatSummaryBox } from "./ui.js";
 
 const program = new Command();
@@ -83,6 +84,160 @@ configCmd
     });
   });
 
+// Subcommand: translate
+program
+  .command("translate")
+  .description(
+    "Directly translate an existing subtitle file (.srt) into target language(s) via Gemini API",
+  )
+  .argument("<subtitle-file>", "Input subtitle file path (.srt)")
+  .option("-t, --target-lang <lang>", "Target language code (e.g., ja, en, es)", "ja")
+  .option(
+    "-f, --format <formats>",
+    "Output formats: comma-separated list of srt, vtt, txt, json",
+    "srt",
+  )
+  .option("-o, --output <path>", "Output path or base name for the generated subtitle file")
+  .option("--gemini-key <key>", "Gemini API Key override")
+  .option("--verbose", "Output detailed log messages", false)
+  .action(async (subtitleFile: string, _actionOptions: Record<string, unknown>, cmd: Command) => {
+    const options = cmd.optsWithGlobals<{
+      targetLang: string;
+      format: string;
+      output?: string;
+      geminiKey?: string;
+      verbose?: boolean;
+    }>();
+    const startTime = Date.now();
+    const verbose = Boolean(options.verbose);
+    const spinner = createSpinner("", { isSilent: verbose });
+    const outputFiles: string[] = [];
+
+    try {
+      const outputFormats = parseOutputFormats(options.format);
+      const resolvedSubtitlePath = path.resolve(process.cwd(), subtitleFile);
+
+      if (!fs.existsSync(resolvedSubtitlePath)) {
+        throw new Error(`字幕ファイルが見つかりません: ${resolvedSubtitlePath}`);
+      }
+
+      const rawConfig = getConfig();
+      if (options.geminiKey) {
+        rawConfig.geminiApiKey = options.geminiKey.trim();
+      }
+
+      // Ensure Gemini API key (Groq key not required for translate subcommand)
+      const config = await ensureApiKeys(rawConfig, {
+        requireGroq: false,
+        requireGemini: true,
+      });
+
+      console.log(
+        `\n🌐 ${pc.bold("vsub-cli translate")} - 字幕翻訳開始: ${pc.cyan(path.basename(resolvedSubtitlePath))}`,
+      );
+
+      // 1. Read and parse subtitle file
+      spinner.start("📖 [1/3] 字幕ファイルを読み込み・パース中...");
+      const fileContent = fs.readFileSync(resolvedSubtitlePath, "utf-8");
+      const srtEntries = parseSrt(fileContent);
+
+      if (srtEntries.length === 0) {
+        throw new Error(
+          `字幕ファイルからエントリを読み取れませんでした（SRT 形式であることを確認してください）: ${path.basename(resolvedSubtitlePath)}`,
+        );
+      }
+
+      spinner.succeed(
+        `📖 [1/3] 字幕ファイル読み込み完了 - ${srtEntries.length} 行のエントリを検出`,
+      );
+
+      // 2. Gemini Translation
+      const totalChunks = Math.max(1, Math.ceil(srtEntries.length / 50));
+      spinner.start(
+        `🌐 [2/3] Gemini API で ${options.targetLang} に翻訳中 [1/${totalChunks} チャンク]...`,
+      );
+
+      const finalEntries = await translateSrtEntries(
+        srtEntries,
+        options.targetLang,
+        config.geminiApiKey,
+        verbose,
+        (currentChunk, chunksCount) => {
+          spinner.updateText(
+            `🌐 [2/3] Gemini API で ${options.targetLang} に翻訳中 [${currentChunk}/${chunksCount} チャンク]...`,
+          );
+        },
+      );
+
+      spinner.succeed(
+        `🌐 [2/3] Gemini 翻訳完了 (${options.targetLang}) - ${finalEntries.length} 行`,
+      );
+
+      // 3. Save output subtitle files
+      spinner.start("💾 [3/3] 字幕ファイルを保存中...");
+
+      const subDir = path.dirname(resolvedSubtitlePath);
+      const subExt = path.extname(resolvedSubtitlePath);
+      let subBaseName = path.basename(resolvedSubtitlePath, subExt);
+
+      // If base name ends with language tag like .en, .ja, strip it to avoid .en.ja
+      // e.g. sample.en.srt -> sample -> sample.ja.srt
+      const langSuffixMatch = subBaseName.match(/^(.+)\.([a-zA-Z]{2,3})$/);
+      if (langSuffixMatch?.[1]) {
+        subBaseName = langSuffixMatch[1];
+      }
+
+      if (options.output) {
+        const resolvedOut = path.resolve(process.cwd(), options.output);
+        if (outputFormats.length === 1) {
+          const fmt = outputFormats[0] ?? "srt";
+          fs.writeFileSync(resolvedOut, formatEntries(finalEntries, fmt), "utf-8");
+          outputFiles.push(resolvedOut);
+        } else {
+          const parsedOut = path.parse(resolvedOut);
+          for (const fmt of outputFormats) {
+            const outFilePath = path.join(parsedOut.dir, `${parsedOut.name}.${fmt}`);
+            fs.writeFileSync(outFilePath, formatEntries(finalEntries, fmt), "utf-8");
+            outputFiles.push(outFilePath);
+          }
+        }
+      } else {
+        for (const fmt of outputFormats) {
+          const outFilePath = path.join(subDir, `${subBaseName}.${options.targetLang}.${fmt}`);
+          fs.writeFileSync(outFilePath, formatEntries(finalEntries, fmt), "utf-8");
+          outputFiles.push(outFilePath);
+        }
+      }
+
+      const formatListStr = outputFormats.map((f) => f.toUpperCase()).join(", ");
+      spinner.succeed(`💾 [3/3] 字幕ファイルを保存完了 (${formatListStr})`);
+
+      // 4. Output Summary Box
+      const durationMs = Date.now() - startTime;
+      console.log(
+        "\n" +
+          formatSummaryBox({
+            mediaFile: path.basename(resolvedSubtitlePath),
+            mediaType: "subtitle",
+            durationMs,
+            targetLanguage: options.targetLang,
+            entriesCount: finalEntries.length,
+            outputFiles,
+            skippedTranslation: false,
+          }) +
+          "\n",
+      );
+    } catch (error) {
+      spinner.fail(
+        `処理中にエラーが発生しました: ${error instanceof Error ? error.message : String(error)}`,
+      );
+      if (verbose && error instanceof Error && error.stack) {
+        console.error(error.stack);
+      }
+      process.exit(1);
+    }
+  });
+
 // Main action (Media processing)
 program
   .argument("[media-file]", "Target video or audio file path (.mp4, .mp3, .wav, .m4a, .mov, etc.)")
@@ -113,7 +268,10 @@ program
   .action(
     async (
       mediaFile: string | undefined,
-      options: {
+      _actionOptions: Record<string, unknown>,
+      cmd: Command,
+    ) => {
+      const options = cmd.optsWithGlobals<{
         targetLang: string;
         format: string;
         output?: string;
@@ -123,8 +281,7 @@ program
         saveOriginal?: boolean;
         forceTranslate?: boolean;
         verbose?: boolean;
-      },
-    ) => {
+      }>();
       if (!mediaFile) {
         program.help();
         return;
