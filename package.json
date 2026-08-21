@@ -2,7 +2,7 @@
   "name": "vsub-cli",
   "version": "0.1.0",
   "packageManager": "pnpm@11.22.0",
-  "description": "CLI tool to extract audio, transcribe with Groq API, and translate subtitles using Google Gemini API",
+  "description": "CLI tool to extract audio, transcribe speech with Groq Whisper, and translate subtitles using Google Gemini API",
   "type": "module",
   "bin": {
     "vsub": "./dist/index.js"
@@ -29,12 +29,15 @@
   },
   "keywords": [
     "cli",
+    "subtitles",
     "subtitle",
     "srt",
+    "vtt",
     "whisper",
     "groq",
     "gemini",
-    "translation"
+    "translation",
+    "transcription"
   ],
   "license": "Unlicense",
   "repository": {
