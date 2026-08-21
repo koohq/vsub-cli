@@ -25,7 +25,7 @@
 | **Completed** | 19. モデル指定オプション (`--gemini-model`, `--groq-model`) | 機能拡張 | 低 | 将来の新世代モデルや特定モデルへの柔軟な切り替え | **完了** |
 | **Completed** | 14. 動画への字幕焼き込み (Hardsub / Burn-in) | 機能拡張 | 中 | 字幕入り mp4 のワンストップ出力 | **完了** |
 | **Completed** | 15. ファイル上書き防止 / バックアップセーフティ | CLI UX | 低 | 既存ファイルの誤削除・上書き防止 | **完了** |
-| **Medium** | 11. テストカバレッジ計測 & レポート (`vitest --coverage`) | DevOps/品質 | 低 | テスト網羅率の可視化と維持 | 未着手 |
+| **Completed** | 11. テストカバレッジ計測 & レポート (`vitest --coverage`) | DevOps/品質 | 低 | テスト網羅率の可視化と維持 | **完了** |
 | **Medium** | 18. GitHub Actions CI (Node マトリックス + FFmpeg 実機) & Dependabot | DevOps/CI | 低 | 複数 Node.js 互換性保証と依存関係・脆弱性の自動更新 | 未着手 |
 | **Medium** | 16. npm 公開 & Release Please 全自動リリースパイプライン | DevOps/配布 | 低〜中 | トランク開発を維持した SemVer / CHANGELOG / npm publish 自動化 | 未着手 |
 | **Low** | 17. GitHub Releases & スタンドアロンバイナリ配布 | DevOps | 中 | Node.js 未導入ユーザー向け単体バイナリ配布 | 未着手 |
@@ -113,18 +113,18 @@
 * 処理結果サマリー (`formatSummaryBox`) へのバックアップファイル一覧表示。
 * **対応ファイル**: `src/safety.ts`, `src/safety.test.ts`, `src/ui.ts`, `src/ui.test.ts`, `src/index.ts`
 
+### 1.13 テストカバレッジ計測 & レポート (`vitest --coverage`)
+* `@vitest/coverage-v8` を導入し、`pnpm test:coverage` スクリプトを追加。
+* `vitest.config.ts` でカバレッジ対象（`src/**/*.ts`）および除外設定（`src/index.ts`, `**/*.test.ts`）を構成。
+* HTML レポート（`coverage/`）、テキストサマリー、JSON サマリーを自動生成。
+* 全 11 コアモジュールで 80% 超のラインカバレッジおよび 100% の関数カバレッジ（主要モジュール）を達成。
+* **対応ファイル**: `package.json`, `vitest.config.ts`, `biome.json`
+
 ---
 
 ## 2. 今後の改善バックログ (Backlog & Future Work)
 
-### 2.1 テストカバレッジ計測 & レポート (`vitest --coverage`) 【優先度: Medium】
-* **背景/課題**: 単体テストの網羅率（C0/C1 カバレッジ）が数値化されていない。
-* **提案内容**:
-  * `@vitest/coverage-v8` を導入し、`package.json` に `"test:coverage": "vitest run --coverage"` スクリプトを追加。
-  * `vitest.config.ts` でカバレッジ対象（`src/**/*.ts`）および除外設定（`src/index.ts`, `**/*.test.ts` 等）を構成。
-* **対応スコープ**: `package.json`, `vitest.config.ts`
-
-### 2.2 npm パッケージ公開 & Release Please 全自動リリースパイプライン 【優先度: Medium】
+### 2.1 npm パッケージ公開 & Release Please 全自動リリースパイプライン 【優先度: Medium】
 * **背景/課題**: リポジトリを clone せずに `npx vsub-cli <video.mp4>` や `npm i -g vsub-cli` で誰でもワンライナー実行可能にし、かつトランク開発の身軽さを損なわずにリリースを全自動化したい。
 * **提案内容**:
   * **パッケージ設定最適化**:

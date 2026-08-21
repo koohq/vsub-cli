@@ -14,6 +14,7 @@
     "lint": "biome lint .",
     "format": "biome format --write .",
     "test": "vitest run",
+    "test:coverage": "vitest run --coverage",
     "test:watch": "vitest",
     "test:e2e": "tsx scripts/test-e2e.ts",
     "fixtures:setup": "tsx scripts/setup-fixtures.ts",
@@ -45,6 +46,7 @@
     "@tsconfig/node26": "^26.0.0",
     "@tsconfig/strictest": "^2.0.8",
     "@types/node": "^22.5.0",
+    "@vitest/coverage-v8": "^4.1.10",
     "tsx": "^4.19.0",
     "typescript": "^7.0.2",
     "vitest": "^4.1.10"
