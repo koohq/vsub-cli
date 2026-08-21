@@ -1,0 +1,41 @@
+name: "Setup Node.js and pnpm Environment"
+description: "Composite action to setup pnpm, Node.js with cache, and install dependencies"
+
+inputs:
+  node-version:
+    description: "Specific Node.js version (optional, if omitted node-version-file is used)"
+    required: false
+    default: ""
+  node-version-file:
+    description: "Path to file containing Node.js version"
+    required: false
+    default: ".node-version"
+  install-deps:
+    description: "Whether to run pnpm install --frozen-lockfile"
+    required: false
+    default: "true"
+
+runs:
+  using: "composite"
+  steps:
+    - name: Setup pnpm
+      uses: pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86 # v6.0.10
+
+    - name: Setup Node.js (from version)
+      if: inputs.node-version != ''
+      uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+      with:
+        node-version: ${{ inputs.node-version }}
+        cache: "pnpm"
+
+    - name: Setup Node.js (from version file)
+      if: inputs.node-version == ''
+      uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+      with:
+        node-version-file: ${{ inputs.node-version-file }}
+        cache: "pnpm"
+
+    - name: Install dependencies
+      if: inputs.install-deps == 'true'
+      shell: bash
+      run: pnpm install --frozen-lockfile
