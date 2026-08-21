@@ -27,8 +27,7 @@
 | **Completed** | 15. ファイル上書き防止 / バックアップセーフティ | CLI UX | 低 | 既存ファイルの誤削除・上書き防止 | **完了** |
 | **Completed** | 11. テストカバレッジ計測 & レポート (`vitest --coverage`) | DevOps/品質 | 低 | テスト網羅率の可視化と維持 | **完了** |
 | **Completed** | 18. GitHub Actions CI (Node マトリックス + FFmpeg 実機) & Dependabot | DevOps/CI | 低 | 複数 Node.js 互換性保証と依存関係・脆弱性の自動更新 | **完了** |
-| **Completed** | 21. OSS 運用テンプレート & ガイドライン整備 (`CONTRIBUTING.md`, Issue テンプレート) | 運用/コミュニティ | 低 | Issue/PR テンプレート・トランク開発方針・PR 対応ポリシーの明記 | **完了** |
-| **Medium** | 16. npm 公開 & Release Please 全自動リリースパイプライン | DevOps/配布 | 低〜中 | トランク開発を維持した SemVer / CHANGELOG / npm publish 自動化 | 未着手 |
+| **Completed** | 16. npm 公開 & Release Please 全自動リリースパイプライン | DevOps/配布 | 低〜中 | トランク開発を維持した SemVer / CHANGELOG / npm publish 自動化 | **完了** |
 | **Low** | 17. GitHub Releases & スタンドアロンバイナリ配布 | DevOps | 中 | Node.js 未導入ユーザー向け単体バイナリ配布 | 未着手 |
 | **Low** | 20. AI モデル新着自動監視 & 重複防止 Issue 通知ワークフロー | DevOps/自動化 | 低 | Groq / Gemini API の新モデル検知と自動 Issue 起票 | 未着手 |
 
@@ -140,33 +139,30 @@
   * The Unlicense に基づく無償・無保証・ベストエフォート運用方針の明文化。
 * **パッケージメタデータ整備 (`package.json`)**:
   * `repository`, `homepage`, `bugs`, `files` を設定し、OSS リポジトリとしての完全性を担保。
-* **対応ファイル**: `.github/ISSUE_TEMPLATE/*`, `.github/PULL_REQUEST_TEMPLATE.md`, `CONTRIBUTING.md`, `package.json`, `docs/backlog.md`
+### 1.16 npm 公開 & Release Please 全自動リリースパイプライン
+* **Release Please ワークフロー (`.github/workflows/release.yml`)**:
+  * Google 製 `google-github-actions/release-please-action` を導入。
+  * Conventional Commits (`feat:`, `fix:`, `refactor:`, `chore:` 等) に連動して `chore: release vX.Y.Z` リリース準備 PR を自動生成・更新。
+  * リリース PR マージ時に GitHub Tag (`vX.Y.Z`)、GitHub Releases、および `CHANGELOG.md` を自動更新。
+* **npm Publish 自動化 (Provenance 付き)**:
+  * リリース PR マージを契機に `pnpm build` を実行し、`pnpm publish --provenance --access public` で npm レジストリへ自動公開。
+  * `package.json` の `prepublishOnly`（`pnpm check && pnpm test && pnpm build`）により、不完全な状態での公開を防止。
+  * `publishConfig` (`access: "public"`, `provenance: true`) を構成。
+* **設定ファイル**: `release-please-config.json`, `.release-please-manifest.json`
+* **対応ファイル**: `.github/workflows/release.yml`, `release-please-config.json`, `.release-please-manifest.json`, `package.json`, `docs/backlog.md`
 
 ---
 
 ## 2. 今後の改善バックログ (Backlog & Future Work)
 
-### 2.1 npm パッケージ公開 & Release Please 全自動リリースパイプライン 【優先度: Medium】
-* **背景/課題**: リポジトリを clone せずに `npx vsub-cli <video.mp4>` や `npm i -g vsub-cli` で誰でもワンライナー実行可能にし、かつトランク開発の身軽さを損なわずにリリースを全自動化したい。
-* **提案内容**:
-  * **パッケージ設定最適化**:
-    * `package.json` の `files` フィールドに `["dist", "README.md", "README.ja.md", "LICENSE"]` を指定し、公開バイナリを極限まで軽量化（設定完了）。
-    * `prepublishOnly` スクリプトに `pnpm check && pnpm test && pnpm build` を設定し、ビルド漏れ・テスト未通過の事故を防止。
-    * メタデータ（`repository`, `keywords`, `bugs`, `homepage` 等）を整備（設定完了）。
-  * **Release Please (Google 製 GitHub Action) の導入**:
-    * Conventional Commits (`feat: ...`, `fix: ...`) のコミットログを監視し、`chore: release vX.Y.Z` というリリース待機用 PR を裏で自動更新。
-    * 開発者は日々の作業をトランク（`main`）に直接コミット/マージするだけでよく、重たい Git-flow 運用は不要。
-    * キリの良いタイミングでリリース PR をマージするだけで、GitHub Tag / Release 発行、CHANGELOG.md 更新、および npm への自動 publish（Provenance 付き）を一気通貫で実行。
-* **対応スコープ**: `package.json`, `.github/workflows/release.yml`
-
-### 2.2 GitHub Releases & スタンドアロンバイナリ配布 【優先度: Low】
+### 2.1 GitHub Releases & スタンドアロンバイナリ配布 【優先度: Low】
 * **背景/課題**: Node.js や pnpm をインストールしていない一般ユーザー向けに単体実行バイナリを提供したい。
 * **提案内容**:
   * Node.js SEA (Single Executable Applications) 等を用いて、Windows (`.exe`), macOS, Linux 向けの単体実行バイナリをビルド。
   * GitHub Releases に各 OS 向けバイナリを自動アップロードする Release ワークフローの構築。
 * **対応スコープ**: `.github/workflows/release.yml`, ビルドスクリプト
 
-### 2.3 AI モデル新着自動監視 & 重複防止 Issue 通知ワークフロー 【優先度: Low】
+### 2.2 AI モデル新着自動監視 & 重複防止 Issue 通知ワークフロー 【優先度: Low】
 * **背景/課題**: Gemini / Groq の新モデルリリースを迅速にキャッチしたいが、手動巡回の手間やノイズは最小化したい。
 * **提案内容**:
   * GitHub Actions の定期 cron 実行（週1回等）で Gemini / Groq のモデル一覧 API を取得。

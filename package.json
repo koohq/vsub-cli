@@ -20,7 +20,12 @@
     "test:e2e": "tsx scripts/test-e2e.ts",
     "fixtures:setup": "tsx scripts/setup-fixtures.ts",
     "deps:semver": "pnpm up -r",
-    "deps:manual": "pnpm up -r -i --latest"
+    "deps:manual": "pnpm up -r -i --latest",
+    "prepublishOnly": "pnpm check && pnpm test && pnpm build"
+  },
+  "publishConfig": {
+    "access": "public",
+    "provenance": true
   },
   "keywords": [
     "cli",
