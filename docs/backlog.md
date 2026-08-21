@@ -27,10 +27,10 @@
 | **Completed** | 15. ファイル上書き防止 / バックアップセーフティ | CLI UX | 低 | 既存ファイルの誤削除・上書き防止 | **完了** |
 | **Completed** | 11. テストカバレッジ計測 & レポート (`vitest --coverage`) | DevOps/品質 | 低 | テスト網羅率の可視化と維持 | **完了** |
 | **Completed** | 18. GitHub Actions CI (Node マトリックス + FFmpeg 実機) & Dependabot | DevOps/CI | 低 | 複数 Node.js 互換性保証と依存関係・脆弱性の自動更新 | **完了** |
+| **Completed** | 21. OSS 運用テンプレート & ガイドライン整備 (`CONTRIBUTING.md`, Issue テンプレート) | 運用/コミュニティ | 低 | Issue/PR テンプレート・トランク開発方針・PR 対応ポリシーの明記 | **完了** |
 | **Medium** | 16. npm 公開 & Release Please 全自動リリースパイプライン | DevOps/配布 | 低〜中 | トランク開発を維持した SemVer / CHANGELOG / npm publish 自動化 | 未着手 |
 | **Low** | 17. GitHub Releases & スタンドアロンバイナリ配布 | DevOps | 中 | Node.js 未導入ユーザー向け単体バイナリ配布 | 未着手 |
 | **Low** | 20. AI モデル新着自動監視 & 重複防止 Issue 通知ワークフロー | DevOps/自動化 | 低 | Groq / Gemini API の新モデル検知と自動 Issue 起票 | 未着手 |
-| **Low** | 21. OSS 運用テンプレート & ガイドライン整備 | 運用/コミュニティ | 低 | Issue/PR テンプレート・トランク開発方針・PR 対応ポリシーの明記 | 未着手 |
 
 ---
 
@@ -129,6 +129,19 @@
   * **Major (破壊的変更)**: 自動マージせず PR 作成にとどめ、CHANGELOG 手動確認後にマージ。
 * **対応ファイル**: `.github/workflows/ci.yml`, `.github/dependabot.yml`, `.github/workflows/dependabot-auto-merge.yml`, `docs/backlog.md`
 
+### 1.15 OSS 運用テンプレート & ガイドライン整備 & リポジトリメタデータ
+* **Issue / PR テンプレート (`.github/ISSUE_TEMPLATE/`, `.github/PULL_REQUEST_TEMPLATE.md`)**:
+  * `bug_report.yml`: OS、Node.js バージョン、FFmpeg バージョン、実行コマンド、エラーログ入力を構造化。
+  * `feature_request.yml`: 課題と提案内容の明記を促す構造化フォーム。
+  * `config.yml`: GitHub Discussions への誘導リンク。
+  * `PULL_REQUEST_TEMPLATE.md`: 変更概要および検証チェックリスト（`pnpm check`, `pnpm test`, `pnpm build`）。
+* **コントリビューション規約 (`CONTRIBUTING.md`)**:
+  * トランクベース開発（`main` 直接マージ運用）の推奨。
+  * The Unlicense に基づく無償・無保証・ベストエフォート運用方針の明文化。
+* **パッケージメタデータ整備 (`package.json`)**:
+  * `repository`, `homepage`, `bugs`, `files` を設定し、OSS リポジトリとしての完全性を担保。
+* **対応ファイル**: `.github/ISSUE_TEMPLATE/*`, `.github/PULL_REQUEST_TEMPLATE.md`, `CONTRIBUTING.md`, `package.json`, `docs/backlog.md`
+
 ---
 
 ## 2. 今後の改善バックログ (Backlog & Future Work)
@@ -137,9 +150,9 @@
 * **背景/課題**: リポジトリを clone せずに `npx vsub-cli <video.mp4>` や `npm i -g vsub-cli` で誰でもワンライナー実行可能にし、かつトランク開発の身軽さを損なわずにリリースを全自動化したい。
 * **提案内容**:
   * **パッケージ設定最適化**:
-    * `package.json` の `files` フィールドに `["dist", "README.md", "README.ja.md", "LICENSE"]` を指定し、公開バイナリを極限まで軽量化。
+    * `package.json` の `files` フィールドに `["dist", "README.md", "README.ja.md", "LICENSE"]` を指定し、公開バイナリを極限まで軽量化（設定完了）。
     * `prepublishOnly` スクリプトに `pnpm check && pnpm test && pnpm build` を設定し、ビルド漏れ・テスト未通過の事故を防止。
-    * メタデータ（`repository`, `keywords`, `bugs`, `homepage` 等）を整備。
+    * メタデータ（`repository`, `keywords`, `bugs`, `homepage` 等）を整備（設定完了）。
   * **Release Please (Google 製 GitHub Action) の導入**:
     * Conventional Commits (`feat: ...`, `fix: ...`) のコミットログを監視し、`chore: release vX.Y.Z` というリリース待機用 PR を裏で自動更新。
     * 開発者は日々の作業をトランク（`main`）に直接コミット/マージするだけでよく、重たい Git-flow 運用は不要。
@@ -160,12 +173,3 @@
   * 主要プレフィックス（`gemini-*-flash`, `whisper-*` 等）の新規モデルを検知した場合、GitHub CLI（`gh issue create`）で Issue を自動起票。
   * すでに同一タイトルの Open Issue が存在する場合は作成をスキップし、Issue 乱立・重複通知を防止。
 * **対応スコープ**: `.github/workflows/model-watch.yml`
-
-### 2.4 OSS 運用テンプレート & ガイドライン整備 【優先度: Low】
-* **背景/課題**: OSS 公開後に外部ユーザーからの不完全な Issue や過大な PR でメンテナーが消耗するのを防ぎ、トランク開発の身軽さを維持する。
-* **提案内容**:
-  * **Issue テンプレート (`.github/ISSUE_TEMPLATE/`)**: バグ報告時に OS、Node.js バージョン、実行コマンド、エラーログの添付を必須化。
-  * **PR テンプレート & `CONTRIBUTING.md`**:
-    * 「トランクベース開発」「無償・無保証・ベストエフォート（The Unlicense）」の明記。
-    * コア設計に合わない機能追加 PR は丁重に見送る（Fork 推奨）という方針を明文化し、心理的負担をゼロ化。
-* **対応スコープ**: `.github/ISSUE_TEMPLATE/`, `CONTRIBUTING.md`

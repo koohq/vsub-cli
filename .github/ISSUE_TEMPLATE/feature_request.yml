@@ -1,0 +1,30 @@
+name: Feature Request
+description: Suggest an idea or feature enhancement for vsub-cli
+title: "[Feature]: "
+labels: ["enhancement"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thank you for suggesting a feature! Please check existing issues first.
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem Description
+      description: Is your feature request related to a problem? Please describe clearly.
+      placeholder: "I'm always frustrated when..."
+    validations:
+      required: true
+  - type: textarea
+    id: solution
+    attributes:
+      label: Proposed Solution
+      description: Describe the solution or CLI behavior you would like to see.
+      placeholder: "Add option --example to..."
+    validations:
+      required: true
+  - type: textarea
+    id: context
+    attributes:
+      label: Additional Context
+      description: Add any other context, CLI mockups, or screenshots about the feature request.
