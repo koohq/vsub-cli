@@ -206,30 +206,40 @@ describe("cache module", () => {
   });
 
   describe("isTranscriptionCacheValid and isTranslationCacheValid", () => {
-    it("should check transcription cache prompt match", () => {
+    it("should check transcription cache prompt and model match", () => {
       const cached = {
         entries: [],
         prompt: "MyWhisperPrompt",
+        model: "whisper-large-v3-turbo",
         createdAt: Date.now(),
       };
       expect(isTranscriptionCacheValid(cached)).toBe(true);
       expect(isTranscriptionCacheValid(cached, "MyWhisperPrompt")).toBe(true);
+      expect(isTranscriptionCacheValid(cached, "MyWhisperPrompt", "whisper-large-v3-turbo")).toBe(
+        true,
+      );
       expect(isTranscriptionCacheValid(cached, "DifferentPrompt")).toBe(false);
+      expect(isTranscriptionCacheValid(cached, "MyWhisperPrompt", "whisper-large-v3")).toBe(false);
       expect(isTranscriptionCacheValid(undefined)).toBe(false);
     });
 
-    it("should check translation cache prompt and glossaryHash match", () => {
+    it("should check translation cache prompt, glossaryHash, and model match", () => {
       const cached = {
         targetLang: "ja",
         entries: [],
+        model: "gemini-3.7-flash",
         prompt: "MyPrompt",
         glossaryHash: "hash123",
         createdAt: Date.now(),
       };
       expect(isTranslationCacheValid(cached)).toBe(true);
       expect(isTranslationCacheValid(cached, "MyPrompt", "hash123")).toBe(true);
+      expect(isTranslationCacheValid(cached, "MyPrompt", "hash123", "gemini-3.7-flash")).toBe(true);
       expect(isTranslationCacheValid(cached, "DifferentPrompt", "hash123")).toBe(false);
       expect(isTranslationCacheValid(cached, "MyPrompt", "differentHash")).toBe(false);
+      expect(isTranslationCacheValid(cached, "MyPrompt", "hash123", "gemini-2.5-flash")).toBe(
+        false,
+      );
       expect(isTranslationCacheValid(undefined)).toBe(false);
     });
   });

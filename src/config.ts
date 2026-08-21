@@ -21,6 +21,9 @@ function loadEnv(): void {
 }
 loadEnv();
 
+export const DEFAULT_GEMINI_MODEL = "gemini-3.7-flash";
+export const DEFAULT_GROQ_MODEL = "whisper-large-v3-turbo";
+
 export interface AppConfig {
   groqApiKey: string;
   geminiApiKey: string;
@@ -29,6 +32,8 @@ export interface AppConfig {
   prompt?: string | undefined;
   glossary?: string | undefined;
   concurrency?: number | undefined;
+  geminiModel?: string | undefined;
+  groqModel?: string | undefined;
 }
 
 export function getGlobalConfigPath(): string {
@@ -118,6 +123,18 @@ export function getConfig(cliFfmpegPath?: string): AppConfig {
     concurrency = Math.floor(Number(globalConfig.concurrency));
   }
 
+  const geminiModel =
+    process.env["VSUB_GEMINI_MODEL"]?.trim() ||
+    process.env["GEMINI_MODEL"]?.trim() ||
+    globalConfig.geminiModel?.trim() ||
+    DEFAULT_GEMINI_MODEL;
+
+  const groqModel =
+    process.env["VSUB_GROQ_MODEL"]?.trim() ||
+    process.env["GROQ_MODEL"]?.trim() ||
+    globalConfig.groqModel?.trim() ||
+    DEFAULT_GROQ_MODEL;
+
   return {
     groqApiKey,
     geminiApiKey,
@@ -126,6 +143,8 @@ export function getConfig(cliFfmpegPath?: string): AppConfig {
     prompt,
     glossary,
     concurrency,
+    geminiModel,
+    groqModel,
   };
 }
 

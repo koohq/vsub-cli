@@ -143,6 +143,24 @@ describe("config.ts", () => {
       expect(config.concurrency).toBeUndefined();
     });
 
+    it("should resolve geminiModel and groqModel from environment variables", () => {
+      process.env["VSUB_GEMINI_MODEL"] = "gemini-2.5-flash";
+      process.env["VSUB_GROQ_MODEL"] = "whisper-large-v3";
+
+      const config = getConfig();
+      expect(config.geminiModel).toBe("gemini-2.5-flash");
+      expect(config.groqModel).toBe("whisper-large-v3");
+    });
+
+    it("should fallback to standard model environment variables", () => {
+      process.env["GEMINI_MODEL"] = "gemini-custom";
+      process.env["GROQ_MODEL"] = "groq-custom";
+
+      const config = getConfig();
+      expect(config.geminiModel).toBe("gemini-custom");
+      expect(config.groqModel).toBe("groq-custom");
+    });
+
     it("should fallback to default values when nothing is configured", () => {
       const config = getConfig();
       expect(config.groqApiKey).toBe("");
@@ -152,6 +170,8 @@ describe("config.ts", () => {
       expect(config.prompt).toBeUndefined();
       expect(config.glossary).toBeUndefined();
       expect(config.concurrency).toBeUndefined();
+      expect(config.geminiModel).toBe("gemini-3.7-flash");
+      expect(config.groqModel).toBe("whisper-large-v3-turbo");
     });
   });
 

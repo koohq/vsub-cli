@@ -74,6 +74,11 @@ export function normalizeLanguageCode(lang?: string): string | undefined {
   return cleaned;
 }
 
+export interface TranscribeAudioOptions {
+  prompt?: string | undefined;
+  model?: string | undefined;
+}
+
 /**
  * Calls Groq Audio Transcription API (whisper-large-v3-turbo) for a given audio file path.
  * Returns array of SrtEntry objects and detected language code.
@@ -83,18 +88,25 @@ export async function transcribeAudioWithGroq(
   apiKey: string,
   timeOffsetSeconds = 0,
   verbose = false,
-  options?: { prompt?: string | undefined },
+  options?: TranscribeAudioOptions,
 ): Promise<TranscriptionResult> {
   const groq = new Groq({ apiKey });
+  const model =
+    options?.model ||
+    process.env["VSUB_GROQ_MODEL"] ||
+    process.env["GROQ_MODEL"] ||
+    "whisper-large-v3-turbo";
 
   if (verbose) {
     const promptInfo = options?.prompt ? ` (prompt: "${options.prompt.slice(0, 30)}...")` : "";
-    console.log(`[Groq API] Requesting Whisper transcription: ${audioPath}${promptInfo}`);
+    console.log(
+      `[Groq API] Requesting Whisper transcription [model: ${model}]: ${audioPath}${promptInfo}`,
+    );
   }
 
   const response = await groq.audio.transcriptions.create({
     file: fs.createReadStream(audioPath),
-    model: "whisper-large-v3-turbo",
+    model,
     response_format: "verbose_json",
     ...(options?.prompt ? { prompt: options.prompt } : {}),
   });
@@ -126,6 +138,7 @@ export async function transcribeAudioWithGroq(
 
 export interface TranscribeAudioSegmentsOptions {
   prompt?: string | undefined;
+  model?: string | undefined;
   durations?: number[] | undefined;
 }
 

@@ -67,6 +67,8 @@ vsub <media-file> [options]
 * `--prompt <instruction>`: Gemini 翻訳時のカスタム指示プロンプト（口調、スタイル、文字数制限等）。
 * `--glossary <path-or-terms>`: 用語集 JSON ファイルパスまたはインライン対訳（`Key=Val,Key=Val`）。
 * `--concurrency <number>`: Gemini API への同時並行リクエスト数（デフォルト: `3`）。
+* `--gemini-model <model>`: Gemini 翻訳モデルの指定（デフォルト: `gemini-3.7-flash`）。
+* `--groq-model <model>`: Groq Whisper 文字起こしモデルの指定（デフォルト: `whisper-large-v3-turbo`）。
 * `--no-cache`: 中間キャッシュを使用・保存せずに実行。
 * `--fresh`: 既存キャッシュを無視して新規実行し、結果をキャッシュへ上書き。
 * `--cache-dir <path>`: カスタムキャッシュ保存ディレクトリの指定。
@@ -81,7 +83,7 @@ vsub <media-file> [options]
 vsub translate <subtitle-file> [options]
 ```
 * `<subtitle-file>`: 翻訳対象の既存 SRT 字幕ファイルパス。
-* オプション: `-t, --target-lang`, `-f, --format`, `-o, --output`, `--prompt`, `--glossary`, `--concurrency`, `--no-cache`, `--fresh`, `--cache-dir`, `--verbose` をサポート。
+* オプション: `-t, --target-lang`, `-f, --format`, `-o, --output`, `--prompt`, `--glossary`, `--concurrency`, `--gemini-model`, `--no-cache`, `--fresh`, `--cache-dir`, `--verbose` をサポート。
 * 音声抽出および Groq 文字起こしをスキップし、Gemini API による高速翻訳・フォーマット変換のみを実行。
 
 ### 3) キャッシュ管理サブコマンド (`vsub cache`)
@@ -91,8 +93,8 @@ vsub translate <subtitle-file> [options]
 
 ### 4) 設定管理サブコマンド (`vsub config`)
 * `vsub config path`: グローバル設定ファイル（`config.json`）の保存パスを表示。
-* `vsub config show`: 現在設定されている API キー（マスク表示）、FFmpeg パス、デフォルトプロンプト、並行度等を表示。
-* `vsub config set [--groq-key <key>] [--gemini-key <key>] [--ffmpeg-path <path>] [--whisper-prompt <text>] [--prompt <text>] [--glossary <path-or-terms>] [--concurrency <num>]`: 各種設定をグローバルに永続保存。
+* `vsub config show`: 現在設定されている API キー（マスク表示）、FFmpeg パス、モデル、デフォルトプロンプト、並行度等を表示。
+* `vsub config set [--groq-key <key>] [--gemini-key <key>] [--ffmpeg-path <path>] [--gemini-model <model>] [--groq-model <model>] [--whisper-prompt <text>] [--prompt <text>] [--glossary <path-or-terms>] [--concurrency <num>]`: 各種設定をグローバルに永続保存。
 * `vsub config init`: 対話型（プロンプト）で API キーを入力・初期設定。
 
 ---

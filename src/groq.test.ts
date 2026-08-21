@@ -135,6 +135,23 @@ describe("groq.ts", () => {
         }),
       );
     });
+
+    it("should pass custom model to Groq API client if provided", async () => {
+      mockCreateTranscription.mockResolvedValueOnce({
+        language: "japanese",
+        segments: [{ id: 0, start: 0, end: 1, text: "テスト" }],
+      });
+
+      await transcribeAudioWithGroq("dummy.m4a", "fake-api-key", 0, false, {
+        model: "whisper-large-v3",
+      });
+
+      expect(mockCreateTranscription).toHaveBeenCalledWith(
+        expect.objectContaining({
+          model: "whisper-large-v3",
+        }),
+      );
+    });
   });
 
   describe("transcribeAudioSegments", () => {

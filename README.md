@@ -98,6 +98,8 @@ Options:
   --prompt <instruction>        Additional instruction prompt for Gemini translation (tone, style, brevity)
   --glossary <path-or-terms>    Glossary file path (JSON) or inline terms (Key=Val,Key=Val)
   --concurrency <number>        Number of concurrent translation requests to Gemini API (default: 3)
+  --gemini-model <model>        Gemini translation model (default: gemini-3.7-flash)
+  --groq-model <model>          Groq Whisper transcription model (default: whisper-large-v3-turbo)
   --no-cache                    Do not use or save intermediate cache (default: false)
   --fresh                       Ignore existing cache and generate fresh output, overwriting cache (default: false)
   --cache-dir <path>            Custom cache directory path

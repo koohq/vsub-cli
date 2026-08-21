@@ -22,26 +22,35 @@ export interface CachedTranslation {
 }
 
 /**
- * Checks if cached transcription matches current prompt requirements.
+ * Checks if cached transcription matches current prompt and model requirements.
  */
 export function isTranscriptionCacheValid(
   cached: CachedTranscription | undefined,
   currentPrompt?: string,
+  currentModel?: string,
 ): boolean {
   if (!cached) return false;
   if (currentPrompt !== undefined && (cached.prompt ?? "") !== currentPrompt.trim()) {
+    return false;
+  }
+  if (
+    currentModel !== undefined &&
+    cached.model !== undefined &&
+    cached.model !== currentModel.trim()
+  ) {
     return false;
   }
   return true;
 }
 
 /**
- * Checks if cached translation matches current prompt and glossary requirements.
+ * Checks if cached translation matches current prompt, glossary, and model requirements.
  */
 export function isTranslationCacheValid(
   cached: CachedTranslation | undefined,
   currentPrompt?: string,
   currentGlossaryHash?: string,
+  currentModel?: string,
 ): boolean {
   if (!cached) return false;
   if (currentPrompt !== undefined && (cached.prompt ?? "") !== currentPrompt.trim()) {
@@ -50,6 +59,13 @@ export function isTranslationCacheValid(
   if (
     currentGlossaryHash !== undefined &&
     (cached.glossaryHash ?? "") !== currentGlossaryHash.trim()
+  ) {
+    return false;
+  }
+  if (
+    currentModel !== undefined &&
+    cached.model !== undefined &&
+    cached.model !== currentModel.trim()
   ) {
     return false;
   }

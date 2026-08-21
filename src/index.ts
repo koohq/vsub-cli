@@ -103,18 +103,28 @@ configCmd
     if (resolvedConfig.glossary) {
       console.log(`Glossary       : "${resolvedConfig.glossary}"`);
     }
-    if (resolvedConfig.concurrency) {
-      console.log(`Concurrency    : ${resolvedConfig.concurrency}`);
+    if (resolvedConfig.geminiModel) {
+      console.log(`Gemini Model   : ${resolvedConfig.geminiModel}`);
+    }
+    if (resolvedConfig.groqModel) {
+      console.log(`Groq Model     : ${resolvedConfig.groqModel}`);
     }
     console.log("----------------------------------------\n");
   });
 
 configCmd
   .command("set")
-  .description("Save API Keys, prompts, glossary, concurrency, or FFmpeg path to global config")
+  .description(
+    "Save API Keys, models, prompts, glossary, concurrency, or FFmpeg path to global config",
+  )
   .option("--groq-key <key>", "Groq API Key")
   .option("--gemini-key <key>", "Gemini API Key")
   .option("--ffmpeg-path <path>", "Path to ffmpeg executable")
+  .option("--gemini-model <model>", "Default Gemini translation model (e.g. gemini-3.7-flash)")
+  .option(
+    "--groq-model <model>",
+    "Default Groq Whisper transcription model (e.g. whisper-large-v3-turbo)",
+  )
   .option("--whisper-prompt <text>", "Default Whisper recognition prompt hint")
   .option("--prompt <instruction>", "Default Gemini translation instruction prompt")
   .option("--glossary <path-or-terms>", "Default glossary file path (JSON) or inline terms")
@@ -127,6 +137,8 @@ configCmd
       groqKey?: string;
       geminiKey?: string;
       ffmpegPath?: string;
+      geminiModel?: string;
+      groqModel?: string;
       whisperPrompt?: string;
       prompt?: string;
       glossary?: string;
@@ -144,13 +156,15 @@ configCmd
         !options.groqKey &&
         !options.geminiKey &&
         !options.ffmpegPath &&
+        !options.geminiModel &&
+        !options.groqModel &&
         !options.whisperPrompt &&
         !options.prompt &&
         !options.glossary &&
         concurrencyNum === undefined
       ) {
         console.log(
-          "⚠️ Please specify settings to save. (Example: vsub config set --groq-key YOUR_KEY)",
+          "⚠️ Please specify settings to save. (Example: vsub config set --gemini-model gemini-3.7-flash)",
         );
         return;
       }
@@ -159,6 +173,8 @@ configCmd
         ...(options.groqKey ? { groqApiKey: options.groqKey.trim() } : {}),
         ...(options.geminiKey ? { geminiApiKey: options.geminiKey.trim() } : {}),
         ...(options.ffmpegPath ? { ffmpegPath: options.ffmpegPath.trim() } : {}),
+        ...(options.geminiModel ? { geminiModel: options.geminiModel.trim() } : {}),
+        ...(options.groqModel ? { groqModel: options.groqModel.trim() } : {}),
         ...(options.whisperPrompt ? { whisperPrompt: options.whisperPrompt.trim() } : {}),
         ...(options.prompt ? { prompt: options.prompt.trim() } : {}),
         ...(options.glossary ? { glossary: options.glossary.trim() } : {}),
@@ -242,6 +258,7 @@ program
     "Glossary file path (JSON) or inline terms (key=val,key=val)",
   )
   .option("--concurrency <number>", "Number of concurrent translation requests to Gemini API")
+  .option("--gemini-model <model>", "Gemini model to use for translation")
   .option("--no-cache", "Do not use or save intermediate translation cache", false)
   .option(
     "--fresh",
@@ -259,6 +276,7 @@ program
       prompt?: string;
       glossary?: string;
       concurrency?: string;
+      geminiModel?: string;
       noCache?: boolean;
       fresh?: boolean;
       cacheDir?: string;
@@ -290,6 +308,8 @@ program
         requireGroq: false,
         requireGemini: true,
       });
+
+      const geminiModel = options.geminiModel?.trim() || config.geminiModel;
 
       console.log(
         `\n🌐 ${pc.bold("vsub-cli translate")} - 字幕翻訳開始: ${pc.cyan(path.basename(resolvedSubtitlePath))}`,
@@ -338,7 +358,8 @@ program
 
         const cachedTranslation = subtitleCache?.translations?.[lang.toLowerCase()];
         const isCacheValid =
-          useCache && isTranslationCacheValid(cachedTranslation, translationPrompt, glossaryHash);
+          useCache &&
+          isTranslationCacheValid(cachedTranslation, translationPrompt, glossaryHash, geminiModel);
 
         if (isCacheValid && cachedTranslation && cachedTranslation.entries.length > 0) {
           resultsByLang.set(lang, cachedTranslation.entries);
@@ -377,6 +398,7 @@ program
             prompt: translationPrompt,
             glossary: glossaryMap,
             concurrency: resolvedConcurrency,
+            model: geminiModel,
           },
         );
 
@@ -389,6 +411,7 @@ program
             lang,
             {
               targetLang: lang,
+              model: geminiModel,
               prompt: translationPrompt,
               glossaryHash,
               entries: translatedEntries,
@@ -492,6 +515,8 @@ program
     "Glossary file path (JSON) or inline terms (key=val,key=val)",
   )
   .option("--concurrency <number>", "Number of concurrent translation requests to Gemini API")
+  .option("--gemini-model <model>", "Gemini model to use for translation")
+  .option("--groq-model <model>", "Groq Whisper model to use for transcription")
   .option("--no-cache", "Do not use or save intermediate transcription/translation cache", false)
   .option(
     "--fresh",
@@ -523,6 +548,8 @@ program
         format: string;
         output?: string;
         ffmpegPath?: string;
+        geminiModel?: string;
+        groqModel?: string;
         whisperPrompt?: string;
         prompt?: string;
         glossary?: string;
@@ -553,6 +580,9 @@ program
         const resolvedMediaPath = path.resolve(process.cwd(), mediaFile);
         const rawConfig = getConfig(options.ffmpegPath);
 
+        const groqModel = options.groqModel?.trim() || rawConfig.groqModel;
+        const geminiModel = options.geminiModel?.trim() || rawConfig.geminiModel;
+
         const glossaryInput = options.glossary?.trim() || rawConfig.glossary;
         let whisperPrompt = options.whisperPrompt?.trim() || rawConfig.whisperPrompt;
         if (!whisperPrompt && glossaryInput) {
@@ -577,9 +607,10 @@ program
         let totalAudioBytes = 0;
         let cleanupAudio: (() => Promise<void>) | null = null;
 
-        // Check if cached transcription is available and compatible with whisperPrompt
+        // Check if cached transcription is available and compatible with whisperPrompt and groqModel
         const isTranscriptionCacheMatch =
-          useCache && isTranscriptionCacheValid(mediaCache?.transcription, whisperPrompt);
+          useCache &&
+          isTranscriptionCacheValid(mediaCache?.transcription, whisperPrompt, groqModel);
 
         if (isTranscriptionCacheMatch && mediaCache?.transcription) {
           transcriptionCacheHit = true;
@@ -639,6 +670,7 @@ program
               }
             },
             {
+              model: groqModel,
               ...(whisperPrompt ? { prompt: whisperPrompt } : {}),
               ...(extractResult.durations ? { durations: extractResult.durations } : {}),
             },
@@ -661,6 +693,7 @@ program
                 resolvedMediaPath,
                 {
                   detectedLanguage,
+                  model: groqModel,
                   prompt: whisperPrompt,
                   entries: srtEntries,
                   createdAt: Date.now(),
@@ -736,7 +769,12 @@ program
             const cachedTranslation = mediaCache?.translations?.[lang.toLowerCase()];
             const isCacheValid =
               useCache &&
-              isTranslationCacheValid(cachedTranslation, translationPrompt, glossaryHash);
+              isTranslationCacheValid(
+                cachedTranslation,
+                translationPrompt,
+                glossaryHash,
+                geminiModel,
+              );
 
             if (isCacheValid && cachedTranslation && cachedTranslation.entries.length > 0) {
               // Translation cache hit for this language
@@ -794,6 +832,7 @@ program
                 prompt: translationPrompt,
                 glossary: glossaryMap,
                 concurrency: resolvedConcurrency,
+                model: geminiModel,
               },
             );
 
@@ -807,6 +846,7 @@ program
                 lang,
                 {
                   targetLang: lang,
+                  model: geminiModel,
                   prompt: translationPrompt,
                   glossaryHash,
                   entries: translatedEntries,

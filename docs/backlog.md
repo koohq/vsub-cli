@@ -22,13 +22,13 @@
 | **Completed** | 10. 中間キャッシュ & 再開 (Resume) 機構 | 信頼性 | 中 | API エラー時・追加入力時の文字起こしやり直しコスト削減 | **完了** |
 | **Completed** | 12. プロンプト / 用語集 (Glossary) 指定機能 | 機能拡張 | 低〜中 | 専門用語の誤認識防止・口調や訳語の統一 | **完了** |
 | **Completed** | 13. Gemini API 並列リクエストによる高速化 | 信頼性 | 中 | 長尺動画における翻訳待機時間の短縮 | **完了** |
-| **Medium** | 11. テストカバレッジ計測 & レポート (`vitest --coverage`) | DevOps | 低 | テスト網羅率の可視化と維持 | 未着手 |
-| **Medium** | 16. npm 公開 & Release Please 全自動リリースパイプライン | DevOps | 低〜中 | トランク開発を維持した SemVer / CHANGELOG / npm publish 自動化 | 未着手 |
-| **Medium** | 18. GitHub Actions CI (Node マトリックス + FFmpeg 実機) & Dependabot | DevOps | 低 | 複数 Node.js 互換性保証と依存関係・脆弱性の自動更新 | 未着手 |
-| **Low** | 14. 動画への字幕焼き込み (Hardsub / Burn-in) | 機能拡張 | 中 | 字幕入り mp4 のワンストップ出力 | 未着手 |
-| **Low** | 15. ファイル上書き防止 / バックアップセーフティ | CLI UX | 低 | 既存ファイルの誤削除・上書き防止 | 未着手 |
+| **Completed** | 19. モデル指定オプション (`--gemini-model`, `--groq-model`) | 機能拡張 | 低 | 将来の新世代モデルや特定モデルへの柔軟な切り替え | **完了** |
+| **High** | 15. ファイル上書き防止 / バックアップセーフティ | CLI UX | 低 | 既存ファイルの誤削除・上書き防止 | 未着手 |
+| **High** | 14. 動画への字幕焼き込み (Hardsub / Burn-in) | 機能拡張 | 中 | 字幕入り mp4 のワンストップ出力 | 未着手 |
+| **Medium** | 11. テストカバレッジ計測 & レポート (`vitest --coverage`) | DevOps/品質 | 低 | テスト網羅率の可視化と維持 | 未着手 |
+| **Medium** | 18. GitHub Actions CI (Node マトリックス + FFmpeg 実機) & Dependabot | DevOps/CI | 低 | 複数 Node.js 互換性保証と依存関係・脆弱性の自動更新 | 未着手 |
+| **Medium** | 16. npm 公開 & Release Please 全自動リリースパイプライン | DevOps/配布 | 低〜中 | トランク開発を維持した SemVer / CHANGELOG / npm publish 自動化 | 未着手 |
 | **Low** | 17. GitHub Releases & スタンドアロンバイナリ配布 | DevOps | 中 | Node.js 未導入ユーザー向け単体バイナリ配布 | 未着手 |
-| **Low** | 19. モデル指定オプション (`--gemini-model`, `--groq-model`) | 機能拡張 | 低 | 将来の新世代モデルや特定モデルへの柔軟な切り替え | 未着手 |
 | **Low** | 20. AI モデル新着自動監視 & 重複防止 Issue 通知ワークフロー | DevOps/自動化 | 低 | Groq / Gemini API の新モデル検知と自動 Issue 起票 | 未着手 |
 | **Low** | 21. OSS 運用テンプレート & ガイドライン整備 | 運用/コミュニティ | 低 | Issue/PR テンプレート・トランク開発方針・PR 対応ポリシーの明記 | 未着手 |
 
@@ -89,6 +89,13 @@
 * Gemini デフォルトモデルを最新の `gemini-3.7-flash` に更新。
 * **対応ファイル**: `src/gemini.ts`, `src/gemini.test.ts`, `src/config.ts`, `src/index.ts`
 
+### 1.10 モデル指定オプションの柔軟化 (`--gemini-model`, `--groq-model`)
+* `--gemini-model <model>`, `--groq-model <model>` CLI オプションの追加。
+* `VSUB_GEMINI_MODEL`, `VSUB_GROQ_MODEL` 環境変数のサポート。
+* `vsub config set [--gemini-model <model>] [--groq-model <model>]` による永続化と `vsub config show` での表示。
+* キャッシュ整合性判定（モデル名変更時の自動無効化）を組み込み、新モデル実験時やモデル切り替え時の安全性を担保。
+* **対応ファイル**: `src/config.ts`, `src/config.test.ts`, `src/groq.ts`, `src/groq.test.ts`, `src/gemini.ts`, `src/gemini.test.ts`, `src/cache.ts`, `src/cache.test.ts`, `src/index.ts`
+
 ---
 
 ## 2. 今後の改善バックログ (Backlog & Future Work)
@@ -148,15 +155,7 @@
     * **脆弱性対応**: Dependabot alerts / Security updates を有効化し、Critical/High 脆弱性を即座に PR 化。
 * **対応スコープ**: `.github/workflows/ci.yml`, `.github/dependabot.yml`
 
-### 2.7 モデル指定オプションの柔軟化 (`--gemini-model`, `--groq-model`) 【優先度: Low】
-* **背景/課題**: 新世代モデル登場時や特定モデルを検証したい場合に備え、コード変更なしでモデルを切り替えられるようにしたい（完全自動切り替えによる JSON パース破綻を防ぎつつ、柔軟性を最大化）。
-* **提案内容**:
-  * `--gemini-model <model>`, `--groq-model <model>` CLI オプションの追加。
-  * `vsub config set --gemini-model ...` による永続化。
-  * デフォルトは安定検証済みモデル（`gemini-3.7-flash`, `whisper-large-v3-turbo`）を維持。
-* **対応スコープ**: `src/gemini.ts`, `src/groq.ts`, `src/config.ts`, `src/index.ts`
-
-### 2.8 AI モデル新着自動監視 & 重複防止 Issue 通知ワークフロー 【優先度: Low】
+### 2.7 AI モデル新着自動監視 & 重複防止 Issue 通知ワークフロー 【優先度: Low】
 * **背景/課題**: Gemini / Groq の新モデルリリースを迅速にキャッチしたいが、手動巡回の手間やノイズは最小化したい。
 * **提案内容**:
   * GitHub Actions の定期 cron 実行（週1回等）で Gemini / Groq のモデル一覧 API を取得。
@@ -164,7 +163,7 @@
   * すでに同一タイトルの Open Issue が存在する場合は作成をスキップし、Issue 乱立・重複通知を防止。
 * **対応スコープ**: `.github/workflows/model-watch.yml`
 
-### 2.9 OSS 運用テンプレート & ガイドライン整備 【優先度: Low】
+### 2.8 OSS 運用テンプレート & ガイドライン整備 【優先度: Low】
 * **背景/課題**: OSS 公開後に外部ユーザーからの不完全な Issue や過大な PR でメンテナーが消耗するのを防ぎ、トランク開発の身軽さを維持する。
 * **提案内容**:
   * **Issue テンプレート (`.github/ISSUE_TEMPLATE/`)**: バグ報告時に OS、Node.js バージョン、実行コマンド、エラーログの添付を必須化。

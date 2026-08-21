@@ -189,7 +189,7 @@ export async function translateSrtEntries(
 
     if (verbose) {
       console.log(
-        `[Gemini API] Translating chunk (${chunkIndex}/${totalChunks}) [${chunk.length} items]...`,
+        `[Gemini API] Translating chunk (${chunkIndex}/${totalChunks}) [${chunk.length} items] [model: ${modelName}]...`,
       );
     }
 

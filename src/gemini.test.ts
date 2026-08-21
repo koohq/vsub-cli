@@ -240,5 +240,28 @@ describe("gemini.ts", () => {
       expect(callArgs.contents).toContain('- "Antigravity" -> "アンチグラビティ"');
       expect(callArgs.contents).toContain('- "agentic AI" -> "エージェンティックAI"');
     });
+
+    it("should use custom model when passed in options", async () => {
+      const entries: SrtEntry[] = [
+        {
+          id: 1,
+          startTime: "00:00:01,000",
+          endTime: "00:00:02,000",
+          text: "Hello",
+        },
+      ];
+
+      mockGenerateContent.mockResolvedValueOnce({
+        text: JSON.stringify(["こんにちは"]),
+      });
+
+      await translateSrtEntries(entries, "ja", "fake-key", false, undefined, {
+        model: "gemini-2.5-pro",
+      });
+
+      expect(mockGenerateContent).toHaveBeenCalledTimes(1);
+      const callArgs = mockGenerateContent.mock.calls[0]?.[0];
+      expect(callArgs.model).toBe("gemini-2.5-pro");
+    });
   });
 });

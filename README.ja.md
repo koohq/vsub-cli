@@ -98,6 +98,8 @@ Options:
   --prompt <instruction>        Gemini 翻訳時のカスタム指示プロンプト (口調・文字数制限等)
   --glossary <path-or-terms>    用語集 JSON ファイルパスまたはインライン対訳 (Key=Val,Key=Val)
   --concurrency <number>        Gemini API への同時並行リクエスト数 (デフォルト: 3)
+  --gemini-model <model>        Gemini 翻訳モデルの指定 (デフォルト: gemini-3.7-flash)
+  --groq-model <model>          Groq Whisper 文字起こしモデルの指定 (デフォルト: whisper-large-v3-turbo)
   --no-cache                    中間キャッシュを使用・保存せずに実行 (デフォルト: false)
   --fresh                       既存キャッシュを無視して新規実行し、結果をキャッシュへ上書き (デフォルト: false)
   --cache-dir <path>            カスタムキャッシュ保存ディレクトリの指定
