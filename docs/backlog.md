@@ -31,7 +31,8 @@
 | **Completed** | 17. AI モデル新着自動監視 & 重複防止 Issue 通知ワークフロー | DevOps/自動化 | 低 | Groq / Gemini API の新モデル検知と自動 Issue 起票 | **完了** |
 | **Completed** | 20. 二言語併記 / バイリンガル字幕モード (`--bilingual` / `-b`) | 機能拡張/UX | 低〜中 | 語学学習や国際配信向け2言語同時字幕・同時焼き込み | **完了** |
 | **Medium** | 21. ディレクトリ / バッチ一括処理モード (`vsub batch` / glob) | 機能拡張/UX | 中 | 複数メディアファイルの一括自動文字起こし・翻訳 | 未着手 |
-| **Low** | 18. GitHub Releases & スタンドアロンバイナリ配布 | DevOps | 中 | Node.js 未導入ユーザー向け単体バイナリ配布 | 未着手 |
+| **Medium** | 22. 対話型初期セットアップ & 導通確認ウィザード (`vsub init`) | CLI UX | 低 | API キー・FFmpeg・デフォルト言語の対話的初期導入と導通保証 | 未着手 |
+| **Low** | 23. GitHub Releases & スタンドアロンバイナリ配布 | DevOps | 中 | Node.js 未導入ユーザー向け単体バイナリ配布 | 未着手 |
 
 ---
 
@@ -187,7 +188,15 @@
   * 全体の進捗状況表示と、完了時の総合サマリーレポート（成功数、失敗数、合計処理時間等）。
 * **対応スコープ**: `src/index.ts`, `src/ui.ts`, `src/batch.ts` (新設)
 
-### 2.2 GitHub Releases & スタンドアロンバイナリ配布 【優先度: Low】
+### 2.2 対話型初期セットアップ & 導通確認ウィザード (`vsub init`) 【優先度: Medium】
+* **背景/課題**: 初回利用時に Groq API キー、Gemini API キー、FFmpeg のパス確認、デフォルト翻訳言語などの設定手順が分散しており、初心者ユーザーのセットアップ摩擦が生じやすい。
+* **提案内容**:
+  * `vsub init` コマンドで対話型ウィザードを起動（API キー入力・接続テスト・`~/.vsubrc` への保存）。
+  * システム内の FFmpeg / FFprobe の自動検知と未導入時のインストール案内。
+  * デフォルト翻訳先言語（例: `ja`）やモデルの初期登録。
+* **対応スコープ**: `src/index.ts`, `src/config.ts`, `src/init.ts` (新設)
+
+### 2.3 GitHub Releases & スタンドアロンバイナリ配布 【優先度: Low】
 * **背景/課題**: Node.js や pnpm をインストールしていない一般ユーザー向けに単体実行バイナリを提供したい。
 * **提案内容**:
   * Node.js SEA (Single Executable Applications) 等を用いて、Windows (`.exe`), macOS, Linux 向けの単体実行バイナリをビルド。
