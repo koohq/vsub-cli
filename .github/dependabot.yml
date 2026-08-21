@@ -12,17 +12,14 @@ updates:
       prefix: "chore"
       prefix-development: "chore"
       include: "scope"
+    ignore:
+      - dependency-name: "*"
+        update-types: ["version-update:semver-major"]
     groups:
       dependencies:
         dependency-type: "production"
-        update-types:
-          - "minor"
-          - "patch"
       dev-dependencies:
         dependency-type: "development"
-        update-types:
-          - "minor"
-          - "patch"
 
   - package-ecosystem: "github-actions"
     directories:
