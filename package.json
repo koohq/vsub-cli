@@ -19,6 +19,7 @@
     "test:watch": "vitest",
     "test:e2e": "tsx scripts/test-e2e.ts",
     "fixtures:setup": "tsx scripts/setup-fixtures.ts",
+    "watch:models": "tsx scripts/watch-models.ts",
     "deps:semver": "pnpm up -r",
     "deps:manual": "pnpm up -r -i --latest",
     "prepublishOnly": "pnpm check && pnpm test && pnpm build"

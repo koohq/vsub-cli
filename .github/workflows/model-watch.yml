@@ -1,0 +1,40 @@
+name: "Model Watcher"
+
+on:
+  schedule:
+    # Run every Monday at 00:00 UTC (09:00 JST)
+    - cron: "0 0 * * 1"
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: "Dry-run mode (check only without creating issues)"
+        type: boolean
+        required: false
+        default: false
+
+permissions:
+  contents: read
+  issues: write
+
+jobs:
+  watch-models:
+    name: Check New AI Models
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Setup environment
+        uses: ./.github/actions/setup-env
+
+      - name: Run model watcher
+        env:
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+          GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          if [ "${{ inputs.dry_run }}" = "true" ]; then
+            pnpm tsx scripts/watch-models.ts --dry-run
+          else
+            pnpm tsx scripts/watch-models.ts
+          fi

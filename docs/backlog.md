@@ -28,8 +28,8 @@
 | **Completed** | 11. テストカバレッジ計測 & レポート (`vitest --coverage`) | DevOps/品質 | 低 | テスト網羅率の可視化と維持 | **完了** |
 | **Completed** | 18. GitHub Actions CI (Node マトリックス + FFmpeg 実機) & Dependabot | DevOps/CI | 低 | 複数 Node.js 互換性保証と依存関係・脆弱性の自動更新 | **完了** |
 | **Completed** | 16. npm 公開 & Release Please 全自動リリースパイプライン | DevOps/配布 | 低〜中 | トランク開発を維持した SemVer / CHANGELOG / npm publish 自動化 | **完了** |
-| **Low** | 17. GitHub Releases & スタンドアロンバイナリ配布 | DevOps | 中 | Node.js 未導入ユーザー向け単体バイナリ配布 | 未着手 |
-| **Low** | 20. AI モデル新着自動監視 & 重複防止 Issue 通知ワークフロー | DevOps/自動化 | 低 | Groq / Gemini API の新モデル検知と自動 Issue 起票 | 未着手 |
+| **Completed** | 17. AI モデル新着自動監視 & 重複防止 Issue 通知ワークフロー | DevOps/自動化 | 低 | Groq / Gemini API の新モデル検知と自動 Issue 起票 | **完了** |
+| **Low** | 18. GitHub Releases & スタンドアロンバイナリ配布 | DevOps | 中 | Node.js 未導入ユーザー向け単体バイナリ配布 | 未着手 |
 
 ---
 
@@ -148,8 +148,16 @@
   * リリース PR マージを契機に `pnpm build` を実行し、`pnpm publish --provenance --access public` で npm レジストリへ自動公開。
   * `package.json` の `prepublishOnly`（`pnpm check && pnpm test && pnpm build`）により、不完全な状態での公開を防止。
   * `publishConfig` (`access: "public"`, `provenance: true`) を構成。
-* **設定ファイル**: `release-please-config.json`, `.release-please-manifest.json`
-* **対応ファイル**: `.github/workflows/release.yml`, `release-please-config.json`, `.release-please-manifest.json`, `package.json`, `docs/backlog.md`
+### 1.17 AI モデル新着自動監視 & 重複防止 Issue 通知ワークフロー
+* **定期監視ワークフロー (`.github/workflows/model-watch.yml`)**:
+  * 毎週月曜日 0:00 UTC に定期実行（`cron`）および手動実行（`workflow_dispatch`）。
+  * Google Gemini API (`@google/genai`) および Groq API (`groq-sdk`) のモデル一覧エンドポイントを取得。
+  * `gemini-*-flash` や `whisper-*` 等の字幕生成・翻訳に関連する新着モデルを自動検知。
+* **重複防止 Issue 起票 & メタデータ連携 (`scripts/watch-models.ts`)**:
+  * 既に Open または過去に Closed 済みの Issue を `gh issue list --state all` で検索し、同一モデルに対するゾンビ・重複起票を防止。
+  * 新モデル検知時に表示名、最大トークン数、説明文、Artificial Analysis / 公式ドキュメントへのベンチマーク比較リンク、および `vsub` CLI での即時検証コマンド（`--gemini-model`, `--groq-model`）を整形した Issue を自動起票。
+  * GitHub Step Summary に検知結果サマリーを出力。
+* **対応ファイル**: `.github/workflows/model-watch.yml`, `scripts/watch-models.ts`, `scripts/watch-models.test.ts`, `package.json`, `docs/backlog.md`
 
 ---
 
@@ -162,10 +170,3 @@
   * GitHub Releases に各 OS 向けバイナリを自動アップロードする Release ワークフローの構築。
 * **対応スコープ**: `.github/workflows/release.yml`, ビルドスクリプト
 
-### 2.2 AI モデル新着自動監視 & 重複防止 Issue 通知ワークフロー 【優先度: Low】
-* **背景/課題**: Gemini / Groq の新モデルリリースを迅速にキャッチしたいが、手動巡回の手間やノイズは最小化したい。
-* **提案内容**:
-  * GitHub Actions の定期 cron 実行（週1回等）で Gemini / Groq のモデル一覧 API を取得。
-  * 主要プレフィックス（`gemini-*-flash`, `whisper-*` 等）の新規モデルを検知した場合、GitHub CLI（`gh issue create`）で Issue を自動起票。
-  * すでに同一タイトルの Open Issue が存在する場合は作成をスキップし、Issue 乱立・重複通知を防止。
-* **対応スコープ**: `.github/workflows/model-watch.yml`
