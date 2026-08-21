@@ -26,7 +26,7 @@
 | **Completed** | 14. 動画への字幕焼き込み (Hardsub / Burn-in) | 機能拡張 | 中 | 字幕入り mp4 のワンストップ出力 | **完了** |
 | **Completed** | 15. ファイル上書き防止 / バックアップセーフティ | CLI UX | 低 | 既存ファイルの誤削除・上書き防止 | **完了** |
 | **Completed** | 11. テストカバレッジ計測 & レポート (`vitest --coverage`) | DevOps/品質 | 低 | テスト網羅率の可視化と維持 | **完了** |
-| **Medium** | 18. GitHub Actions CI (Node マトリックス + FFmpeg 実機) & Dependabot | DevOps/CI | 低 | 複数 Node.js 互換性保証と依存関係・脆弱性の自動更新 | 未着手 |
+| **Completed** | 18. GitHub Actions CI (Node マトリックス + FFmpeg 実機) & Dependabot | DevOps/CI | 低 | 複数 Node.js 互換性保証と依存関係・脆弱性の自動更新 | **完了** |
 | **Medium** | 16. npm 公開 & Release Please 全自動リリースパイプライン | DevOps/配布 | 低〜中 | トランク開発を維持した SemVer / CHANGELOG / npm publish 自動化 | 未着手 |
 | **Low** | 17. GitHub Releases & スタンドアロンバイナリ配布 | DevOps | 中 | Node.js 未導入ユーザー向け単体バイナリ配布 | 未着手 |
 | **Low** | 20. AI モデル新着自動監視 & 重複防止 Issue 通知ワークフロー | DevOps/自動化 | 低 | Groq / Gemini API の新モデル検知と自動 Issue 起票 | 未着手 |
@@ -118,7 +118,16 @@
 * `vitest.config.ts` でカバレッジ対象（`src/**/*.ts`）および除外設定（`src/index.ts`, `**/*.test.ts`）を構成。
 * HTML レポート（`coverage/`）、テキストサマリー、JSON サマリーを自動生成。
 * 全 11 コアモジュールで 80% 超のラインカバレッジおよび 100% の関数カバレッジ（主要モジュール）を達成。
-* **対応ファイル**: `package.json`, `vitest.config.ts`, `biome.json`
+### 1.14 GitHub Actions CI (Node マトリックス + FFmpeg 実機) & Dependabot 自動化
+* **CI ワークフロー (`.github/workflows/ci.yml`)**:
+  * `ubuntu-latest`（FFmpeg プリインストール済み環境）で `pnpm check` (Biome), `pnpm test:coverage` (Vitest), `pnpm build` (TypeScript) を自動実行。
+  * Node.js 年1回 LTS 化スケジュール（Node 26, Node 27...）に対応するため、`strategy.matrix.node-version: [24, 26]` での複数バージョン動作保証。
+  * `ffmpeg -version` 事前検証および単体テスト内の FFmpeg 連携処理（実機テスト）の自動実行。
+* **Dependabot & Auto-Merge (`.github/dependabot.yml`, `.github/workflows/dependabot-auto-merge.yml`)**:
+  * npm 依存ライブラリ（`npm`）および GitHub Actions（`github-actions`）の更新を毎週月曜に監視。
+  * **Patch / Minor**: `dependabot/fetch-metadata` による判定と CI 通過を条件に自動承認・Auto-merge（`--auto --squash`）を適用。
+  * **Major (破壊的変更)**: 自動マージせず PR 作成にとどめ、CHANGELOG 手動確認後にマージ。
+* **対応ファイル**: `.github/workflows/ci.yml`, `.github/dependabot.yml`, `.github/workflows/dependabot-auto-merge.yml`, `docs/backlog.md`
 
 ---
 
@@ -137,29 +146,14 @@
     * キリの良いタイミングでリリース PR をマージするだけで、GitHub Tag / Release 発行、CHANGELOG.md 更新、および npm への自動 publish（Provenance 付き）を一気通貫で実行。
 * **対応スコープ**: `package.json`, `.github/workflows/release.yml`
 
-### 2.3 GitHub Releases & スタンドアロンバイナリ配布 【優先度: Low】
+### 2.2 GitHub Releases & スタンドアロンバイナリ配布 【優先度: Low】
 * **背景/課題**: Node.js や pnpm をインストールしていない一般ユーザー向けに単体実行バイナリを提供したい。
 * **提案内容**:
   * Node.js SEA (Single Executable Applications) 等を用いて、Windows (`.exe`), macOS, Linux 向けの単体実行バイナリをビルド。
   * GitHub Releases に各 OS 向けバイナリを自動アップロードする Release ワークフローの構築。
 * **対応スコープ**: `.github/workflows/release.yml`, ビルドスクリプト
 
-### 2.4 GitHub Actions CI (Node マトリックス + FFmpeg 実機) & Dependabot 自動化 【優先度: Medium】
-* **背景/課題**: PR や push 時に自動でリント・型チェック・テストを実行し、かつ Node.js の進化や依存ライブラリの更新・脆弱性対応を最小限のメンテナンス労力（ほぼノータッチ）で維持したい。
-* **提案内容**:
-  * **CI ワークフロー (`.github/workflows/ci.yml`)**:
-    * `ubuntu-latest`（FFmpeg プリインストール済み環境）で `pnpm check` (Biome), `pnpm test` (Vitest), `pnpm build` (TypeScript) を実行。
-    * Node.js 年1回 LTS 化スケジュール（Node 26, Node 27...）に対応するため、`strategy.matrix.node-version: [24, 26]` での複数バージョン動作保証。
-    * AI 通信はモック化し、FFmpeg の音声抽出・変換処理は CI 上で実機検証。
-    * 外部コントリビューターからの PR 時は Secret（API キー等）を遮断する安全な権限設計。
-  * **Dependabot / Renovate による自動更新 (`.github/dependabot.yml`)**:
-    * npm 依存ライブラリ（`npm`）および GitHub Actions（`github-actions`）の更新を監視。
-    * **Patch / Minor**: CI パスを条件に Auto-merge（自動マージ）を適用し、運用コストを削減。
-    * **Major (破壊的変更)**: 自動マージせず PR 作成にとどめ、CHANGELOG を手動確認後にマージ。
-    * **脆弱性対応**: Dependabot alerts / Security updates を有効化し、Critical/High 脆弱性を即座に PR 化。
-* **対応スコープ**: `.github/workflows/ci.yml`, `.github/dependabot.yml`
-
-### 2.5 AI モデル新着自動監視 & 重複防止 Issue 通知ワークフロー 【優先度: Low】
+### 2.3 AI モデル新着自動監視 & 重複防止 Issue 通知ワークフロー 【優先度: Low】
 * **背景/課題**: Gemini / Groq の新モデルリリースを迅速にキャッチしたいが、手動巡回の手間やノイズは最小化したい。
 * **提案内容**:
   * GitHub Actions の定期 cron 実行（週1回等）で Gemini / Groq のモデル一覧 API を取得。
@@ -167,7 +161,7 @@
   * すでに同一タイトルの Open Issue が存在する場合は作成をスキップし、Issue 乱立・重複通知を防止。
 * **対応スコープ**: `.github/workflows/model-watch.yml`
 
-### 2.6 OSS 運用テンプレート & ガイドライン整備 【優先度: Low】
+### 2.4 OSS 運用テンプレート & ガイドライン整備 【優先度: Low】
 * **背景/課題**: OSS 公開後に外部ユーザーからの不完全な Issue や過大な PR でメンテナーが消耗するのを防ぎ、トランク開発の身軽さを維持する。
 * **提案内容**:
   * **Issue テンプレート (`.github/ISSUE_TEMPLATE/`)**: バグ報告時に OS、Node.js バージョン、実行コマンド、エラーログの添付を必須化。
