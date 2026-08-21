@@ -1,6 +1,7 @@
 {
   "name": "vsub-cli",
   "version": "0.1.0",
+  "packageManager": "pnpm@11.21.0",
   "description": "CLI tool to extract audio, transcribe with Groq API, and translate subtitles using Google Gemini API",
   "type": "module",
   "bin": {
