@@ -561,15 +561,10 @@ program
         );
 
         spinner.start("🎬 FFmpeg で字幕を動画に焼き込み中 (libx264)...");
-        await burnSubtitlesToVideo(
-          resolvedVideoPath,
-          resolvedSubtitlePath,
-          resolvedOutputPath,
-          {
-            ffmpegPath: rawConfig.ffmpegPath,
-            verbose,
-          },
-        );
+        await burnSubtitlesToVideo(resolvedVideoPath, resolvedSubtitlePath, resolvedOutputPath, {
+          ffmpegPath: rawConfig.ffmpegPath,
+          verbose,
+        });
         spinner.succeed("🎬 字幕の動画焼き込みが完了しました");
 
         const durationMs = Date.now() - startTime;
@@ -1069,10 +1064,7 @@ program
                     burntVideoPath = path.join(parsedOut.dir, `${parsedOut.name}.subbed.mp4`);
                   }
                 } else {
-                  burntVideoPath = path.join(
-                    mediaDir,
-                    `${mediaBaseName}.${lang}.subbed.mp4`,
-                  );
+                  burntVideoPath = path.join(mediaDir, `${mediaBaseName}.${lang}.subbed.mp4`);
                 }
 
                 if (isMultiLang) {

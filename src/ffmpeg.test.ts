@@ -200,12 +200,10 @@ describe("ffmpeg.ts", () => {
       vi.spyOn(fs, "mkdirSync").mockReturnValue(undefined as unknown as string);
       mockExeca.mockResolvedValueOnce({ stdout: "" });
 
-      const result = await burnSubtitlesToVideo(
-        "video.mp4",
-        "sub.srt",
-        "out.mp4",
-        { ffmpegPath: "ffmpeg", verbose: false },
-      );
+      const result = await burnSubtitlesToVideo("video.mp4", "sub.srt", "out.mp4", {
+        ffmpegPath: "ffmpeg",
+        verbose: false,
+      });
 
       expect(mockExeca).toHaveBeenCalledTimes(1);
       const call = mockExeca.mock.calls[0];
