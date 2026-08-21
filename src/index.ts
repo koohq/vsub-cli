@@ -28,6 +28,7 @@ import { translateSrtEntries } from "./gemini.js";
 import { computeGlossaryHash, extractWhisperPromptHints, parseGlossary } from "./glossary.js";
 import { transcribeAudioSegments } from "./groq.js";
 import { parseTargetLanguages } from "./languages.js";
+import { ensureWritableTargets } from "./safety.js";
 import type { SrtEntry } from "./srt.js";
 import { parseSrt } from "./srt.js";
 import { createSpinner, formatFileSize, formatSummaryBox } from "./ui.js";
@@ -259,6 +260,8 @@ program
     "srt",
   )
   .option("-o, --output <path>", "Output path or base name for the generated subtitle file")
+  .option("-w, --overwrite", "Overwrite existing output files without confirmation prompt", false)
+  .option("--backup", "Create backup (.bak) of existing output files before overwriting", false)
   .option("--prompt <instruction>", "Additional instruction prompt for Gemini translation")
   .option(
     "--glossary <path-or-terms>",
@@ -280,6 +283,8 @@ program
       targetLang: string;
       format: string;
       output?: string;
+      overwrite?: boolean;
+      backup?: boolean;
       prompt?: string;
       glossary?: string;
       concurrency?: string;
@@ -303,6 +308,52 @@ program
 
       if (!fs.existsSync(resolvedSubtitlePath)) {
         throw new Error(`字幕ファイルが見つかりません: ${resolvedSubtitlePath}`);
+      }
+
+      const subDir = path.dirname(resolvedSubtitlePath);
+      const subExt = path.extname(resolvedSubtitlePath);
+      let subBaseName = path.basename(resolvedSubtitlePath, subExt);
+
+      // If base name ends with language tag like .en, .ja, strip it to avoid .en.ja
+      const langSuffixMatch = subBaseName.match(/^(.+)\.([a-zA-Z]{2,3}(?:-[a-zA-Z0-9]{2,4})?)$/);
+      if (langSuffixMatch?.[1]) {
+        subBaseName = langSuffixMatch[1];
+      }
+
+      // Pre-check output file safety before performing API calls
+      const predictedTargets: string[] = [];
+      for (const lang of targetLanguages) {
+        const targets = resolveOutputFilePaths(
+          subDir,
+          subBaseName,
+          lang,
+          outputFormats,
+          options.output,
+          !isMultiLang,
+        );
+        for (const { filePath } of targets) {
+          predictedTargets.push(filePath);
+        }
+      }
+
+      const safetyCheck = await ensureWritableTargets(predictedTargets, {
+        overwrite: options.overwrite,
+        backup: options.backup,
+      });
+
+      if (!safetyCheck.proceed) {
+        console.log(
+          "⚠️  処理を中止しました。(--overwrite または --backup を指定して再実行できます)",
+        );
+        return;
+      }
+
+      if (safetyCheck.backedUp.length > 0) {
+        for (const { original, backup } of safetyCheck.backedUp) {
+          console.log(
+            `📦 バックアップを作成しました: ${pc.cyan(path.basename(original))} -> ${pc.yellow(path.basename(backup))}`,
+          );
+        }
       }
 
       const rawConfig = getConfig();
@@ -439,16 +490,6 @@ program
       // 3. Save output subtitle files
       spinner.start("💾 [3/3] 字幕ファイルを保存中...");
 
-      const subDir = path.dirname(resolvedSubtitlePath);
-      const subExt = path.extname(resolvedSubtitlePath);
-      let subBaseName = path.basename(resolvedSubtitlePath, subExt);
-
-      // If base name ends with language tag like .en, .ja, strip it to avoid .en.ja
-      const langSuffixMatch = subBaseName.match(/^(.+)\.([a-zA-Z]{2,3}(?:-[a-zA-Z0-9]{2,4})?)$/);
-      if (langSuffixMatch?.[1]) {
-        subBaseName = langSuffixMatch[1];
-      }
-
       for (const lang of targetLanguages) {
         const entries = resultsByLang.get(lang) ?? srtEntries;
         const targets = resolveOutputFilePaths(
@@ -478,6 +519,10 @@ program
             durationMs,
             targetLanguages,
             entriesCount: srtEntries.length,
+            backedUpFiles:
+              safetyCheck.backedUp.length > 0
+                ? safetyCheck.backedUp.map((b) => b.backup)
+                : undefined,
             outputFiles,
             skippedTranslation: false,
             prompt: translationPrompt,
@@ -506,6 +551,8 @@ program
   .argument("<video-file>", "Input video file path (.mp4, .mkv, .mov, etc.)")
   .argument("<subtitle-file>", "Input subtitle file path (.srt)")
   .option("-o, --output <path>", "Output video file path (default: <video>.subbed.mp4)")
+  .option("-w, --overwrite", "Overwrite existing output files without confirmation prompt", false)
+  .option("--backup", "Create backup (.bak) of existing output files before overwriting", false)
   .option(
     "--ffmpeg-path <path>",
     "Path to ffmpeg executable (searches VSUB_FFMPEG_PATH or PATH if omitted)",
@@ -520,6 +567,8 @@ program
     ) => {
       const options = cmd.optsWithGlobals<{
         output?: string;
+        overwrite?: boolean;
+        backup?: boolean;
         ffmpegPath?: string;
         verbose?: boolean;
       }>();
@@ -554,6 +603,27 @@ program
           const videoExt = path.extname(resolvedVideoPath);
           const videoBase = path.basename(resolvedVideoPath, videoExt);
           resolvedOutputPath = path.join(videoDir, `${videoBase}.subbed.mp4`);
+        }
+
+        // Pre-check output video file safety
+        const safetyCheck = await ensureWritableTargets([resolvedOutputPath], {
+          overwrite: options.overwrite,
+          backup: options.backup,
+        });
+
+        if (!safetyCheck.proceed) {
+          console.log(
+            "⚠️  処理を中止しました。(--overwrite または --backup を指定して再実行できます)",
+          );
+          return;
+        }
+
+        if (safetyCheck.backedUp.length > 0) {
+          for (const { original, backup } of safetyCheck.backedUp) {
+            console.log(
+              `📦 バックアップを作成しました: ${pc.cyan(path.basename(original))} -> ${pc.yellow(path.basename(backup))}`,
+            );
+          }
         }
 
         console.log(
@@ -591,6 +661,10 @@ program
               mediaType: "video",
               durationMs,
               entriesCount,
+              backedUpFiles:
+                safetyCheck.backedUp.length > 0
+                  ? safetyCheck.backedUp.map((b) => b.backup)
+                  : undefined,
               outputFiles: [
                 outStats
                   ? `${resolvedOutputPath} (${formatFileSize(outStats.size)})`
@@ -625,6 +699,8 @@ program
     "srt",
   )
   .option("-o, --output <path>", "Output path or base name for the generated subtitle file(s)")
+  .option("-w, --overwrite", "Overwrite existing output files without confirmation prompt", false)
+  .option("--backup", "Create backup (.bak) of existing output files before overwriting", false)
   .option(
     "--ffmpeg-path <path>",
     "Path to ffmpeg executable (searches VSUB_FFMPEG_PATH or PATH if omitted)",
@@ -669,6 +745,8 @@ program
         targetLang: string;
         format: string;
         output?: string;
+        overwrite?: boolean;
+        backup?: boolean;
         ffmpegPath?: string;
         geminiModel?: string;
         groqModel?: string;
@@ -702,6 +780,66 @@ program
         const isMultiLang = targetLanguages.length > 1;
         const resolvedMediaPath = path.resolve(process.cwd(), mediaFile);
         const rawConfig = getConfig(options.ffmpegPath);
+
+        const mediaDir = path.dirname(resolvedMediaPath);
+        const mediaExt = path.extname(resolvedMediaPath);
+        const mediaBaseName = path.basename(resolvedMediaPath, mediaExt);
+
+        // Pre-check output file safety before expensive operations
+        const predictedTargets: string[] = [];
+        for (const lang of targetLanguages) {
+          const targets = resolveOutputFilePaths(
+            mediaDir,
+            mediaBaseName,
+            lang,
+            outputFormats,
+            options.output,
+            !isMultiLang,
+          );
+          for (const { filePath } of targets) {
+            predictedTargets.push(filePath);
+          }
+        }
+
+        if (options.burn) {
+          for (const lang of targetLanguages) {
+            let burntVideoPath: string;
+            if (options.output) {
+              const resolvedOut = path.resolve(process.cwd(), options.output);
+              const parsedOut = path.parse(resolvedOut);
+              if (isMultiLang) {
+                burntVideoPath = path.join(parsedOut.dir, `${parsedOut.name}.${lang}.subbed.mp4`);
+              } else if (parsedOut.ext === ".mp4") {
+                burntVideoPath = resolvedOut;
+              } else {
+                burntVideoPath = path.join(parsedOut.dir, `${parsedOut.name}.subbed.mp4`);
+              }
+            } else {
+              burntVideoPath = path.join(mediaDir, `${mediaBaseName}.${lang}.subbed.mp4`);
+            }
+            predictedTargets.push(burntVideoPath);
+          }
+        }
+
+        const safetyCheck = await ensureWritableTargets(predictedTargets, {
+          overwrite: options.overwrite,
+          backup: options.backup,
+        });
+
+        if (!safetyCheck.proceed) {
+          console.log(
+            "⚠️  処理を中止しました。(--overwrite または --backup を指定して再実行できます)",
+          );
+          return;
+        }
+
+        if (safetyCheck.backedUp.length > 0) {
+          for (const { original, backup } of safetyCheck.backedUp) {
+            console.log(
+              `📦 バックアップを作成しました: ${pc.cyan(path.basename(original))} -> ${pc.yellow(path.basename(backup))}`,
+            );
+          }
+        }
 
         const groqModel = options.groqModel?.trim() || rawConfig.groqModel;
         const geminiModel = options.geminiModel?.trim() || rawConfig.geminiModel;
@@ -832,15 +970,24 @@ program
           }
         }
 
-        const mediaDir = path.dirname(resolvedMediaPath);
-        const mediaExt = path.extname(resolvedMediaPath);
-        const mediaBaseName = path.basename(resolvedMediaPath, mediaExt);
-
         try {
           // Save original raw subtitles if requested
           if (options.saveOriginal && srtEntries.length > 0) {
             const rawLang = detectedLanguage || "raw";
             const baseOriginalName = `${mediaBaseName}.${rawLang}`;
+
+            const originalTargets: string[] = [];
+            for (const fmt of outputFormats) {
+              originalTargets.push(path.join(mediaDir, `${baseOriginalName}.${fmt}`));
+            }
+
+            const rawSafety = await ensureWritableTargets(originalTargets, {
+              overwrite: options.overwrite,
+              backup: options.backup,
+            });
+            if (rawSafety.backedUp.length > 0) {
+              safetyCheck.backedUp.push(...rawSafety.backedUp);
+            }
 
             const savedOriginalNames: string[] = [];
             for (const fmt of outputFormats) {
@@ -1115,6 +1262,10 @@ program
                 targetLanguages,
                 skippedLanguages,
                 entriesCount: srtEntries.length,
+                backedUpFiles:
+                  safetyCheck.backedUp.length > 0
+                    ? safetyCheck.backedUp.map((b) => b.backup)
+                    : undefined,
                 outputFiles,
                 skippedTranslation: skippedLanguages.length === targetLanguages.length,
                 whisperPrompt,

@@ -24,7 +24,7 @@
 | **Completed** | 13. Gemini API 並列リクエストによる高速化 | 信頼性 | 中 | 長尺動画における翻訳待機時間の短縮 | **完了** |
 | **Completed** | 19. モデル指定オプション (`--gemini-model`, `--groq-model`) | 機能拡張 | 低 | 将来の新世代モデルや特定モデルへの柔軟な切り替え | **完了** |
 | **Completed** | 14. 動画への字幕焼き込み (Hardsub / Burn-in) | 機能拡張 | 中 | 字幕入り mp4 のワンストップ出力 | **完了** |
-| **High** | 15. ファイル上書き防止 / バックアップセーフティ | CLI UX | 低 | 既存ファイルの誤削除・上書き防止 | 未着手 |
+| **Completed** | 15. ファイル上書き防止 / バックアップセーフティ | CLI UX | 低 | 既存ファイルの誤削除・上書き防止 | **完了** |
 | **Medium** | 11. テストカバレッジ計測 & レポート (`vitest --coverage`) | DevOps/品質 | 低 | テスト網羅率の可視化と維持 | 未着手 |
 | **Medium** | 18. GitHub Actions CI (Node マトリックス + FFmpeg 実機) & Dependabot | DevOps/CI | 低 | 複数 Node.js 互換性保証と依存関係・脆弱性の自動更新 | 未着手 |
 | **Medium** | 16. npm 公開 & Release Please 全自動リリースパイプライン | DevOps/配布 | 低〜中 | トランク開発を維持した SemVer / CHANGELOG / npm publish 自動化 | 未着手 |
@@ -103,24 +103,28 @@
 * 単体実行用の `vsub burn <video-file> <subtitle-file>` サブコマンドを新設。
 * **対応ファイル**: `src/ffmpeg.ts`, `src/ffmpeg.test.ts`, `src/index.ts`
 
+### 1.12 ファイル上書き防止 / バックアップセーフティ
+* `src/safety.ts` モジュール（既存ファイル検知、`.bak` / `.bak.N` 自動連番バックアップ生成、対話式確認プロンプト）。
+* 重い API 呼び出し（Groq / Gemini）や動画レンダリング（FFmpeg）を開始する**前**に早期衝突検知・確認を実施。
+* `-w, --overwrite`: 確認なしでの強制上書きフラグ。
+* `--backup`: 既存ファイルを `.bak` として安全に退避保存するフラグ。
+* 対話環境（TTY）での確認プロンプト（`y/N`）および非対話環境での安全例外停止。
+* メインコマンド (`vsub`)、字幕翻訳 (`vsub translate`)、字幕焼き込み (`vsub burn`) に一貫適用。
+* 処理結果サマリー (`formatSummaryBox`) へのバックアップファイル一覧表示。
+* **対応ファイル**: `src/safety.ts`, `src/safety.test.ts`, `src/ui.ts`, `src/ui.test.ts`, `src/index.ts`
+
 ---
 
 ## 2. 今後の改善バックログ (Backlog & Future Work)
 
-### 2.1 ファイル上書き防止 / バックアップセーフティ 【優先度: High】
-* **背景/課題**: 出力先に同名の字幕ファイルが既に存在する場合、確認なしで上書きされてしまう。
-* **提案内容**:
-  * `--overwrite` / `-f` フラグがない場合、対話環境では上書き確認プロンプトを表示、または `.bak.srt` などのバックアップを作成。
-* **対応スコープ**: `src/index.ts`
-
-### 2.2 テストカバレッジ計測 & レポート (`vitest --coverage`) 【優先度: Medium】
+### 2.1 テストカバレッジ計測 & レポート (`vitest --coverage`) 【優先度: Medium】
 * **背景/課題**: 単体テストの網羅率（C0/C1 カバレッジ）が数値化されていない。
 * **提案内容**:
   * `@vitest/coverage-v8` を導入し、`package.json` に `"test:coverage": "vitest run --coverage"` スクリプトを追加。
   * `vitest.config.ts` でカバレッジ対象（`src/**/*.ts`）および除外設定（`src/index.ts`, `**/*.test.ts` 等）を構成。
 * **対応スコープ**: `package.json`, `vitest.config.ts`
 
-### 2.3 npm パッケージ公開 & Release Please 全自動リリースパイプライン 【優先度: Medium】
+### 2.2 npm パッケージ公開 & Release Please 全自動リリースパイプライン 【優先度: Medium】
 * **背景/課題**: リポジトリを clone せずに `npx vsub-cli <video.mp4>` や `npm i -g vsub-cli` で誰でもワンライナー実行可能にし、かつトランク開発の身軽さを損なわずにリリースを全自動化したい。
 * **提案内容**:
   * **パッケージ設定最適化**:
@@ -133,14 +137,14 @@
     * キリの良いタイミングでリリース PR をマージするだけで、GitHub Tag / Release 発行、CHANGELOG.md 更新、および npm への自動 publish（Provenance 付き）を一気通貫で実行。
 * **対応スコープ**: `package.json`, `.github/workflows/release.yml`
 
-### 2.4 GitHub Releases & スタンドアロンバイナリ配布 【優先度: Low】
+### 2.3 GitHub Releases & スタンドアロンバイナリ配布 【優先度: Low】
 * **背景/課題**: Node.js や pnpm をインストールしていない一般ユーザー向けに単体実行バイナリを提供したい。
 * **提案内容**:
   * Node.js SEA (Single Executable Applications) 等を用いて、Windows (`.exe`), macOS, Linux 向けの単体実行バイナリをビルド。
   * GitHub Releases に各 OS 向けバイナリを自動アップロードする Release ワークフローの構築。
 * **対応スコープ**: `.github/workflows/release.yml`, ビルドスクリプト
 
-### 2.5 GitHub Actions CI (Node マトリックス + FFmpeg 実機) & Dependabot 自動化 【優先度: Medium】
+### 2.4 GitHub Actions CI (Node マトリックス + FFmpeg 実機) & Dependabot 自動化 【優先度: Medium】
 * **背景/課題**: PR や push 時に自動でリント・型チェック・テストを実行し、かつ Node.js の進化や依存ライブラリの更新・脆弱性対応を最小限のメンテナンス労力（ほぼノータッチ）で維持したい。
 * **提案内容**:
   * **CI ワークフロー (`.github/workflows/ci.yml`)**:
@@ -155,7 +159,7 @@
     * **脆弱性対応**: Dependabot alerts / Security updates を有効化し、Critical/High 脆弱性を即座に PR 化。
 * **対応スコープ**: `.github/workflows/ci.yml`, `.github/dependabot.yml`
 
-### 2.6 AI モデル新着自動監視 & 重複防止 Issue 通知ワークフロー 【優先度: Low】
+### 2.5 AI モデル新着自動監視 & 重複防止 Issue 通知ワークフロー 【優先度: Low】
 * **背景/課題**: Gemini / Groq の新モデルリリースを迅速にキャッチしたいが、手動巡回の手間やノイズは最小化したい。
 * **提案内容**:
   * GitHub Actions の定期 cron 実行（週1回等）で Gemini / Groq のモデル一覧 API を取得。
@@ -163,7 +167,7 @@
   * すでに同一タイトルの Open Issue が存在する場合は作成をスキップし、Issue 乱立・重複通知を防止。
 * **対応スコープ**: `.github/workflows/model-watch.yml`
 
-### 2.7 OSS 運用テンプレート & ガイドライン整備 【優先度: Low】
+### 2.6 OSS 運用テンプレート & ガイドライン整備 【優先度: Low】
 * **背景/課題**: OSS 公開後に外部ユーザーからの不完全な Issue や過大な PR でメンテナーが消耗するのを防ぎ、トランク開発の身軽さを維持する。
 * **提案内容**:
   * **Issue テンプレート (`.github/ISSUE_TEMPLATE/`)**: バグ報告時に OS、Node.js バージョン、実行コマンド、エラーログの添付を必須化。

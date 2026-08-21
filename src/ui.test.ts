@@ -182,6 +182,21 @@ describe("ui module", () => {
       expect(summary).toContain("翻訳指示");
       expect(summary).toContain("Translate in polite tone");
     });
+
+    it("should display backedUpFiles in summary box when present", () => {
+      const summary = formatSummaryBox({
+        mediaFile: "sample.mp4",
+        durationMs: 3000,
+        entriesCount: 15,
+        backedUpFiles: ["/path/to/sample.ja.srt.bak"],
+        outputFiles: ["/path/to/sample.ja.srt"],
+      });
+
+      expect(summary).toContain("バックアップ");
+      expect(summary).toContain("/path/to/sample.ja.srt.bak");
+      expect(summary).toContain("出力ファイル");
+      expect(summary).toContain("/path/to/sample.ja.srt");
+    });
   });
 
   describe("createSpinner", () => {

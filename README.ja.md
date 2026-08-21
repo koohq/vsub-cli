@@ -18,6 +18,7 @@
 * 🌍 **複数言語一括同時翻訳**: `-t ja,en,zh` のように指定することで、1 回の文字起こしから各言語の字幕ファイルを一括生成。
 * 📄 **マルチフォーマット一括出力**: `.srt` (SubRip), `.vtt` (WebVTT), `.txt` (全文テキスト), `.json` (構造化データ) の同時出力に対応。
 * 🎬 **動画への字幕焼き込み (Hardsub / Burn-in)**: FFmpeg の `subtitles` フィルタを用いて、SNS 投稿やプレビュー用に字幕が動画自体に合成された mp4 をワンストップ出力（`--burn` フラグまたは `vsub burn` サブコマンド）。
+* 🛡️ **ファイル上書き防止 & バックアップセーフティ**: 処理開始前の事前衝突検知、対話環境での上書き確認（`y/N`）、強制上書きフラグ（`-w, --overwrite`）、自動連番退避（`--backup` による `.bak` / `.bak.N` 保存）で意図しないデータ消失を完全防止。
 * 🔄 **既存字幕の直接翻訳サブコマンド**: 動画ファイルや Groq API を介さず、既存の `.srt` ファイルから直接翻訳・フォーマット変換を実行（`vsub translate`）。
 * 🛠️ **対話型初期セットアップ & グローバル設定**: 初回実行時の自動対話プロンプトおよび設定ファイル永続管理（`vsub config`）。
 
@@ -94,6 +95,8 @@ Options:
   -t, --target-lang <langs>     翻訳先の言語コード (カンマ区切りで複数指定可: ja,en,zh) (デフォルト: "ja")
   -f, --format <formats>        出力フォーマット: srt, vtt, txt, json をカンマ区切りで指定 (デフォルト: "srt")
   -o, --output <path>           出力する字幕ファイルの個別パス指定
+  -w, --overwrite               確認プロンプトを表示せず既存ファイルを直接上書き (デフォルト: false)
+  --backup                      既存ファイルが存在する場合に .bak として退避保存 (デフォルト: false)
   --ffmpeg-path <path>          ffmpeg 実行ファイルのパス (未指定時は VSUB_FFMPEG_PATH または PATH を探索)
   --whisper-prompt <text>       Groq Whisper 音声認識のヒントプロンプト (専門用語・固有名詞等)
   --prompt <instruction>        Gemini 翻訳時のカスタム指示プロンプト (口調・文字数制限等)

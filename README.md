@@ -18,6 +18,7 @@ A fast, resilient CLI tool that extracts and optimizes audio from video or audio
 * 🌍 **Simultaneous Multi-Language Output**: Generate subtitles for multiple target languages in one pass (e.g., `-t ja,en,zh`) with only a single transcription step.
 * 📄 **Multi-Format Export**: Supports `.srt` (SubRip), `.vtt` (WebVTT), `.txt` (plain text transcripts), and `.json` (structured data).
 * 🎬 **Video Subtitle Hardsub / Burn-in**: Directly bake subtitles into video files via FFmpeg for SNS posting or preview (`--burn` flag or `vsub burn` subcommand).
+* 🛡️ **File Overwrite Protection & Safety Backups**: Prevents accidental file deletion with pre-execution safety checks, interactive prompts (`y/N`), `-w, --overwrite` force option, and `--backup` (`.bak` / `.bak.N`) archiving.
 * 🔄 **Direct Subtitle Translation**: Translate existing `.srt` subtitle files directly into other languages and formats without needing media files or Groq API (`vsub translate`).
 * 🛠️ **Interactive Setup & Persistent Config**: Interactive key prompts and global configuration management (`vsub config`).
 
@@ -94,6 +95,8 @@ Options:
   -t, --target-lang <langs>     Target language code(s), comma-separated (e.g., ja,en,es) (default: "ja")
   -f, --format <formats>        Output formats: comma-separated list of srt, vtt, txt, json (default: "srt")
   -o, --output <path>           Output path for the generated subtitle file
+  -w, --overwrite               Overwrite existing output files without confirmation prompt (default: false)
+  --backup                      Create backup (.bak) of existing output files before overwriting (default: false)
   --ffmpeg-path <path>          Path to ffmpeg executable (searches VSUB_FFMPEG_PATH or PATH if omitted)
   --whisper-prompt <text>       Prompt hint for Groq Whisper speech recognition (terminology, names, etc.)
   --prompt <instruction>        Additional instruction prompt for Gemini translation (tone, style, brevity)

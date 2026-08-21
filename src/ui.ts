@@ -60,6 +60,7 @@ export interface SummaryData {
   whisperPrompt?: string | undefined;
   prompt?: string | undefined;
   glossaryTermsCount?: number | undefined;
+  backedUpFiles?: string[] | undefined;
   cacheStatus?:
     | {
         transcriptionHit?: boolean | undefined;
@@ -158,6 +159,14 @@ export function formatSummaryBox(data: SummaryData): string {
   }
 
   addRow("字幕行数", pc.magenta(`${data.entriesCount} 行`));
+
+  if (data.backedUpFiles && data.backedUpFiles.length > 0) {
+    lines.push("");
+    lines.push(`  ${pc.bold("バックアップ:")}`);
+    for (const file of data.backedUpFiles) {
+      lines.push(`    ${pc.yellow("📦")} ${pc.dim(file)}`);
+    }
+  }
 
   if (data.outputFiles.length > 0) {
     lines.push("");
