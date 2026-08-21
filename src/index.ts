@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 
 import fs from "node:fs";
+import os from "node:os";
 import path from "node:path";
 import { Command } from "commander";
 import pc from "picocolors";
@@ -15,7 +16,13 @@ import {
   saveTranslationCache,
 } from "./cache.js";
 import { ensureApiKeys, getConfig, getGlobalConfigPath, saveGlobalConfig } from "./config.js";
-import { checkFfmpeg, extractAudio, isAudioFile } from "./ffmpeg.js";
+import {
+  burnSubtitlesToVideo,
+  checkFfmpeg,
+  extractAudio,
+  isAudioFile,
+  isVideoFile,
+} from "./ffmpeg.js";
 import { formatEntries, type OutputFormat, parseOutputFormats } from "./formatter.js";
 import { translateSrtEntries } from "./gemini.js";
 import { computeGlossaryHash, extractWhisperPromptHints, parseGlossary } from "./glossary.js";
@@ -490,6 +497,125 @@ program
     }
   });
 
+// Subcommand: burn
+program
+  .command("burn")
+  .description(
+    "Burn an existing subtitle file (.srt) directly into a video file via FFmpeg (hardsub)",
+  )
+  .argument("<video-file>", "Input video file path (.mp4, .mkv, .mov, etc.)")
+  .argument("<subtitle-file>", "Input subtitle file path (.srt)")
+  .option("-o, --output <path>", "Output video file path (default: <video>.subbed.mp4)")
+  .option(
+    "--ffmpeg-path <path>",
+    "Path to ffmpeg executable (searches VSUB_FFMPEG_PATH or PATH if omitted)",
+  )
+  .option("--verbose", "Output detailed log messages", false)
+  .action(
+    async (
+      videoFile: string,
+      subtitleFile: string,
+      _actionOptions: Record<string, unknown>,
+      cmd: Command,
+    ) => {
+      const options = cmd.optsWithGlobals<{
+        output?: string;
+        ffmpegPath?: string;
+        verbose?: boolean;
+      }>();
+      const startTime = Date.now();
+      const verbose = Boolean(options.verbose);
+      const spinner = createSpinner("", { isSilent: verbose });
+
+      try {
+        const resolvedVideoPath = path.resolve(process.cwd(), videoFile);
+        const resolvedSubtitlePath = path.resolve(process.cwd(), subtitleFile);
+
+        if (!fs.existsSync(resolvedVideoPath)) {
+          throw new Error(`動画ファイルが見つかりません: ${resolvedVideoPath}`);
+        }
+        if (!isVideoFile(resolvedVideoPath)) {
+          throw new Error(
+            `動画ファイル以外の形式には字幕を焼き込めません: ${path.basename(resolvedVideoPath)}`,
+          );
+        }
+        if (!fs.existsSync(resolvedSubtitlePath)) {
+          throw new Error(`字幕ファイルが見つかりません: ${resolvedSubtitlePath}`);
+        }
+
+        const rawConfig = getConfig(options.ffmpegPath);
+        await checkFfmpeg(rawConfig.ffmpegPath);
+
+        let resolvedOutputPath: string;
+        if (options.output) {
+          resolvedOutputPath = path.resolve(process.cwd(), options.output);
+        } else {
+          const videoDir = path.dirname(resolvedVideoPath);
+          const videoExt = path.extname(resolvedVideoPath);
+          const videoBase = path.basename(resolvedVideoPath, videoExt);
+          resolvedOutputPath = path.join(videoDir, `${videoBase}.subbed.mp4`);
+        }
+
+        console.log(
+          `\n🎬 ${pc.bold("vsub-cli burn")} - 字幕焼き込み開始: ${pc.cyan(path.basename(resolvedVideoPath))} + ${pc.cyan(path.basename(resolvedSubtitlePath))}`,
+        );
+
+        spinner.start("🎬 FFmpeg で字幕を動画に焼き込み中 (libx264)...");
+        await burnSubtitlesToVideo(
+          resolvedVideoPath,
+          resolvedSubtitlePath,
+          resolvedOutputPath,
+          {
+            ffmpegPath: rawConfig.ffmpegPath,
+            verbose,
+          },
+        );
+        spinner.succeed("🎬 字幕の動画焼き込みが完了しました");
+
+        const durationMs = Date.now() - startTime;
+        let outStats: fs.Stats | undefined;
+        try {
+          outStats = fs.statSync(resolvedOutputPath);
+        } catch {
+          // ignore
+        }
+
+        let entriesCount = 0;
+        try {
+          const subContent = fs.readFileSync(resolvedSubtitlePath, "utf-8");
+          const parsed = parseSrt(subContent);
+          entriesCount = parsed.length;
+        } catch {
+          // ignore
+        }
+
+        console.log(
+          "\n" +
+            formatSummaryBox({
+              mediaFile: path.basename(resolvedVideoPath),
+              mediaType: "video",
+              durationMs,
+              entriesCount,
+              outputFiles: [
+                outStats
+                  ? `${resolvedOutputPath} (${formatFileSize(outStats.size)})`
+                  : resolvedOutputPath,
+              ],
+            }) +
+            "\n",
+        );
+      } catch (error) {
+        spinner.fail(
+          `処理中にエラーが発生しました: ${error instanceof Error ? error.message : String(error)}`,
+        );
+        if (verbose && error instanceof Error && error.stack) {
+          console.error(error.stack);
+        }
+        process.exit(1);
+      }
+    },
+  );
+
 // Main action (Media processing)
 program
   .argument("[media-file]", "Target video or audio file path (.mp4, .mp3, .wav, .m4a, .mov, etc.)")
@@ -524,6 +650,7 @@ program
     false,
   )
   .option("--cache-dir <path>", "Custom cache directory")
+  .option("--burn", "Burn generated subtitles directly into output video (hardsub)", false)
   .option("--keep-audio", "Keep intermediate extracted audio files without deleting", false)
   .option("--no-translate", "Skip translation and output raw transcribed subtitles", false)
   .option(
@@ -557,6 +684,7 @@ program
         noCache?: boolean;
         fresh?: boolean;
         cacheDir?: string;
+        burn?: boolean;
         keepAudio?: boolean;
         noTranslate?: boolean;
         saveOriginal?: boolean;
@@ -590,6 +718,11 @@ program
         }
 
         const isAudio = isAudioFile(resolvedMediaPath);
+        if (options.burn && isAudio) {
+          throw new Error(
+            "音声ファイルには字幕を焼き込めません。--burn オプションは動画ファイル（.mp4, .mkv, .mov 等）でのみ使用できます。",
+          );
+        }
         const mediaTypeName = isAudio ? "audio" : "video";
         const mediaIcon = isAudio ? "🎵" : "🎬";
 
@@ -871,6 +1004,9 @@ program
           // 4. Save output subtitle files
           spinner.start("💾 [4/4] 字幕ファイルを保存中...");
 
+          const savedSrtPathsByLang = new Map<string, string>();
+          const tempSrtFilesToCleanup: string[] = [];
+
           for (const lang of targetLanguages) {
             const entries = resultsByLang.get(lang) ?? srtEntries;
             const targets = resolveOutputFilePaths(
@@ -884,11 +1020,94 @@ program
             for (const { format, filePath } of targets) {
               fs.writeFileSync(filePath, formatEntries(entries, format), "utf-8");
               outputFiles.push(filePath);
+              if (format === "srt") {
+                savedSrtPathsByLang.set(lang, filePath);
+              }
+            }
+
+            // If --burn is requested but 'srt' format was not among outputFormats, create a temporary srt for ffmpeg
+            if (options.burn && !savedSrtPathsByLang.has(lang)) {
+              const tempSrtPath = path.join(
+                os.tmpdir(),
+                `vsub-burn-${Date.now()}-${Math.random().toString(36).slice(2, 8)}-${lang}.srt`,
+              );
+              fs.writeFileSync(tempSrtPath, formatEntries(entries, "srt"), "utf-8");
+              savedSrtPathsByLang.set(lang, tempSrtPath);
+              tempSrtFilesToCleanup.push(tempSrtPath);
             }
           }
 
           const formatListStr = outputFormats.map((f) => f.toUpperCase()).join(", ");
           spinner.succeed(`💾 [4/4] 字幕ファイルを保存完了 (${formatListStr})`);
+
+          // 5. Burn subtitles to video if --burn option is specified
+          if (options.burn) {
+            try {
+              spinner.start(
+                `🎬 字幕を動画に焼き込み中 (libx264)...${isMultiLang ? ` (0/${targetLanguages.length})` : ""}`,
+              );
+
+              for (let i = 0; i < targetLanguages.length; i++) {
+                const lang = targetLanguages[i] ?? "ja";
+                const srtPathToUse = savedSrtPathsByLang.get(lang);
+                if (!srtPathToUse || !fs.existsSync(srtPathToUse)) {
+                  continue;
+                }
+
+                let burntVideoPath: string;
+                if (options.output) {
+                  const resolvedOut = path.resolve(process.cwd(), options.output);
+                  const parsedOut = path.parse(resolvedOut);
+                  if (isMultiLang) {
+                    burntVideoPath = path.join(
+                      parsedOut.dir,
+                      `${parsedOut.name}.${lang}.subbed.mp4`,
+                    );
+                  } else if (parsedOut.ext === ".mp4") {
+                    burntVideoPath = resolvedOut;
+                  } else {
+                    burntVideoPath = path.join(parsedOut.dir, `${parsedOut.name}.subbed.mp4`);
+                  }
+                } else {
+                  burntVideoPath = path.join(
+                    mediaDir,
+                    `${mediaBaseName}.${lang}.subbed.mp4`,
+                  );
+                }
+
+                if (isMultiLang) {
+                  spinner.updateText(
+                    `🎬 字幕を動画に焼き込み中 (${i + 1}/${targetLanguages.length} 言語: ${lang.toUpperCase()})...`,
+                  );
+                }
+
+                await burnSubtitlesToVideo(resolvedMediaPath, srtPathToUse, burntVideoPath, {
+                  ffmpegPath: rawConfig.ffmpegPath,
+                  verbose,
+                });
+
+                outputFiles.push(burntVideoPath);
+
+                if (isMultiLang) {
+                  spinner.info(
+                    `  ✔ ${lang.toUpperCase()} 字幕焼き込み動画を生成: ${path.basename(burntVideoPath)}`,
+                  );
+                }
+              }
+
+              spinner.succeed("🎬 字幕の動画焼き込みが完了しました");
+            } finally {
+              for (const tempSrt of tempSrtFilesToCleanup) {
+                try {
+                  if (fs.existsSync(tempSrt)) {
+                    fs.unlinkSync(tempSrt);
+                  }
+                } catch {
+                  // ignore
+                }
+              }
+            }
+          }
 
           // 5. Output Summary Box
           const durationMs = Date.now() - startTime;

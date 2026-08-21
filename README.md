@@ -17,6 +17,7 @@ A fast, resilient CLI tool that extracts and optimizes audio from video or audio
 * 📖 **Glossary & Custom Prompting**: Pass custom translation instructions (`--prompt`), domain glossaries (`--glossary` via JSON or inline `Key=Val`), and Whisper recognition hints (`--whisper-prompt`).
 * 🌍 **Simultaneous Multi-Language Output**: Generate subtitles for multiple target languages in one pass (e.g., `-t ja,en,zh`) with only a single transcription step.
 * 📄 **Multi-Format Export**: Supports `.srt` (SubRip), `.vtt` (WebVTT), `.txt` (plain text transcripts), and `.json` (structured data).
+* 🎬 **Video Subtitle Hardsub / Burn-in**: Directly bake subtitles into video files via FFmpeg for SNS posting or preview (`--burn` flag or `vsub burn` subcommand).
 * 🔄 **Direct Subtitle Translation**: Translate existing `.srt` subtitle files directly into other languages and formats without needing media files or Groq API (`vsub translate`).
 * 🛠️ **Interactive Setup & Persistent Config**: Interactive key prompts and global configuration management (`vsub config`).
 
@@ -103,6 +104,7 @@ Options:
   --no-cache                    Do not use or save intermediate cache (default: false)
   --fresh                       Ignore existing cache and generate fresh output, overwriting cache (default: false)
   --cache-dir <path>            Custom cache directory path
+  --burn                        Burn generated subtitles directly into output video (hardsub) (default: false)
   --keep-audio                  Keep intermediate extracted audio files without deleting (default: false)
   --no-translate                Skip translation and output raw transcribed subtitles
   --save-original               Save original transcription subtitle file alongside the result (default: false)
@@ -111,6 +113,7 @@ Options:
   -h, --help                    Display help for command
 
 Commands:
+  burn <video-file> <sub-file>  Burn an existing subtitle file (.srt) directly into a video file via FFmpeg
   translate <subtitle-file>     Directly translate an existing subtitle file (.srt) into target language(s) via Gemini API
   cache path                    Display cache directory path
   cache stats                   Display cache usage and entry counts
@@ -138,7 +141,17 @@ Translate an existing `.srt` file without needing video files or Groq API:
 pnpm dev translate sample.ja.srt -t en -f srt,vtt
 ```
 
-### 3. Using Glossary & Custom Prompts
+### 3. Video Subtitle Hardsub / Burn-in (`--burn` & `vsub burn`)
+Bake subtitles directly into a `.mp4` video with FFmpeg:
+```bash
+# Transcribe, translate, and bake subtitles into video in a single command
+pnpm dev video.mp4 -t ja --burn
+
+# Or burn an existing subtitle file into a video directly
+pnpm dev burn video.mp4 video.ja.srt -o video.subbed.mp4
+```
+
+### 4. Using Glossary & Custom Prompts
 
 #### Inline Glossary Mapping
 ```bash
@@ -172,7 +185,7 @@ pnpm dev video.mp4 -t ja,zh --glossary ./glossary.json
 pnpm dev video.mp4 -t ja --prompt "Translate in a polite and professional tone suited for software engineers. Keep subtitles concise."
 ```
 
-### 4. Cache Management & Performance Tuning
+### 5. Cache Management & Performance Tuning
 ```bash
 # View cache usage statistics
 pnpm dev cache stats

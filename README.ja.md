@@ -17,6 +17,7 @@
 * 📖 **用語集 (Glossary) & プロンプト制御**: 専門用語の誤訳を防ぐ `--glossary`（JSON またはインライン対訳）、翻訳口調を指定する `--prompt`、Whisper の認識精度を高める `--whisper-prompt` をサポート。
 * 🌍 **複数言語一括同時翻訳**: `-t ja,en,zh` のように指定することで、1 回の文字起こしから各言語の字幕ファイルを一括生成。
 * 📄 **マルチフォーマット一括出力**: `.srt` (SubRip), `.vtt` (WebVTT), `.txt` (全文テキスト), `.json` (構造化データ) の同時出力に対応。
+* 🎬 **動画への字幕焼き込み (Hardsub / Burn-in)**: FFmpeg の `subtitles` フィルタを用いて、SNS 投稿やプレビュー用に字幕が動画自体に合成された mp4 をワンストップ出力（`--burn` フラグまたは `vsub burn` サブコマンド）。
 * 🔄 **既存字幕の直接翻訳サブコマンド**: 動画ファイルや Groq API を介さず、既存の `.srt` ファイルから直接翻訳・フォーマット変換を実行（`vsub translate`）。
 * 🛠️ **対話型初期セットアップ & グローバル設定**: 初回実行時の自動対話プロンプトおよび設定ファイル永続管理（`vsub config`）。
 
@@ -103,6 +104,7 @@ Options:
   --no-cache                    中間キャッシュを使用・保存せずに実行 (デフォルト: false)
   --fresh                       既存キャッシュを無視して新規実行し、結果をキャッシュへ上書き (デフォルト: false)
   --cache-dir <path>            カスタムキャッシュ保存ディレクトリの指定
+  --burn                        生成された字幕を動画自体に焼き込んで出力 (hardsub) (デフォルト: false)
   --keep-audio                  中間生成した音声ファイルを削除せずに保持する (デフォルト: false)
   --no-translate                Gemini翻訳をスキップし、Groqの文字起こし結果（原語字幕）のみを出力する
   --save-original               翻訳後字幕に加え、翻訳前の原語文字起こし字幕ファイルも同時に保存する (デフォルト: false)
@@ -111,6 +113,7 @@ Options:
   -h, --help                    ヘルプを表示
 
 Commands:
+  burn <video-file> <sub-file>  既存の字幕ファイル (.srt) を FFmpeg で動画に直接焼き込み (hardsub)
   translate <subtitle-file>     既存の字幕ファイル (.srt) を Gemini API で直接別言語に翻訳
   cache path                    キャッシュディレクトリのパスを表示
   cache stats                   キャッシュファイル数と使用容量を表示
@@ -138,7 +141,17 @@ pnpm dev video.mp4 -t ja,en,zh -f srt,vtt,txt,json
 pnpm dev translate sample.ja.srt -t en -f srt,vtt
 ```
 
-### 3. 用語集 (Glossary) & カスタムプロンプトの活用
+### 3. 動画への字幕焼き込み (`--burn` & `vsub burn`)
+FFmpeg を利用して、字幕が合成された mp4 動画をワンストップで出力します：
+```bash
+# 文字起こし・翻訳と同時に字幕焼き込み動画を出力
+pnpm dev video.mp4 -t ja --burn
+
+# または既存の字幕ファイルを元動画に直接焼き込み
+pnpm dev burn video.mp4 video.ja.srt -o video.subbed.mp4
+```
+
+### 4. 用語集 (Glossary) & カスタムプロンプトの活用
 
 #### インライン用語集の指定
 ```bash
@@ -172,7 +185,7 @@ pnpm dev video.mp4 -t ja,zh --glossary ./glossary.json
 pnpm dev video.mp4 -t ja --prompt "ITエンジニア向けの丁寧なです・ます調で翻訳してください。各行は30文字以内で簡潔にまとめてください。"
 ```
 
-### 4. キャッシュ管理 & パフォーマンス最適化
+### 5. キャッシュ管理 & パフォーマンス最適化
 ```bash
 # キャッシュ使用状況の確認
 pnpm dev cache stats

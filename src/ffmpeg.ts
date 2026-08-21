@@ -264,3 +264,90 @@ export async function extractAudio(
 }
 
 export const prepareAudio = extractAudio;
+
+/**
+ * Escapes a file path for safe usage inside FFmpeg filtergraph expressions (e.g. subtitles='...').
+ */
+export function escapeFfmpegFilterPath(filePath: string): string {
+  // Normalize backslashes to forward slashes
+  const normalized = filePath.replace(/\\/g, "/");
+  // Escape single quotes and colons
+  const escaped = normalized.replace(/'/g, "\\'").replace(/:/g, "\\:");
+  return `'${escaped}'`;
+}
+
+export interface BurnSubtitlesOptions {
+  ffmpegPath?: string;
+  verbose?: boolean;
+}
+
+/**
+ * Burns subtitles directly into a video file using FFmpeg's subtitles filter.
+ */
+export async function burnSubtitlesToVideo(
+  videoPath: string,
+  subtitlePath: string,
+  outputPath: string,
+  options?: BurnSubtitlesOptions,
+): Promise<string> {
+  const ffmpegPath = options?.ffmpegPath ?? "ffmpeg";
+  const verbose = Boolean(options?.verbose);
+
+  const resolvedVideo = path.resolve(videoPath);
+  const resolvedSubtitle = path.resolve(subtitlePath);
+  const resolvedOutput = path.resolve(outputPath);
+
+  if (!fs.existsSync(resolvedVideo)) {
+    throw new Error(`Specified video file not found: ${videoPath}`);
+  }
+  if (!isVideoFile(resolvedVideo)) {
+    throw new Error(
+      `Cannot burn subtitles into a non-video file: ${path.basename(videoPath)} (supported video formats: ${Array.from(SUPPORTED_VIDEO_EXTENSIONS).join(", ")})`,
+    );
+  }
+  if (!fs.existsSync(resolvedSubtitle)) {
+    throw new Error(`Specified subtitle file not found: ${subtitlePath}`);
+  }
+
+  const outDir = path.dirname(resolvedOutput);
+  if (!fs.existsSync(outDir)) {
+    fs.mkdirSync(outDir, { recursive: true });
+  }
+
+  const escapedSubPath = escapeFfmpegFilterPath(resolvedSubtitle);
+  const ffmpegArgs = [
+    "-i",
+    resolvedVideo,
+    "-vf",
+    `subtitles=${escapedSubPath}`,
+    "-c:v",
+    "libx264",
+    "-pix_fmt",
+    "yuv420p",
+    "-crf",
+    "23",
+    "-preset",
+    "medium",
+    "-c:a",
+    "copy",
+    "-y",
+    resolvedOutput,
+  ];
+
+  if (verbose) {
+    console.log(`[ffmpeg] Burning subtitles: ${ffmpegPath} ${ffmpegArgs.join(" ")}`);
+  }
+
+  try {
+    await execa(ffmpegPath, ffmpegArgs);
+  } catch (error) {
+    const errMessage = error instanceof Error ? error.message : String(error);
+    throw new Error(`Failed to burn subtitles into video with FFmpeg: ${errMessage}`);
+  }
+
+  if (!fs.existsSync(resolvedOutput)) {
+    throw new Error(`Failed to burn subtitles: Output file was not created at ${resolvedOutput}`);
+  }
+
+  return resolvedOutput;
+}

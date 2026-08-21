@@ -23,8 +23,8 @@
 | **Completed** | 12. プロンプト / 用語集 (Glossary) 指定機能 | 機能拡張 | 低〜中 | 専門用語の誤認識防止・口調や訳語の統一 | **完了** |
 | **Completed** | 13. Gemini API 並列リクエストによる高速化 | 信頼性 | 中 | 長尺動画における翻訳待機時間の短縮 | **完了** |
 | **Completed** | 19. モデル指定オプション (`--gemini-model`, `--groq-model`) | 機能拡張 | 低 | 将来の新世代モデルや特定モデルへの柔軟な切り替え | **完了** |
+| **Completed** | 14. 動画への字幕焼き込み (Hardsub / Burn-in) | 機能拡張 | 中 | 字幕入り mp4 のワンストップ出力 | **完了** |
 | **High** | 15. ファイル上書き防止 / バックアップセーフティ | CLI UX | 低 | 既存ファイルの誤削除・上書き防止 | 未着手 |
-| **High** | 14. 動画への字幕焼き込み (Hardsub / Burn-in) | 機能拡張 | 中 | 字幕入り mp4 のワンストップ出力 | 未着手 |
 | **Medium** | 11. テストカバレッジ計測 & レポート (`vitest --coverage`) | DevOps/品質 | 低 | テスト網羅率の可視化と維持 | 未着手 |
 | **Medium** | 18. GitHub Actions CI (Node マトリックス + FFmpeg 実機) & Dependabot | DevOps/CI | 低 | 複数 Node.js 互換性保証と依存関係・脆弱性の自動更新 | 未着手 |
 | **Medium** | 16. npm 公開 & Release Please 全自動リリースパイプライン | DevOps/配布 | 低〜中 | トランク開発を維持した SemVer / CHANGELOG / npm publish 自動化 | 未着手 |
@@ -96,31 +96,31 @@
 * キャッシュ整合性判定（モデル名変更時の自動無効化）を組み込み、新モデル実験時やモデル切り替え時の安全性を担保。
 * **対応ファイル**: `src/config.ts`, `src/config.test.ts`, `src/groq.ts`, `src/groq.test.ts`, `src/gemini.ts`, `src/gemini.test.ts`, `src/cache.ts`, `src/cache.test.ts`, `src/index.ts`
 
+### 1.11 動画への字幕焼き込み (Hardsub / Burn-in)
+* FFmpeg の `subtitles` フィルタと `libx264` エンコーダを活用し、字幕が合成された mp4 動画を出力。
+* Windows ドライブレター `:` やシングルクォート・特殊文字の安全なフィルタグラフエスケープ関数 (`escapeFfmpegFilterPath`) を実装。
+* メインアクションへの `--burn` フラグ追加（文字起こし・翻訳から一気通貫で字幕入り動画を出力）。
+* 単体実行用の `vsub burn <video-file> <subtitle-file>` サブコマンドを新設。
+* **対応ファイル**: `src/ffmpeg.ts`, `src/ffmpeg.test.ts`, `src/index.ts`
+
 ---
 
 ## 2. 今後の改善バックログ (Backlog & Future Work)
 
-### 2.1 テストカバレッジ計測 & レポート (`vitest --coverage`) 【優先度: Medium】
+### 2.1 ファイル上書き防止 / バックアップセーフティ 【優先度: High】
+* **背景/課題**: 出力先に同名の字幕ファイルが既に存在する場合、確認なしで上書きされてしまう。
+* **提案内容**:
+  * `--overwrite` / `-f` フラグがない場合、対話環境では上書き確認プロンプトを表示、または `.bak.srt` などのバックアップを作成。
+* **対応スコープ**: `src/index.ts`
+
+### 2.2 テストカバレッジ計測 & レポート (`vitest --coverage`) 【優先度: Medium】
 * **背景/課題**: 単体テストの網羅率（C0/C1 カバレッジ）が数値化されていない。
 * **提案内容**:
   * `@vitest/coverage-v8` を導入し、`package.json` に `"test:coverage": "vitest run --coverage"` スクリプトを追加。
   * `vitest.config.ts` でカバレッジ対象（`src/**/*.ts`）および除外設定（`src/index.ts`, `**/*.test.ts` 等）を構成。
 * **対応スコープ**: `package.json`, `vitest.config.ts`
 
-### 2.2 動画への字幕焼き込み (Hardsub / Burn-in) 【優先度: Low】
-* **背景/課題**: 字幕ファイルを別体で扱うのではなく、動画自体に字幕が焼き込まれたファイル（SNS 投稿用・プレビュー用）が欲しいケースがある。
-* **提案内容**:
-  * `--burn` オプションまたは `vsub burn <video> <srt>` サブコマンド。
-  * FFmpeg の `subtitles` フィルタを利用して、字幕が合成された動画（`sample.subbed.mp4`）を出力。
-* **対応スコープ**: `src/ffmpeg.ts`, `src/index.ts`
-
-### 2.3 ファイル上書き防止 / バックアップセーフティ 【優先度: Low】
-* **背景/課題**: 出力先に同名の字幕ファイルが既に存在する場合、確認なしで上書きされてしまう。
-* **提案内容**:
-  * `--overwrite` / `-f` フラグがない場合、対話環境では上書き確認プロンプトを表示、または `.bak.srt` などのバックアップを作成。
-* **対応スコープ**: `src/index.ts`
-
-### 2.4 npm パッケージ公開 & Release Please 全自動リリースパイプライン 【優先度: Medium】
+### 2.3 npm パッケージ公開 & Release Please 全自動リリースパイプライン 【優先度: Medium】
 * **背景/課題**: リポジトリを clone せずに `npx vsub-cli <video.mp4>` や `npm i -g vsub-cli` で誰でもワンライナー実行可能にし、かつトランク開発の身軽さを損なわずにリリースを全自動化したい。
 * **提案内容**:
   * **パッケージ設定最適化**:
@@ -133,14 +133,14 @@
     * キリの良いタイミングでリリース PR をマージするだけで、GitHub Tag / Release 発行、CHANGELOG.md 更新、および npm への自動 publish（Provenance 付き）を一気通貫で実行。
 * **対応スコープ**: `package.json`, `.github/workflows/release.yml`
 
-### 2.5 GitHub Releases & スタンドアロンバイナリ配布 【優先度: Low】
+### 2.4 GitHub Releases & スタンドアロンバイナリ配布 【優先度: Low】
 * **背景/課題**: Node.js や pnpm をインストールしていない一般ユーザー向けに単体実行バイナリを提供したい。
 * **提案内容**:
   * Node.js SEA (Single Executable Applications) 等を用いて、Windows (`.exe`), macOS, Linux 向けの単体実行バイナリをビルド。
   * GitHub Releases に各 OS 向けバイナリを自動アップロードする Release ワークフローの構築。
 * **対応スコープ**: `.github/workflows/release.yml`, ビルドスクリプト
 
-### 2.6 GitHub Actions CI (Node マトリックス + FFmpeg 実機) & Dependabot 自動化 【優先度: Medium】
+### 2.5 GitHub Actions CI (Node マトリックス + FFmpeg 実機) & Dependabot 自動化 【優先度: Medium】
 * **背景/課題**: PR や push 時に自動でリント・型チェック・テストを実行し、かつ Node.js の進化や依存ライブラリの更新・脆弱性対応を最小限のメンテナンス労力（ほぼノータッチ）で維持したい。
 * **提案内容**:
   * **CI ワークフロー (`.github/workflows/ci.yml`)**:
@@ -155,7 +155,7 @@
     * **脆弱性対応**: Dependabot alerts / Security updates を有効化し、Critical/High 脆弱性を即座に PR 化。
 * **対応スコープ**: `.github/workflows/ci.yml`, `.github/dependabot.yml`
 
-### 2.7 AI モデル新着自動監視 & 重複防止 Issue 通知ワークフロー 【優先度: Low】
+### 2.6 AI モデル新着自動監視 & 重複防止 Issue 通知ワークフロー 【優先度: Low】
 * **背景/課題**: Gemini / Groq の新モデルリリースを迅速にキャッチしたいが、手動巡回の手間やノイズは最小化したい。
 * **提案内容**:
   * GitHub Actions の定期 cron 実行（週1回等）で Gemini / Groq のモデル一覧 API を取得。
@@ -163,7 +163,7 @@
   * すでに同一タイトルの Open Issue が存在する場合は作成をスキップし、Issue 乱立・重複通知を防止。
 * **対応スコープ**: `.github/workflows/model-watch.yml`
 
-### 2.8 OSS 運用テンプレート & ガイドライン整備 【優先度: Low】
+### 2.7 OSS 運用テンプレート & ガイドライン整備 【優先度: Low】
 * **背景/課題**: OSS 公開後に外部ユーザーからの不完全な Issue や過大な PR でメンテナーが消耗するのを防ぎ、トランク開発の身軽さを維持する。
 * **提案内容**:
   * **Issue テンプレート (`.github/ISSUE_TEMPLATE/`)**: バグ報告時に OS、Node.js バージョン、実行コマンド、エラーログの添付を必須化。

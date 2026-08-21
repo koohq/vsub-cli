@@ -1,6 +1,9 @@
+import fs from "node:fs";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import {
+  burnSubtitlesToVideo,
   checkFfmpeg,
+  escapeFfmpegFilterPath,
   extractAudio,
   getMediaDurationInSeconds,
   isAudioFile,
@@ -150,6 +153,73 @@ describe("ffmpeg.ts", () => {
 
     it("prepareAudio should be an alias of extractAudio", () => {
       expect(prepareAudio).toBe(extractAudio);
+    });
+  });
+
+  describe("escapeFfmpegFilterPath", () => {
+    it("should escape colons and wrap in single quotes", () => {
+      expect(escapeFfmpegFilterPath("C:/videos/sub.srt")).toBe("'C\\:/videos/sub.srt'");
+    });
+
+    it("should convert backslashes to forward slashes", () => {
+      expect(escapeFfmpegFilterPath("C:\\videos\\sub.srt")).toBe("'C\\:/videos/sub.srt'");
+    });
+
+    it("should escape single quotes inside path", () => {
+      expect(escapeFfmpegFilterPath("/path/to/my video's sub.srt")).toBe(
+        "'/path/to/my video\\'s sub.srt'",
+      );
+    });
+  });
+
+  describe("burnSubtitlesToVideo", () => {
+    it("should throw error if video file does not exist", async () => {
+      await expect(
+        burnSubtitlesToVideo("/nonexistent/video.mp4", "/path/to/sub.srt", "/path/to/out.mp4"),
+      ).rejects.toThrow(/Specified video file not found/);
+    });
+
+    it("should throw error if input is an audio file", async () => {
+      vi.spyOn(fs, "existsSync").mockReturnValue(true);
+      await expect(
+        burnSubtitlesToVideo("/path/to/audio.mp3", "/path/to/sub.srt", "/path/to/out.mp4"),
+      ).rejects.toThrow(/Cannot burn subtitles into a non-video file/);
+    });
+
+    it("should throw error if subtitle file does not exist", async () => {
+      vi.spyOn(fs, "existsSync").mockImplementation((p) => {
+        return p.toString().endsWith(".mp4");
+      });
+      await expect(
+        burnSubtitlesToVideo("/path/to/video.mp4", "/nonexistent/sub.srt", "/path/to/out.mp4"),
+      ).rejects.toThrow(/Specified subtitle file not found/);
+    });
+
+    it("should execute ffmpeg with subtitles filter and correct video/audio codecs", async () => {
+      vi.spyOn(fs, "existsSync").mockReturnValue(true);
+      vi.spyOn(fs, "mkdirSync").mockReturnValue(undefined as unknown as string);
+      mockExeca.mockResolvedValueOnce({ stdout: "" });
+
+      const result = await burnSubtitlesToVideo(
+        "video.mp4",
+        "sub.srt",
+        "out.mp4",
+        { ffmpegPath: "ffmpeg", verbose: false },
+      );
+
+      expect(mockExeca).toHaveBeenCalledTimes(1);
+      const call = mockExeca.mock.calls[0];
+      expect(call).toBeDefined();
+      const [cmd, args] = call as [string, string[]];
+      expect(cmd).toBe("ffmpeg");
+      expect(args).toContain("-i");
+      expect(args).toContain("-vf");
+      expect(args).toContain("-c:v");
+      expect(args).toContain("libx264");
+      expect(args).toContain("-c:a");
+      expect(args).toContain("copy");
+      expect(args).toContain("-y");
+      expect(result).toContain("out.mp4");
     });
   });
 });
