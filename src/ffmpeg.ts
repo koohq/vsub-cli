@@ -13,6 +13,12 @@ export interface ExtractedAudioResult {
  * Resolves the path to the ffprobe executable corresponding to the given ffmpeg path.
  */
 export function resolveFfprobePath(ffmpegPath: string): string {
+  if (/(^|[/\\])ffmpeg(\.[a-z0-9]+)?$/i.test(ffmpegPath)) {
+    return ffmpegPath.replace(
+      /(^|[/\\])ffmpeg(\.[a-z0-9]+)?$/i,
+      (_match, prefix: string, ext: string | undefined) => `${prefix}ffprobe${ext ?? ""}`,
+    );
+  }
   const parsed = path.parse(ffmpegPath);
   const ext = parsed.ext;
   const probeName = ext ? `ffprobe${ext}` : "ffprobe";
