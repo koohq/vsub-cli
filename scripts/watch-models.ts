@@ -32,33 +32,27 @@ export interface WatchResult {
 export type CommandRunner = (file: string, args: readonly string[]) => Promise<{ stdout: string }>;
 
 /**
- * Known/baseline models already recognized by vsub-cli
+ * Known/baseline models currently returned by Gemini / Groq APIs
  */
 export const KNOWN_GEMINI_MODELS = new Set([
-  DEFAULT_GEMINI_MODEL,
-  "gemini-flash-latest",
-  "gemini-flash-lite-latest",
+  DEFAULT_GEMINI_MODEL, // gemini-3.7-flash
+  "gemini-3.6-flash",
+  "gemini-3.5-flash",
+  "gemini-3.5-flash-lite",
+  "gemini-3.1-flash-lite",
+  "gemini-3.1-flash-lite-preview",
+  "gemini-3-flash-preview",
   "gemini-2.5-flash",
   "gemini-2.5-flash-lite",
-  "gemini-2.0-flash",
-  "gemini-2.0-flash-001",
-  "gemini-2.0-flash-lite",
-  "gemini-2.0-flash-lite-001",
-  "gemini-1.5-flash",
-  "gemini-1.5-flash-001",
-  "gemini-1.5-flash-002",
-  "gemini-1.5-flash-8b",
-  "gemini-1.5-flash-8b-001",
-  "gemini-1.5-pro",
-  "gemini-1.5-pro-001",
-  "gemini-1.5-pro-002",
-  "gemini-2.0-pro-exp-02-05",
+  "gemini-flash-latest",
+  "gemini-flash-lite-latest",
+  "gemini-omni-flash-preview",
+  "gemini-3.1-flash-live-preview",
 ]);
 
 export const KNOWN_GROQ_MODELS = new Set([
-  DEFAULT_GROQ_MODEL,
+  DEFAULT_GROQ_MODEL, // whisper-large-v3-turbo
   "whisper-large-v3",
-  "distil-whisper-large-v3-en",
 ]);
 
 /**
