@@ -1,5 +1,11 @@
 import { describe, expect, it } from "vitest";
-import { createSpinner, formatDuration, formatFileSize, formatSummaryBox } from "./ui.js";
+import {
+  createSpinner,
+  formatBatchSummaryBox,
+  formatDuration,
+  formatFileSize,
+  formatSummaryBox,
+} from "./ui.js";
 
 describe("ui module", () => {
   describe("formatDuration", () => {
@@ -224,6 +230,51 @@ describe("ui module", () => {
       expect(summaryTargetFirst).toContain("字幕モード");
       expect(summaryTargetFirst).toContain("バイリンガル併記");
       expect(summaryTargetFirst).toContain("訳語 ➔ 原語");
+    });
+  });
+
+  describe("formatBatchSummaryBox", () => {
+    it("should format batch summary box with success, fail, and skipped items", () => {
+      const summary = formatBatchSummaryBox({
+        totalFiles: 3,
+        succeededCount: 1,
+        failedCount: 1,
+        skippedCount: 1,
+        totalDurationMs: 12500,
+        items: [
+          {
+            file: "video1.mp4",
+            status: "success",
+            durationMs: 5000,
+            entriesCount: 30,
+            outputFiles: ["video1.ja.srt", "video1.ja.vtt"],
+          },
+          {
+            file: "video2.mp4",
+            status: "failed",
+            durationMs: 2000,
+            error: "FFmpeg codec error",
+          },
+          {
+            file: "video3.mp4",
+            status: "skipped",
+          },
+        ],
+      });
+
+      expect(summary).toContain("バッチ処理総合サマリー");
+      expect(summary).toContain("3 ファイル");
+      expect(summary).toContain("成功: 1");
+      expect(summary).toContain("失敗: 1");
+      expect(summary).toContain("スキップ: 1");
+      expect(summary).toContain("12.5s");
+      expect(summary).toContain("video1.mp4");
+      expect(summary).toContain("30行");
+      expect(summary).toContain("video1.ja.srt");
+      expect(summary).toContain("video2.mp4");
+      expect(summary).toContain("FFmpeg codec error");
+      expect(summary).toContain("video3.mp4");
+      expect(summary).toContain("スキップ");
     });
   });
 

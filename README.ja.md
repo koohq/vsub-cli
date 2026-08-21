@@ -17,6 +17,7 @@
 * 📖 **用語集 (Glossary) & プロンプト制御**: 専門用語の誤訳を防ぐ `--glossary`（JSON またはインライン対訳）、翻訳口調を指定する `--prompt`、Whisper の認識精度を高める `--whisper-prompt` をサポート。
 * 🌍 **複数言語一括同時翻訳**: `-t ja,en,zh` のように指定することで、1 回の文字起こしから各言語の字幕ファイルを一括生成。
 * 📄 **マルチフォーマット一括出力**: `.srt` (SubRip), `.vtt` (WebVTT), `.txt` (全文テキスト), `.json` (構造化データ) の同時出力に対応。
+* 📁 **ディレクトリ / バッチ一括処理モード**: フォルダ配下の全動画・音声、複数ファイル、glob パターンを一括で自動文字起こし・翻訳。逐次キュー処理、エラー耐性、総合サマリーレポートを完備（`vsub batch`）。
 * 🎬 **動画への字幕焼き込み (Hardsub / Burn-in)**: FFmpeg の `subtitles` フィルタを用いて、SNS 投稿やプレビュー用に字幕が動画自体に合成された mp4 をワンストップ出力（`--burn` フラグまたは `vsub burn` サブコマンド）。
 * 🛡️ **ファイル上書き防止 & バックアップセーフティ**: 処理開始前の事前衝突検知、対話環境での上書き確認（`y/N`）、強制上書きフラグ（`-w, --overwrite`）、自動連番退避（`--backup` による `.bak` / `.bak.N` 保存）で意図しないデータ消失を完全防止。
 * 🔄 **既存字幕の直接翻訳サブコマンド**: 動画ファイルや Groq API を介さず、既存の `.srt` ファイルから直接翻訳・フォーマット変換を実行（`vsub translate`）。
@@ -150,7 +151,23 @@ pnpm dev video.mp4 -t ja -b --bilingual-order target-first
 pnpm dev video.mp4 -t ja,en,zh -f srt,vtt,txt,json
 ```
 
-### 3. 既存字幕ファイルの直接翻訳 (`vsub translate`)
+### 3. ディレクトリ / バッチ一括処理モード (`vsub batch`)
+フォルダ内の全動画や glob パターンに一致する複数メディアを一括で処理します：
+```bash
+# フォルダ内の全動画・音声ファイルを再帰的に一括文字起こし・翻訳
+pnpm dev batch ./videos/ -t ja
+
+# 複数ファイルやワイルドカード（glob）での一括処理
+pnpm dev batch ./episodes/*.mp4 -t ja,en -f srt,vtt
+
+# 出力先フォルダを指定して一括出力
+pnpm dev batch ./podcasts/ -t ja -o ./subtitles/
+
+# サブディレクトリ探索なし、またはエラー発生時に即時中断
+pnpm dev batch ./videos/ --no-recursive --fail-fast
+```
+
+### 4. 既存字幕ファイルの直接翻訳 (`vsub translate`)
 動画ファイルや Groq API なしで、既存の `.srt` ファイルから直接翻訳・フォーマット変換：
 ```bash
 pnpm dev translate sample.ja.srt -t en -f srt,vtt

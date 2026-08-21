@@ -189,6 +189,93 @@ export function formatSummaryBox(data: SummaryData): string {
   return lines.join("\n");
 }
 
+export interface BatchSummaryItem {
+  file: string;
+  status: "success" | "failed" | "skipped";
+  durationMs?: number | undefined;
+  entriesCount?: number | undefined;
+  outputFiles?: string[] | undefined;
+  error?: string | undefined;
+}
+
+export interface BatchSummaryData {
+  totalFiles: number;
+  succeededCount: number;
+  failedCount: number;
+  skippedCount?: number | undefined;
+  totalDurationMs: number;
+  items: BatchSummaryItem[];
+}
+
+/**
+ * Formats a clean summary box with batch processing results across multiple files.
+ */
+export function formatBatchSummaryBox(data: BatchSummaryData): string {
+  const lines: string[] = [];
+  const width = 64;
+  const hr = "─".repeat(width);
+
+  lines.push(pc.cyan(`┌${hr}┐`));
+  const title = "  vsub-cli バッチ処理総合サマリー  ";
+  const titlePadding = Math.max(0, Math.floor((width - title.length) / 2));
+  const titleRightPadding = Math.max(0, width - title.length - titlePadding);
+  lines.push(
+    pc.cyan("│") +
+      " ".repeat(titlePadding) +
+      pc.bold(pc.white(title)) +
+      " ".repeat(titleRightPadding) +
+      pc.cyan("│"),
+  );
+  lines.push(pc.cyan(`├${hr}┤`));
+
+  const addRow = (label: string, value: string) => {
+    const paddedLabel = label.padEnd(12, " ");
+    lines.push(`  ${pc.gray(paddedLabel)}: ${value}`);
+  };
+
+  addRow("対象ファイル", pc.bold(`${data.totalFiles} ファイル`));
+  const successColor = data.succeededCount > 0 ? pc.green : pc.gray;
+  const failColor = data.failedCount > 0 ? pc.red : pc.gray;
+  addRow(
+    "処理結果",
+    `${successColor(`成功: ${data.succeededCount}`)} / ${failColor(`失敗: ${data.failedCount}`)}${
+      data.skippedCount ? ` / ${pc.yellow(`スキップ: ${data.skippedCount}`)}` : ""
+    }`,
+  );
+  addRow("合計所要時間", pc.green(formatDuration(data.totalDurationMs)));
+
+  if (data.items.length > 0) {
+    lines.push("");
+    lines.push(`  ${pc.bold("ファイル別詳細:")}`);
+    for (const item of data.items) {
+      const fileName = item.file;
+      const durationStr =
+        item.durationMs !== undefined ? ` (${formatDuration(item.durationMs)})` : "";
+      if (item.status === "success") {
+        const entriesStr = item.entriesCount !== undefined ? ` [${item.entriesCount}行]` : "";
+        lines.push(
+          `    ${pc.green("✔")} ${pc.white(pc.bold(fileName))}${pc.dim(durationStr)}${pc.magenta(entriesStr)}`,
+        );
+        if (item.outputFiles && item.outputFiles.length > 0) {
+          for (const out of item.outputFiles) {
+            lines.push(`       ${pc.gray("└─")} ${pc.dim(out)}`);
+          }
+        }
+      } else if (item.status === "failed") {
+        lines.push(`    ${pc.red("✖")} ${pc.red(pc.bold(fileName))}${pc.dim(durationStr)}`);
+        if (item.error) {
+          lines.push(`       ${pc.red("└─ エラー:")} ${pc.gray(item.error)}`);
+        }
+      } else {
+        lines.push(`    ${pc.yellow("↷")} ${pc.dim(fileName)} (スキップ)`);
+      }
+    }
+  }
+
+  lines.push(pc.cyan(`└${hr}┘`));
+  return lines.join("\n");
+}
+
 export interface ProgressSpinner {
   start(text?: string): ProgressSpinner;
   succeed(text?: string): ProgressSpinner;

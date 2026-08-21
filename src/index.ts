@@ -1,33 +1,25 @@
 #!/usr/bin/env node
 
 import fs from "node:fs";
-import os from "node:os";
 import path from "node:path";
 import { Command } from "commander";
 import pc from "picocolors";
+import { type BatchPipelineOptions, runBatchPipeline } from "./batch.js";
 import {
   clearCache,
   getCacheDir,
   getCacheStats,
-  isTranscriptionCacheValid,
   isTranslationCacheValid,
   loadMediaCache,
-  saveTranscriptionCache,
   saveTranslationCache,
 } from "./cache.js";
 import { ensureApiKeys, getConfig, getGlobalConfigPath, saveGlobalConfig } from "./config.js";
-import {
-  burnSubtitlesToVideo,
-  checkFfmpeg,
-  extractAudio,
-  isAudioFile,
-  isVideoFile,
-} from "./ffmpeg.js";
+import { burnSubtitlesToVideo, checkFfmpeg, isVideoFile } from "./ffmpeg.js";
 import { formatEntries, type OutputFormat, parseOutputFormats } from "./formatter.js";
 import { translateSrtEntries } from "./gemini.js";
-import { computeGlossaryHash, extractWhisperPromptHints, parseGlossary } from "./glossary.js";
-import { transcribeAudioSegments } from "./groq.js";
+import { computeGlossaryHash, parseGlossary } from "./glossary.js";
 import { parseTargetLanguages } from "./languages.js";
+import { type ProcessMediaOptions, processMediaPipeline } from "./pipeline.js";
 import { ensureWritableTargets } from "./safety.js";
 import type { BilingualOrder, SrtEntry } from "./srt.js";
 import { mergeBilingualEntries, parseSrt } from "./srt.js";
@@ -721,6 +713,95 @@ program
     },
   );
 
+// Subcommand: batch
+program
+  .command("batch")
+  .description(
+    "Process multiple media files in bulk (directories, multiple files, or glob patterns)",
+  )
+  .argument("<targets...>", "Target files, directories, or glob patterns")
+  .option("-r, --recursive", "Recursively search directories for media files", true)
+  .option("--no-recursive", "Do not recursively search subdirectories")
+  .option("-o, --output-dir <dir>", "Directory to output generated subtitle and video files")
+  .option("--fail-fast", "Abort remaining batch jobs immediately on first error", false)
+  .option(
+    "-t, --target-lang <langs>",
+    "Target language code(s), comma-separated (e.g., ja, en, es, zh-TW)",
+    "ja",
+  )
+  .option(
+    "-f, --format <formats>",
+    "Output formats: comma-separated list of srt, vtt, txt, json",
+    "srt",
+  )
+  .option("-w, --overwrite", "Overwrite existing output files without confirmation prompt", false)
+  .option("--backup", "Create backup (.bak) of existing output files before overwriting", false)
+  .option(
+    "-b, --bilingual",
+    "Generate bilingual subtitles combining original and translated text",
+    false,
+  )
+  .option(
+    "--bilingual-order <order>",
+    "Order of bilingual subtitles: original-first (default) or target-first",
+    "original-first",
+  )
+  .option(
+    "--ffmpeg-path <path>",
+    "Path to ffmpeg executable (searches VSUB_FFMPEG_PATH or PATH if omitted)",
+  )
+  .option("--whisper-prompt <text>", "Prompt hint for Groq Whisper speech recognition")
+  .option("--prompt <instruction>", "Additional instruction prompt for Gemini translation")
+  .option(
+    "--glossary <path-or-terms>",
+    "Glossary file path (JSON) or inline terms (key=val,key=val)",
+  )
+  .option("--concurrency <number>", "Number of concurrent translation requests to Gemini API")
+  .option("--gemini-model <model>", "Gemini model to use for translation")
+  .option("--groq-model <model>", "Groq Whisper model to use for transcription")
+  .option("--no-cache", "Do not use or save intermediate transcription/translation cache", false)
+  .option(
+    "--fresh",
+    "Ignore existing cache and generate fresh transcription/translations, overwriting cache",
+    false,
+  )
+  .option("--cache-dir <path>", "Custom cache directory")
+  .option("--burn", "Burn generated subtitles directly into output video (hardsub)", false)
+  .option("--keep-audio", "Keep intermediate extracted audio files without deleting", false)
+  .option("--no-translate", "Skip translation and output raw transcribed subtitles", false)
+  .option(
+    "--save-original",
+    "Save original transcription subtitle file alongside the result",
+    false,
+  )
+  .option(
+    "--force-translate",
+    "Force Gemini translation even if detected language matches target language",
+    false,
+  )
+  .option("--verbose", "Output detailed log messages", false)
+  .action(async (targets: string[], _actionOptions: Record<string, unknown>, cmd: Command) => {
+    const options = cmd.optsWithGlobals<
+      BatchPipelineOptions & { format: string; targetLang: string }
+    >();
+    try {
+      const summary = await runBatchPipeline({
+        ...options,
+        targets,
+      });
+      if (summary.failedCount > 0) {
+        process.exit(1);
+      }
+    } catch (error) {
+      console.error(
+        pc.red(
+          `\n✖ バッチ処理中に致命的なエラーが発生しました: ${error instanceof Error ? error.message : String(error)}`,
+        ),
+      );
+      process.exit(1);
+    }
+  });
+
 // Main action (Media processing)
 program
   .argument("[media-file]", "Target video or audio file path (.mp4, .mp3, .wav, .m4a, .mov, etc.)")
@@ -787,575 +868,24 @@ program
       _actionOptions: Record<string, unknown>,
       cmd: Command,
     ) => {
-      const options = cmd.optsWithGlobals<{
-        targetLang: string;
-        format: string;
-        output?: string;
-        overwrite?: boolean;
-        backup?: boolean;
-        bilingual?: boolean;
-        bilingualOrder?: string;
-        ffmpegPath?: string;
-        geminiModel?: string;
-        groqModel?: string;
-        whisperPrompt?: string;
-        prompt?: string;
-        glossary?: string;
-        concurrency?: string;
-        noCache?: boolean;
-        fresh?: boolean;
-        cacheDir?: string;
-        burn?: boolean;
-        keepAudio?: boolean;
-        noTranslate?: boolean;
-        saveOriginal?: boolean;
-        forceTranslate?: boolean;
-        verbose?: boolean;
-      }>();
+      const options = cmd.optsWithGlobals<ProcessMediaOptions>();
       if (!mediaFile) {
         program.help();
         return;
       }
 
-      const startTime = Date.now();
-      const verbose = Boolean(options.verbose);
-      const spinner = createSpinner("", { isSilent: verbose });
-      const outputFiles: string[] = [];
-
       try {
-        const outputFormats = parseOutputFormats(options.format);
-        const targetLanguages = parseTargetLanguages(options.targetLang);
-        const isMultiLang = targetLanguages.length > 1;
-        const isBilingual = Boolean(options.bilingual);
-        const bilingualOrder = parseBilingualOrder(options.bilingualOrder);
-        const resolvedMediaPath = path.resolve(process.cwd(), mediaFile);
-        const rawConfig = getConfig(options.ffmpegPath);
-
-        const mediaDir = path.dirname(resolvedMediaPath);
-        const mediaExt = path.extname(resolvedMediaPath);
-        const mediaBaseName = path.basename(resolvedMediaPath, mediaExt);
-
-        // Pre-check output file safety before expensive operations
-        const predictedTargets: string[] = [];
-        for (const lang of targetLanguages) {
-          const targets = resolveOutputFilePaths(
-            mediaDir,
-            mediaBaseName,
-            lang,
-            outputFormats,
-            options.output,
-            !isMultiLang,
-            isBilingual,
-          );
-          for (const { filePath } of targets) {
-            predictedTargets.push(filePath);
-          }
-        }
-
-        if (options.burn) {
-          for (const lang of targetLanguages) {
-            let burntVideoPath: string;
-            const langTag = isBilingual ? `${lang}.bilingual` : lang;
-            if (options.output) {
-              const resolvedOut = path.resolve(process.cwd(), options.output);
-              const parsedOut = path.parse(resolvedOut);
-              if (isMultiLang) {
-                burntVideoPath = path.join(
-                  parsedOut.dir,
-                  `${parsedOut.name}.${langTag}.subbed.mp4`,
-                );
-              } else if (parsedOut.ext === ".mp4") {
-                burntVideoPath = resolvedOut;
-              } else {
-                burntVideoPath = path.join(parsedOut.dir, `${parsedOut.name}.subbed.mp4`);
-              }
-            } else {
-              burntVideoPath = path.join(mediaDir, `${mediaBaseName}.${langTag}.subbed.mp4`);
-            }
-            predictedTargets.push(burntVideoPath);
-          }
-        }
-
-        const safetyCheck = await ensureWritableTargets(predictedTargets, {
-          overwrite: options.overwrite,
-          backup: options.backup,
+        await processMediaPipeline({
+          ...options,
+          mediaFile,
         });
-
-        if (!safetyCheck.proceed) {
-          console.log(
-            "⚠️  処理を中止しました。(--overwrite または --backup を指定して再実行できます)",
-          );
-          return;
-        }
-
-        if (safetyCheck.backedUp.length > 0) {
-          for (const { original, backup } of safetyCheck.backedUp) {
-            console.log(
-              `📦 バックアップを作成しました: ${pc.cyan(path.basename(original))} -> ${pc.yellow(path.basename(backup))}`,
-            );
-          }
-        }
-
-        const groqModel = options.groqModel?.trim() || rawConfig.groqModel;
-        const geminiModel = options.geminiModel?.trim() || rawConfig.geminiModel;
-
-        const glossaryInput = options.glossary?.trim() || rawConfig.glossary;
-        let whisperPrompt = options.whisperPrompt?.trim() || rawConfig.whisperPrompt;
-        if (!whisperPrompt && glossaryInput) {
-          whisperPrompt = extractWhisperPromptHints(glossaryInput);
-        }
-
-        const isAudio = isAudioFile(resolvedMediaPath);
-        if (options.burn && isAudio) {
-          throw new Error(
-            "音声ファイルには字幕を焼き込めません。--burn オプションは動画ファイル（.mp4, .mkv, .mov 等）でのみ使用できます。",
-          );
-        }
-        const mediaTypeName = isAudio ? "audio" : "video";
-        const mediaIcon = isAudio ? "🎵" : "🎬";
-
-        console.log(
-          `\n${mediaIcon} ${pc.bold("vsub-cli")} - 処理開始: ${pc.cyan(path.basename(resolvedMediaPath))}`,
-        );
-
-        const useCache = !options.noCache && !options.fresh;
-        const mediaCache = useCache ? loadMediaCache(resolvedMediaPath, options.cacheDir) : null;
-
-        let srtEntries: SrtEntry[] = [];
-        let detectedLanguage: string | undefined;
-        let transcriptionCacheHit = false;
-        let audioPaths: string[] = [];
-        let totalAudioBytes = 0;
-        let cleanupAudio: (() => Promise<void>) | null = null;
-
-        // Check if cached transcription is available and compatible with whisperPrompt and groqModel
-        const isTranscriptionCacheMatch =
-          useCache &&
-          isTranscriptionCacheValid(mediaCache?.transcription, whisperPrompt, groqModel);
-
-        if (isTranscriptionCacheMatch && mediaCache?.transcription) {
-          transcriptionCacheHit = true;
-          srtEntries = mediaCache.transcription.entries;
-          detectedLanguage = mediaCache.transcription.detectedLanguage;
-
-          const langDisplay = detectedLanguage ? ` (言語: ${detectedLanguage.toUpperCase()})` : "";
-          spinner.info(
-            `🔊 [1/4] 文字起こしキャッシュが存在するため音声抽出をスキップ [⚡ キャッシュ利用]`,
-          );
-          spinner.succeed(
-            `🎙️ [2/4] キャッシュされた文字起こし結果を利用${langDisplay} - ${srtEntries.length} 行の字幕 [⚡ キャッシュ利用]`,
-          );
-        } else {
-          // Ensure Groq API Key and FFmpeg only when transcription is needed
-          const config = await ensureApiKeys(rawConfig, {
-            requireGroq: true,
-            requireGemini: false,
-          });
-          await checkFfmpeg(config.ffmpegPath);
-
-          // 1. Audio extraction / optimization
-          const audioAction = isAudio ? "最適化中" : "抽出中";
-          const audioDoneAction = isAudio ? "最適化完了" : "抽出完了";
-          spinner.start(`🔊 [1/4] 音声を${audioAction} (16kHz mono / low bitrate)...`);
-          const extractResult = await extractAudio(resolvedMediaPath, config.ffmpegPath, verbose);
-          audioPaths = extractResult.audioPaths;
-          cleanupAudio = extractResult.cleanup;
-
-          for (const p of audioPaths) {
-            try {
-              totalAudioBytes += fs.statSync(p).size;
-            } catch {
-              // ignore
-            }
-          }
-          spinner.succeed(
-            `🔊 [1/4] 音声${audioDoneAction} (${audioPaths.length} セグメント / ${formatFileSize(totalAudioBytes)})`,
-          );
-
-          // 2. Transcription with Groq
-          const initialGroqText =
-            audioPaths.length > 1
-              ? `🎙️ [2/4] Groq Whisper API で文字起こし中 [1/${audioPaths.length}]...`
-              : "🎙️ [2/4] Groq Whisper API で文字起こし中...";
-          spinner.start(initialGroqText);
-
-          const transcriptResult = await transcribeAudioSegments(
-            audioPaths,
-            config.groqApiKey,
-            verbose,
-            (current, total) => {
-              if (total > 1) {
-                spinner.updateText(
-                  `🎙️ [2/4] Groq Whisper API で文字起こし中 [${current}/${total}]...`,
-                );
-              }
-            },
-            {
-              model: groqModel,
-              ...(whisperPrompt ? { prompt: whisperPrompt } : {}),
-              ...(extractResult.durations ? { durations: extractResult.durations } : {}),
-            },
-          );
-
-          srtEntries = transcriptResult.entries;
-          detectedLanguage = transcriptResult.detectedLanguage;
-
-          if (srtEntries.length === 0) {
-            spinner.warn("⚠️ [2/4] 文字起こし結果から有効な字幕エントリが検出されませんでした");
-          } else {
-            const langDisplay = detectedLanguage ? ` (言語: ${detectedLanguage})` : "";
-            spinner.succeed(
-              `🎙️ [2/4] 文字起こし完了${langDisplay} - ${srtEntries.length} 行の字幕を生成`,
-            );
-
-            // Save transcription to cache
-            if (!options.noCache) {
-              saveTranscriptionCache(
-                resolvedMediaPath,
-                {
-                  detectedLanguage,
-                  model: groqModel,
-                  prompt: whisperPrompt,
-                  entries: srtEntries,
-                  createdAt: Date.now(),
-                },
-                options.cacheDir,
-              );
-            }
-          }
-        }
-
-        try {
-          // Save original raw subtitles if requested
-          if (options.saveOriginal && srtEntries.length > 0) {
-            const rawLang = detectedLanguage || "raw";
-            const baseOriginalName = `${mediaBaseName}.${rawLang}`;
-
-            const originalTargets: string[] = [];
-            for (const fmt of outputFormats) {
-              originalTargets.push(path.join(mediaDir, `${baseOriginalName}.${fmt}`));
-            }
-
-            const rawSafety = await ensureWritableTargets(originalTargets, {
-              overwrite: options.overwrite,
-              backup: options.backup,
-            });
-            if (rawSafety.backedUp.length > 0) {
-              safetyCheck.backedUp.push(...rawSafety.backedUp);
-            }
-
-            const savedOriginalNames: string[] = [];
-            for (const fmt of outputFormats) {
-              const originalFilename = `${baseOriginalName}.${fmt}`;
-              const originalPath = path.join(mediaDir, originalFilename);
-              fs.writeFileSync(originalPath, formatEntries(srtEntries, fmt), "utf-8");
-              outputFiles.push(originalPath);
-              savedOriginalNames.push(originalFilename);
-            }
-            spinner.info(`📄 原文字幕を保存: ${savedOriginalNames.join(", ")}`);
-          }
-
-          // 3. Gemini Translation for each target language
-          const resultsByLang = new Map<string, SrtEntry[]>();
-          const skippedLanguages: string[] = [];
-          const translatedLanguages: string[] = [];
-          const cachedLanguages: string[] = [];
-
-          let activeConfig: ReturnType<typeof getConfig> | null = null;
-          const totalChunks = Math.max(1, Math.ceil(srtEntries.length / 50));
-          const translationPrompt = options.prompt?.trim() || rawConfig.prompt;
-          let totalGlossaryTerms = 0;
-
-          for (let i = 0; i < targetLanguages.length; i++) {
-            const lang = targetLanguages[i] ?? "ja";
-            const isSameLanguage = Boolean(
-              detectedLanguage && detectedLanguage.toLowerCase() === lang.toLowerCase(),
-            );
-            const shouldSkip =
-              Boolean(options.noTranslate) || (isSameLanguage && !options.forceTranslate);
-
-            if (shouldSkip) {
-              skippedLanguages.push(lang);
-              resultsByLang.set(lang, srtEntries);
-
-              if (options.noTranslate) {
-                spinner.info(
-                  `ℹ️ [3/4] [--no-translate] ${lang.toUpperCase()} の Gemini 翻訳をスキップしました`,
-                );
-              } else if (isSameLanguage) {
-                spinner.info(
-                  `ℹ️ [3/4] 検出言語 (${detectedLanguage?.toUpperCase()}) と一致するため ${lang.toUpperCase()} の翻訳をスキップしました`,
-                );
-              }
-              continue;
-            }
-
-            const glossaryMap = glossaryInput ? parseGlossary(glossaryInput, lang) : undefined;
-            const glossaryHash = glossaryMap ? computeGlossaryHash(glossaryMap) : undefined;
-            if (glossaryMap) {
-              totalGlossaryTerms = Math.max(totalGlossaryTerms, Object.keys(glossaryMap).length);
-            }
-
-            const cachedTranslation = mediaCache?.translations?.[lang.toLowerCase()];
-            const isCacheValid =
-              useCache &&
-              isTranslationCacheValid(
-                cachedTranslation,
-                translationPrompt,
-                glossaryHash,
-                geminiModel,
-              );
-
-            if (isCacheValid && cachedTranslation && cachedTranslation.entries.length > 0) {
-              // Translation cache hit for this language
-              resultsByLang.set(lang, cachedTranslation.entries);
-              cachedLanguages.push(lang);
-              translatedLanguages.push(lang);
-
-              if (isMultiLang) {
-                spinner.info(
-                  `  ✔ ${lang.toUpperCase()} 翻訳 (キャッシュ利用: ${cachedTranslation.entries.length} 行) [⚡ キャッシュ利用]`,
-                );
-              }
-              continue;
-            }
-
-            // Ensure Gemini key before running translation
-            if (!activeConfig) {
-              activeConfig = await ensureApiKeys(rawConfig, {
-                requireGroq: false,
-                requireGemini: true,
-              });
-            }
-
-            const concurrencyVal = options.concurrency
-              ? Number(options.concurrency)
-              : activeConfig.concurrency;
-            const resolvedConcurrency =
-              concurrencyVal && !Number.isNaN(concurrencyVal) && concurrencyVal > 0
-                ? Math.floor(concurrencyVal)
-                : undefined;
-
-            const initialText = isMultiLang
-              ? `🌐 [3/4] Gemini API で翻訳中 (${i + 1}/${targetLanguages.length} 言語: ${lang.toUpperCase()} [1/${totalChunks} チャンク])...`
-              : `🌐 [3/4] Gemini API で ${lang} に翻訳中 [1/${totalChunks} チャンク]...`;
-
-            spinner.start(initialText);
-
-            const translatedEntries = await translateSrtEntries(
-              srtEntries,
-              lang,
-              activeConfig.geminiApiKey,
-              verbose,
-              (currentChunk, chunksCount) => {
-                if (isMultiLang) {
-                  spinner.updateText(
-                    `🌐 [3/4] Gemini API で翻訳中 (${i + 1}/${targetLanguages.length} 言語: ${lang.toUpperCase()} [${currentChunk}/${chunksCount} チャンク])...`,
-                  );
-                } else {
-                  spinner.updateText(
-                    `🌐 [3/4] Gemini API で ${lang} に翻訳中 [${currentChunk}/${chunksCount} チャンク]...`,
-                  );
-                }
-              },
-              {
-                prompt: translationPrompt,
-                glossary: glossaryMap,
-                concurrency: resolvedConcurrency,
-                model: geminiModel,
-              },
-            );
-
-            resultsByLang.set(lang, translatedEntries);
-            translatedLanguages.push(lang);
-
-            // Save language translation to cache
-            if (!options.noCache) {
-              saveTranslationCache(
-                resolvedMediaPath,
-                lang,
-                {
-                  targetLang: lang,
-                  model: geminiModel,
-                  prompt: translationPrompt,
-                  glossaryHash,
-                  entries: translatedEntries,
-                  createdAt: Date.now(),
-                },
-                options.cacheDir,
-              );
-            }
-
-            if (isMultiLang) {
-              spinner.info(`  ✔ ${lang.toUpperCase()} 翻訳完了 (${translatedEntries.length} 行)`);
-            }
-          }
-
-          if (translatedLanguages.length > 0) {
-            const langListDisplay = translatedLanguages.map((l) => l.toUpperCase()).join(", ");
-            spinner.succeed(
-              `🌐 [3/4] Gemini 翻訳完了 (${langListDisplay}) - ${srtEntries.length} 行`,
-            );
-          }
-
-          // 4. Save output subtitle files
-          spinner.start("💾 [4/4] 字幕ファイルを保存中...");
-
-          const savedSrtPathsByLang = new Map<string, string>();
-          const tempSrtFilesToCleanup: string[] = [];
-
-          for (const lang of targetLanguages) {
-            let entries = resultsByLang.get(lang) ?? srtEntries;
-            if (isBilingual) {
-              entries = mergeBilingualEntries(srtEntries, entries, { order: bilingualOrder });
-            }
-            const targets = resolveOutputFilePaths(
-              mediaDir,
-              mediaBaseName,
-              lang,
-              outputFormats,
-              options.output,
-              !isMultiLang,
-              isBilingual,
-            );
-            for (const { format, filePath } of targets) {
-              fs.writeFileSync(filePath, formatEntries(entries, format), "utf-8");
-              outputFiles.push(filePath);
-              if (format === "srt") {
-                savedSrtPathsByLang.set(lang, filePath);
-              }
-            }
-
-            // If --burn is requested but 'srt' format was not among outputFormats, create a temporary srt for ffmpeg
-            if (options.burn && !savedSrtPathsByLang.has(lang)) {
-              const tempSrtPath = path.join(
-                os.tmpdir(),
-                `vsub-burn-${Date.now()}-${Math.random().toString(36).slice(2, 8)}-${lang}.srt`,
-              );
-              fs.writeFileSync(tempSrtPath, formatEntries(entries, "srt"), "utf-8");
-              savedSrtPathsByLang.set(lang, tempSrtPath);
-              tempSrtFilesToCleanup.push(tempSrtPath);
-            }
-          }
-
-          const formatListStr = outputFormats.map((f) => f.toUpperCase()).join(", ");
-          spinner.succeed(`💾 [4/4] 字幕ファイルを保存完了 (${formatListStr})`);
-
-          // 5. Burn subtitles to video if --burn option is specified
-          if (options.burn) {
-            try {
-              spinner.start(
-                `🎬 字幕を動画に焼き込み中 (libx264)...${isMultiLang ? ` (0/${targetLanguages.length})` : ""}`,
-              );
-
-              for (let i = 0; i < targetLanguages.length; i++) {
-                const lang = targetLanguages[i] ?? "ja";
-                const srtPathToUse = savedSrtPathsByLang.get(lang);
-                if (!srtPathToUse || !fs.existsSync(srtPathToUse)) {
-                  continue;
-                }
-
-                let burntVideoPath: string;
-                const langTag = isBilingual ? `${lang}.bilingual` : lang;
-                if (options.output) {
-                  const resolvedOut = path.resolve(process.cwd(), options.output);
-                  const parsedOut = path.parse(resolvedOut);
-                  if (isMultiLang) {
-                    burntVideoPath = path.join(
-                      parsedOut.dir,
-                      `${parsedOut.name}.${langTag}.subbed.mp4`,
-                    );
-                  } else if (parsedOut.ext === ".mp4") {
-                    burntVideoPath = resolvedOut;
-                  } else {
-                    burntVideoPath = path.join(parsedOut.dir, `${parsedOut.name}.subbed.mp4`);
-                  }
-                } else {
-                  burntVideoPath = path.join(mediaDir, `${mediaBaseName}.${langTag}.subbed.mp4`);
-                }
-
-                if (isMultiLang) {
-                  spinner.updateText(
-                    `🎬 字幕を動画に焼き込み中 (${i + 1}/${targetLanguages.length} 言語: ${lang.toUpperCase()})...`,
-                  );
-                }
-
-                await burnSubtitlesToVideo(resolvedMediaPath, srtPathToUse, burntVideoPath, {
-                  ffmpegPath: rawConfig.ffmpegPath,
-                  verbose,
-                });
-
-                outputFiles.push(burntVideoPath);
-
-                if (isMultiLang) {
-                  spinner.info(
-                    `  ✔ ${lang.toUpperCase()} 字幕焼き込み動画を生成: ${path.basename(burntVideoPath)}`,
-                  );
-                }
-              }
-
-              spinner.succeed("🎬 字幕の動画焼き込みが完了しました");
-            } finally {
-              for (const tempSrt of tempSrtFilesToCleanup) {
-                try {
-                  if (fs.existsSync(tempSrt)) {
-                    fs.unlinkSync(tempSrt);
-                  }
-                } catch {
-                  // ignore
-                }
-              }
-            }
-          }
-
-          // 5. Output Summary Box
-          const durationMs = Date.now() - startTime;
-          console.log(
-            "\n" +
-              formatSummaryBox({
-                mediaFile: path.basename(resolvedMediaPath),
-                mediaType: mediaTypeName,
-                durationMs,
-                audioSegmentsCount: audioPaths.length > 0 ? audioPaths.length : undefined,
-                audioTotalBytes: totalAudioBytes > 0 ? totalAudioBytes : undefined,
-                detectedLanguage,
-                targetLanguages,
-                skippedLanguages,
-                entriesCount: srtEntries.length,
-                bilingual: isBilingual ? { order: bilingualOrder } : undefined,
-                backedUpFiles:
-                  safetyCheck.backedUp.length > 0
-                    ? safetyCheck.backedUp.map((b) => b.backup)
-                    : undefined,
-                outputFiles,
-                skippedTranslation: skippedLanguages.length === targetLanguages.length,
-                whisperPrompt,
-                prompt: translationPrompt,
-                glossaryTermsCount: totalGlossaryTerms > 0 ? totalGlossaryTerms : undefined,
-                cacheStatus:
-                  transcriptionCacheHit || cachedLanguages.length > 0
-                    ? {
-                        transcriptionHit: transcriptionCacheHit,
-                        cachedLanguages,
-                      }
-                    : undefined,
-              }) +
-              "\n",
-          );
-        } finally {
-          if (cleanupAudio) {
-            if (!options.keepAudio) {
-              await cleanupAudio();
-            } else {
-              spinner.info(`ℹ️ [--keep-audio] 中間音声ファイルを保持: ${audioPaths.join(", ")}`);
-            }
-          }
-        }
       } catch (error) {
-        spinner.fail(
-          `処理中にエラーが発生しました: ${error instanceof Error ? error.message : String(error)}`,
+        console.error(
+          pc.red(
+            `\n✖ 処理中にエラーが発生しました: ${error instanceof Error ? error.message : String(error)}`,
+          ),
         );
-        if (verbose && error instanceof Error && error.stack) {
+        if (options.verbose && error instanceof Error && error.stack) {
           console.error(error.stack);
         }
         process.exit(1);

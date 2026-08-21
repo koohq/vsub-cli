@@ -8,6 +8,7 @@
 * **高品質・並列翻訳**: Google Gemini API（`@google/genai`, デフォルト: `gemini-3.7-flash`）を利用。SRT 構造を JSON 化してテキスト部分のみをチャンク分割翻訳することでタイムコード破綻を 100% 防止。非同期ワーカプールによる並列リクエスト制御（デフォルト 3 並列）と指数バックオフ再試行を搭載。
 * **マルチフォーマット出力**: 字幕フォーマット（`.srt`, `.vtt`）に加え、プレーンテキスト（`.txt`）や構造化データ（`.json`）の一括出力に対応。
 * **二言語併記 / バイリンガル字幕**: `--bilingual` / `-b` により、原語と翻訳文を同一字幕ブロック内に上下併記（`.srt`, `.vtt`, `.txt`, `.json` および `--burn` 動画焼き込み対応）。`--bilingual-order` で並び順指定可能。
+* **ディレクトリ / バッチ一括処理**: `vsub batch <targets...>` により、フォルダ配下や glob パターンに合致する複数メディアファイルを逐次自動キュー処理し、総合サマリーレポートを出力。
 * **複数言語一括翻訳**: カンマ区切り（`-t ja,en,zh`）で複数言語を同時指定可能。文字起こしは 1 回のみ実行し、各言語の字幕を一括生成。
 * **用語集 & プロンプト制御**: `--glossary`（JSON またはインライン対訳）および `--prompt`（口調・スタイル指示）、`--whisper-prompt`（固有名詞ヒント）をサポート。
 * **中間キャッシュ & 再開機構**: 文字起こしおよび各言語の翻訳結果を自動キャッシュ。再実行時や別言語追加時の API コストと待ち時間をゼロ化。
@@ -82,7 +83,18 @@ vsub <media-file> [options]
 * `--force-translate`: 検出された音声言語と翻訳先言語が同一の場合でも強制的に Gemini 翻訳を実行する。
 * `--verbose`: 詳細なログ（API リクエスト詳細や中間データ）を表示。
 
-### 2) 字幕直接翻訳サブコマンド (`vsub translate`)
+### 2) ディレクトリ / バッチ一括処理サブコマンド (`vsub batch`)
+```bash
+vsub batch <targets...> [options]
+```
+* `<targets...>`: 処理対象の動画・音声ファイル、ディレクトリパス、または glob パターン（複数指定可能）。
+* `-r, --recursive`: ディレクトリ指定時にサブディレクトリを再帰的に走査（デフォルト: `true`）。
+* `-o, --output-dir <dir>`: 生成された字幕・動画ファイルの出力先ディレクトリを指定。
+* `--fail-fast`: いずれかのファイルでエラーが発生した場合に後続バッチを即時中断（デフォルト: `false`、通常は後続ファイルを継続処理）。
+* 全ての基本メディア処理オプション（`-t`, `-f`, `-w`, `--backup`, `-b`, `--bilingual-order`, `--prompt`, `--glossary`, `--gemini-model`, `--groq-model`, `--concurrency`, `--no-cache`, `--fresh`, `--burn` 等）を共通サポート。
+* 全ファイルの処理完了後に総合サマリーテーブル（成功数、失敗数、合計時間、ファイル別ステータス）を表示。
+
+### 3) 字幕直接翻訳サブコマンド (`vsub translate`)
 ```bash
 vsub translate <subtitle-file> [options]
 ```
@@ -90,7 +102,7 @@ vsub translate <subtitle-file> [options]
 * オプション: `-t, --target-lang`, `-f, --format`, `-o, --output`, `--prompt`, `--glossary`, `--concurrency`, `--gemini-model`, `--no-cache`, `--fresh`, `--cache-dir`, `--verbose` をサポート。
 * 音声抽出および Groq 文字起こしをスキップし、Gemini API による高速翻訳・フォーマット変換のみを実行。
 
-### 3) キャッシュ管理サブコマンド (`vsub cache`)
+### 4) キャッシュ管理サブコマンド (`vsub cache`)
 * `vsub cache path`: キャッシュディレクトリの保存パスを表示。
 * `vsub cache stats`: キャッシュファイル数および使用容量を表示。
 * `vsub cache clean`: 全中間キャッシュファイルを削除。

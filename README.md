@@ -17,6 +17,7 @@ A fast, resilient CLI tool that extracts and optimizes audio from video or audio
 * 📖 **Glossary & Custom Prompting**: Pass custom translation instructions (`--prompt`), domain glossaries (`--glossary` via JSON or inline `Key=Val`), and Whisper recognition hints (`--whisper-prompt`).
 * 🌍 **Simultaneous Multi-Language Output**: Generate subtitles for multiple target languages in one pass (e.g., `-t ja,en,zh`) with only a single transcription step.
 * 📄 **Multi-Format Export**: Supports `.srt` (SubRip), `.vtt` (WebVTT), `.txt` (plain text transcripts), and `.json` (structured data).
+* 📁 **Directory & Batch Bulk Processing**: Process entire directories, glob patterns, or multiple video/audio files with automated sequential queueing, error resilience, and consolidated summary reports (`vsub batch`).
 * 🎬 **Video Subtitle Hardsub / Burn-in**: Directly bake subtitles into video files via FFmpeg for SNS posting or preview (`--burn` flag or `vsub burn` subcommand).
 * 🛡️ **File Overwrite Protection & Safety Backups**: Prevents accidental file deletion with pre-execution safety checks, interactive prompts (`y/N`), `-w, --overwrite` force option, and `--backup` (`.bak` / `.bak.N`) archiving.
 * 🔄 **Direct Subtitle Translation**: Translate existing `.srt` subtitle files directly into other languages and formats without needing media files or Groq API (`vsub translate`).
@@ -150,7 +151,23 @@ Extract audio once, transcribe once, and generate all subtitles and transcripts 
 pnpm dev video.mp4 -t ja,en,zh -f srt,vtt,txt,json
 ```
 
-### 3. Direct Subtitle Translation (`vsub translate`)
+### 3. Directory & Batch Bulk Processing (`vsub batch`)
+Process multiple media files in a directory or via glob patterns in one go:
+```bash
+# Process all media files in a directory recursively
+pnpm dev batch ./videos/ -t ja
+
+# Process multiple specific files or glob patterns
+pnpm dev batch ./episodes/*.mp4 -t ja,en -f srt,vtt
+
+# Output all generated files to a specific output folder
+pnpm dev batch ./podcasts/ -t ja -o ./subtitles/
+
+# Non-recursive directory search or fail-fast on error
+pnpm dev batch ./videos/ --no-recursive --fail-fast
+```
+
+### 4. Direct Subtitle Translation (`vsub translate`)
 Translate an existing `.srt` file without needing video files or Groq API:
 ```bash
 pnpm dev translate sample.ja.srt -t en -f srt,vtt
