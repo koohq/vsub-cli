@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { parseSrt, stringifySrt } from "./srt.js";
+import { mergeBilingualEntries, parseSrt, stringifySrt } from "./srt.js";
 
 describe("srt.ts", () => {
   describe("parseSrt", () => {
@@ -156,6 +156,79 @@ Second entry
       const srtString = stringifySrt(originalEntries);
       const parsed = parseSrt(srtString);
       expect(parsed).toEqual(originalEntries);
+    });
+  });
+
+  describe("mergeBilingualEntries", () => {
+    it("should merge original and translated entries with original-first by default", () => {
+      const original = [
+        { id: 1, startTime: "00:00:01,000", endTime: "00:00:04,000", text: "Hello" },
+        { id: 2, startTime: "00:00:05,000", endTime: "00:00:08,000", text: "Goodbye" },
+      ];
+      const translated = [
+        { id: 1, startTime: "00:00:01,000", endTime: "00:00:04,000", text: "こんにちは" },
+        { id: 2, startTime: "00:00:05,000", endTime: "00:00:08,000", text: "さようなら" },
+      ];
+
+      const merged = mergeBilingualEntries(original, translated);
+      expect(merged).toEqual([
+        { id: 1, startTime: "00:00:01,000", endTime: "00:00:04,000", text: "Hello\nこんにちは" },
+        { id: 2, startTime: "00:00:05,000", endTime: "00:00:08,000", text: "Goodbye\nさようなら" },
+      ]);
+    });
+
+    it("should respect target-first order when specified", () => {
+      const original = [
+        { id: 1, startTime: "00:00:01,000", endTime: "00:00:04,000", text: "Hello" },
+      ];
+      const translated = [
+        { id: 1, startTime: "00:00:01,000", endTime: "00:00:04,000", text: "こんにちは" },
+      ];
+
+      const merged = mergeBilingualEntries(original, translated, { order: "target-first" });
+      expect(merged).toEqual([
+        { id: 1, startTime: "00:00:01,000", endTime: "00:00:04,000", text: "こんにちは\nHello" },
+      ]);
+    });
+
+    it("should support custom separator", () => {
+      const original = [
+        { id: 1, startTime: "00:00:01,000", endTime: "00:00:04,000", text: "Hello" },
+      ];
+      const translated = [
+        { id: 1, startTime: "00:00:01,000", endTime: "00:00:04,000", text: "こんにちは" },
+      ];
+
+      const merged = mergeBilingualEntries(original, translated, { separator: " / " });
+      expect(merged[0]?.text).toBe("Hello / こんにちは");
+    });
+
+    it("should avoid duplicate lines if original and translated text are identical", () => {
+      const original = [
+        { id: 1, startTime: "00:00:01,000", endTime: "00:00:04,000", text: "Google" },
+      ];
+      const translated = [
+        { id: 1, startTime: "00:00:01,000", endTime: "00:00:04,000", text: "Google" },
+      ];
+
+      const merged = mergeBilingualEntries(original, translated);
+      expect(merged[0]?.text).toBe("Google");
+    });
+
+    it("should handle missing or empty translated entry gracefully", () => {
+      const original = [
+        { id: 1, startTime: "00:00:01,000", endTime: "00:00:04,000", text: "Hello" },
+        { id: 2, startTime: "00:00:05,000", endTime: "00:00:08,000", text: "World" },
+      ];
+      const translated = [{ id: 1, startTime: "00:00:01,000", endTime: "00:00:04,000", text: "" }];
+
+      const merged = mergeBilingualEntries(original, translated);
+      expect(merged[0]?.text).toBe("Hello");
+      expect(merged[1]?.text).toBe("World");
+    });
+
+    it("should handle empty originalEntries", () => {
+      expect(mergeBilingualEntries([], [])).toEqual([]);
     });
   });
 });

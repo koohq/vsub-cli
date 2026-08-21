@@ -29,8 +29,8 @@
 | **Completed** | 18. GitHub Actions CI (Node マトリックス + FFmpeg 実機) & Dependabot | DevOps/CI | 低 | 複数 Node.js 互換性保証と依存関係・脆弱性の自動更新 | **完了** |
 | **Completed** | 16. npm 公開 & Release Please 全自動リリースパイプライン | DevOps/配布 | 低〜中 | トランク開発を維持した SemVer / CHANGELOG / npm publish 自動化 | **完了** |
 | **Completed** | 17. AI モデル新着自動監視 & 重複防止 Issue 通知ワークフロー | DevOps/自動化 | 低 | Groq / Gemini API の新モデル検知と自動 Issue 起票 | **完了** |
-| **High** | 19. 二言語併記 / バイリンガル字幕モード (`--bilingual`) | 機能拡張/UX | 低〜中 | 語学学習や国際配信向け2言語同時字幕・同時焼き込み | 設計中 |
-| **Medium** | 20. ディレクトリ / バッチ一括処理モード (`vsub batch` / glob) | 機能拡張/UX | 中 | 複数メディアファイルの一括自動文字起こし・翻訳 | 未着手 |
+| **Completed** | 20. 二言語併記 / バイリンガル字幕モード (`--bilingual` / `-b`) | 機能拡張/UX | 低〜中 | 語学学習や国際配信向け2言語同時字幕・同時焼き込み | **完了** |
+| **Medium** | 21. ディレクトリ / バッチ一括処理モード (`vsub batch` / glob) | 機能拡張/UX | 中 | 複数メディアファイルの一括自動文字起こし・翻訳 | 未着手 |
 | **Low** | 18. GitHub Releases & スタンドアロンバイナリ配布 | DevOps | 中 | Node.js 未導入ユーザー向け単体バイナリ配布 | 未着手 |
 
 ---
@@ -161,21 +161,25 @@
   * GitHub Step Summary に検知結果サマリーを出力。
 * **対応ファイル**: `.github/workflows/model-watch.yml`, `scripts/watch-models.ts`, `scripts/watch-models.test.ts`, `package.json`, `docs/backlog.md`
 
+### 1.18 二言語併記 / バイリンガル字幕モード (`--bilingual` / `-b`)
+* **バイリンガル字幕マージ (`mergeBilingualEntries`)**:
+  * 原語（文字起こし結果）と翻訳先言語（Gemini 結果）の SrtEntry をタイムコードベースで自動マージ。
+  * 同一文字列時の重複排除や、欠落・空行時の安全なフォールバック処理を実装。
+* **柔軟な並び順指定 (`--bilingual-order original-first|target-first`)**:
+  * 上段に原語・下段に訳語（`original-first`、デフォルト）または上段に訳語・下段に原語（`target-first`）を選択可能。
+* **フルパイプライン対応**:
+  * 全出力フォーマット（`.srt`, `.vtt`, `.txt`, `.json`）および動画焼き込み（`--burn`）に対応。
+  * `vsub <media>` メインコマンドおよび `vsub translate <sub.srt>` サブコマンドの双方で利用可能。
+* **サマリー表示 & 安全性連携**:
+  * 処理結果サマリー (`formatSummaryBox`) へのバイリンガルモードおよび並び順表示。
+  * 出力先衝突防止・バックアップセーフティ（`ensureWritableTargets`）に `.bilingual.` ファイルパスを事前登録。
+* **対応ファイル**: `src/srt.ts`, `src/srt.test.ts`, `src/ui.ts`, `src/ui.test.ts`, `src/index.ts`, `README.md`, `README.ja.md`, `docs/prd.md`, `docs/backlog.md`
+
 ---
 
 ## 2. 今後の改善バックログ (Backlog & Future Work)
 
-### 2.1 二言語併記 / バイリンガル字幕モード (`--bilingual` / `-b`) 【優先度: High】
-* **背景/課題**: 語学学習動画、国際会議録画、YouTube / SNS 投稿等で、原語（例: 英語）と訳語（例: 日本語）を同時に画面表示させたいニーズが非常に多い。現在は単一言語ファイルのみ出力される。
-* **提案内容**:
-  * `--bilingual`（または `-b`）フラグの追加。
-  * 原語（文字起こし結果）と翻訳先言語（Gemini 結果）の SrtEntry をタイムコードベースで自動マージ（`mergeBilingualEntries`）。
-  * 上段・下段の並び順指定（`--bilingual-order original-first|target-first`、デフォルト: `original-first`）。
-  * 全出力フォーマット（`.srt`, `.vtt`, `.txt`, `.json`）および動画焼き込み（`--burn`）に対応。
-  * `vsub <media>` メインコマンドおよび `vsub translate <sub.srt>` サブコマンドの双方で利用可能。
-* **対応スコープ**: `src/srt.ts`, `src/srt.test.ts`, `src/formatter.ts`, `src/formatter.test.ts`, `src/index.ts`, `src/ui.ts`
-
-### 2.2 ディレクトリ / バッチ一括処理モード (`vsub batch` / glob) 【優先度: Medium】
+### 2.1 ディレクトリ / バッチ一括処理モード (`vsub batch` / glob) 【優先度: Medium】
 * **背景/課題**: フォルダ内の複数動画やポッドキャストの全エピソードを一括で字幕化・翻訳したい場合、シェルループを手動で組む必要がある。
 * **提案内容**:
   * `vsub batch <directory-or-glob> [options]` サブコマンドまたは複数ファイル引数の受付。
@@ -183,7 +187,7 @@
   * 全体の進捗状況表示と、完了時の総合サマリーレポート（成功数、失敗数、合計処理時間等）。
 * **対応スコープ**: `src/index.ts`, `src/ui.ts`, `src/batch.ts` (新設)
 
-### 2.3 GitHub Releases & スタンドアロンバイナリ配布 【優先度: Low】
+### 2.2 GitHub Releases & スタンドアロンバイナリ配布 【優先度: Low】
 * **背景/課題**: Node.js や pnpm をインストールしていない一般ユーザー向けに単体実行バイナリを提供したい。
 * **提案内容**:
   * Node.js SEA (Single Executable Applications) 等を用いて、Windows (`.exe`), macOS, Linux 向けの単体実行バイナリをビルド。

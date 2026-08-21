@@ -97,6 +97,8 @@ Options:
   -o, --output <path>           出力する字幕ファイルの個別パス指定
   -w, --overwrite               確認プロンプトを表示せず既存ファイルを直接上書き (デフォルト: false)
   --backup                      既存ファイルが存在する場合に .bak として退避保存 (デフォルト: false)
+  -b, --bilingual               原語と翻訳文を上下2行で併記したバイリンガル字幕を生成 (デフォルト: false)
+  --bilingual-order <order>     バイリンガル字幕の並び順: original-first (デフォルト) または target-first (デフォルト: "original-first")
   --ffmpeg-path <path>          ffmpeg 実行ファイルのパス (未指定時は VSUB_FFMPEG_PATH または PATH を探索)
   --whisper-prompt <text>       Groq Whisper 音声認識のヒントプロンプト (専門用語・固有名詞等)
   --prompt <instruction>        Gemini 翻訳時のカスタム指示プロンプト (口調・文字数制限等)
@@ -131,20 +133,30 @@ Commands:
 
 ## 応用機能・ユースケース別コマンド例
 
-### 1. 複数言語・マルチフォーマットの一括出力
+### 1. 二言語併記 / バイリンガル字幕モード (`--bilingual` / `-b`)
+語学学習や国際会議向けに、原語（英語等）と訳語（日本語等）を 1 つの字幕ブロック内にまとめて出力します：
+```bash
+# バイリンガル字幕 (.ja.bilingual.srt) と二言語焼き込み動画をワンストップ生成
+pnpm dev video.mp4 -t ja --bilingual --burn
+
+# 訳語を上段、原語を下段に並び替え
+pnpm dev video.mp4 -t ja -b --bilingual-order target-first
+```
+
+### 2. 複数言語・マルチフォーマットの一括出力
 文字起こしは 1 回のみ実行し、多言語字幕とテキスト議事録を一括生成します：
 ```bash
 # 日本語・英語・中国語の字幕 (.srt, .vtt) とテキスト (.txt, .json) を一括出力
 pnpm dev video.mp4 -t ja,en,zh -f srt,vtt,txt,json
 ```
 
-### 2. 既存字幕ファイルの直接翻訳 (`vsub translate`)
+### 3. 既存字幕ファイルの直接翻訳 (`vsub translate`)
 動画ファイルや Groq API なしで、既存の `.srt` ファイルから直接翻訳・フォーマット変換：
 ```bash
 pnpm dev translate sample.ja.srt -t en -f srt,vtt
 ```
 
-### 3. 動画への字幕焼き込み (`--burn` & `vsub burn`)
+### 4. 動画への字幕焼き込み (`--burn` & `vsub burn`)
 FFmpeg を利用して、字幕が合成された mp4 動画をワンストップで出力します：
 ```bash
 # 文字起こし・翻訳と同時に字幕焼き込み動画を出力
@@ -154,7 +166,7 @@ pnpm dev video.mp4 -t ja --burn
 pnpm dev burn video.mp4 video.ja.srt -o video.subbed.mp4
 ```
 
-### 4. 用語集 (Glossary) & カスタムプロンプトの活用
+### 5. 用語集 (Glossary) & カスタムプロンプトの活用
 
 #### インライン用語集の指定
 ```bash

@@ -97,6 +97,8 @@ Options:
   -o, --output <path>           Output path for the generated subtitle file
   -w, --overwrite               Overwrite existing output files without confirmation prompt (default: false)
   --backup                      Create backup (.bak) of existing output files before overwriting (default: false)
+  -b, --bilingual               Generate bilingual subtitles combining original and translated text (default: false)
+  --bilingual-order <order>     Order of bilingual subtitles: original-first (default) or target-first (default: "original-first")
   --ffmpeg-path <path>          Path to ffmpeg executable (searches VSUB_FFMPEG_PATH or PATH if omitted)
   --whisper-prompt <text>       Prompt hint for Groq Whisper speech recognition (terminology, names, etc.)
   --prompt <instruction>        Additional instruction prompt for Gemini translation (tone, style, brevity)
@@ -131,20 +133,30 @@ Commands:
 
 ## Advanced Features & Examples
 
-### 1. Multi-Language & Multi-Format Output
+### 1. Bilingual Subtitles (`--bilingual` / `-b`)
+Create dual-language subtitles pairing original transcription and translation:
+```bash
+# Generate bilingual subtitle (.ja.bilingual.srt) and hardsubbed video
+pnpm dev video.mp4 -t ja --bilingual --burn
+
+# Change line order to target translation first
+pnpm dev video.mp4 -t ja -b --bilingual-order target-first
+```
+
+### 2. Multi-Language & Multi-Format Output
 Extract audio once, transcribe once, and generate all subtitles and transcripts simultaneously:
 ```bash
 # Output Japanese, English, and Chinese subtitles in SRT and WebVTT formats
 pnpm dev video.mp4 -t ja,en,zh -f srt,vtt,txt,json
 ```
 
-### 2. Direct Subtitle Translation (`vsub translate`)
+### 3. Direct Subtitle Translation (`vsub translate`)
 Translate an existing `.srt` file without needing video files or Groq API:
 ```bash
 pnpm dev translate sample.ja.srt -t en -f srt,vtt
 ```
 
-### 3. Video Subtitle Hardsub / Burn-in (`--burn` & `vsub burn`)
+### 4. Video Subtitle Hardsub / Burn-in (`--burn` & `vsub burn`)
 Bake subtitles directly into a `.mp4` video with FFmpeg:
 ```bash
 # Transcribe, translate, and bake subtitles into video in a single command
@@ -154,7 +166,7 @@ pnpm dev video.mp4 -t ja --burn
 pnpm dev burn video.mp4 video.ja.srt -o video.subbed.mp4
 ```
 
-### 4. Using Glossary & Custom Prompts
+### 5. Using Glossary & Custom Prompts
 
 #### Inline Glossary Mapping
 ```bash

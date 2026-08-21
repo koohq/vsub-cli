@@ -29,9 +29,23 @@ import { computeGlossaryHash, extractWhisperPromptHints, parseGlossary } from ".
 import { transcribeAudioSegments } from "./groq.js";
 import { parseTargetLanguages } from "./languages.js";
 import { ensureWritableTargets } from "./safety.js";
-import type { SrtEntry } from "./srt.js";
-import { parseSrt } from "./srt.js";
+import type { BilingualOrder, SrtEntry } from "./srt.js";
+import { mergeBilingualEntries, parseSrt } from "./srt.js";
 import { createSpinner, formatFileSize, formatSummaryBox } from "./ui.js";
+
+/**
+ * Validates and normalizes bilingual order option.
+ */
+function parseBilingualOrder(input?: string): BilingualOrder {
+  if (!input) return "original-first";
+  const normalized = input.trim().toLowerCase();
+  if (normalized === "original-first" || normalized === "target-first") {
+    return normalized;
+  }
+  throw new Error(
+    `サポートされていないバイリンガル順序です: "${input}". 利用可能な順序: "original-first", "target-first"`,
+  );
+}
 
 /**
  * Resolves destination file paths for output formats, handling single-language and multi-language naming.
@@ -43,7 +57,9 @@ function resolveOutputFilePaths(
   formats: OutputFormat[],
   outputOption?: string,
   isSingleLanguage = true,
+  isBilingual = false,
 ): { format: OutputFormat; filePath: string }[] {
+  const langTag = isBilingual ? `${lang}.bilingual` : lang;
   if (outputOption) {
     const resolvedOut = path.resolve(process.cwd(), outputOption);
     const parsedOut = path.parse(resolvedOut);
@@ -58,13 +74,13 @@ function resolveOutputFilePaths(
     }
     return formats.map((fmt) => ({
       format: fmt,
-      filePath: path.join(parsedOut.dir, `${parsedOut.name}.${lang}.${fmt}`),
+      filePath: path.join(parsedOut.dir, `${parsedOut.name}.${langTag}.${fmt}`),
     }));
   }
 
   return formats.map((fmt) => ({
     format: fmt,
-    filePath: path.join(baseDir, `${baseName}.${lang}.${fmt}`),
+    filePath: path.join(baseDir, `${baseName}.${langTag}.${fmt}`),
   }));
 }
 
@@ -262,6 +278,16 @@ program
   .option("-o, --output <path>", "Output path or base name for the generated subtitle file")
   .option("-w, --overwrite", "Overwrite existing output files without confirmation prompt", false)
   .option("--backup", "Create backup (.bak) of existing output files before overwriting", false)
+  .option(
+    "-b, --bilingual",
+    "Generate bilingual subtitles combining original and translated text",
+    false,
+  )
+  .option(
+    "--bilingual-order <order>",
+    "Order of bilingual subtitles: original-first (default) or target-first",
+    "original-first",
+  )
   .option("--prompt <instruction>", "Additional instruction prompt for Gemini translation")
   .option(
     "--glossary <path-or-terms>",
@@ -285,6 +311,8 @@ program
       output?: string;
       overwrite?: boolean;
       backup?: boolean;
+      bilingual?: boolean;
+      bilingualOrder?: string;
       prompt?: string;
       glossary?: string;
       concurrency?: string;
@@ -304,6 +332,8 @@ program
       const outputFormats = parseOutputFormats(options.format);
       const targetLanguages = parseTargetLanguages(options.targetLang);
       const isMultiLang = targetLanguages.length > 1;
+      const isBilingual = Boolean(options.bilingual);
+      const bilingualOrder = parseBilingualOrder(options.bilingualOrder);
       const resolvedSubtitlePath = path.resolve(process.cwd(), subtitleFile);
 
       if (!fs.existsSync(resolvedSubtitlePath)) {
@@ -330,6 +360,7 @@ program
           outputFormats,
           options.output,
           !isMultiLang,
+          isBilingual,
         );
         for (const { filePath } of targets) {
           predictedTargets.push(filePath);
@@ -491,7 +522,10 @@ program
       spinner.start("💾 [3/3] 字幕ファイルを保存中...");
 
       for (const lang of targetLanguages) {
-        const entries = resultsByLang.get(lang) ?? srtEntries;
+        let entries = resultsByLang.get(lang) ?? srtEntries;
+        if (isBilingual) {
+          entries = mergeBilingualEntries(srtEntries, entries, { order: bilingualOrder });
+        }
         const targets = resolveOutputFilePaths(
           subDir,
           subBaseName,
@@ -499,6 +533,7 @@ program
           outputFormats,
           options.output,
           !isMultiLang,
+          isBilingual,
         );
         for (const { format, filePath } of targets) {
           fs.writeFileSync(filePath, formatEntries(entries, format), "utf-8");
@@ -519,6 +554,7 @@ program
             durationMs,
             targetLanguages,
             entriesCount: srtEntries.length,
+            bilingual: isBilingual ? { order: bilingualOrder } : undefined,
             backedUpFiles:
               safetyCheck.backedUp.length > 0
                 ? safetyCheck.backedUp.map((b) => b.backup)
@@ -702,6 +738,16 @@ program
   .option("-w, --overwrite", "Overwrite existing output files without confirmation prompt", false)
   .option("--backup", "Create backup (.bak) of existing output files before overwriting", false)
   .option(
+    "-b, --bilingual",
+    "Generate bilingual subtitles combining original and translated text",
+    false,
+  )
+  .option(
+    "--bilingual-order <order>",
+    "Order of bilingual subtitles: original-first (default) or target-first",
+    "original-first",
+  )
+  .option(
     "--ffmpeg-path <path>",
     "Path to ffmpeg executable (searches VSUB_FFMPEG_PATH or PATH if omitted)",
   )
@@ -747,6 +793,8 @@ program
         output?: string;
         overwrite?: boolean;
         backup?: boolean;
+        bilingual?: boolean;
+        bilingualOrder?: string;
         ffmpegPath?: string;
         geminiModel?: string;
         groqModel?: string;
@@ -778,6 +826,8 @@ program
         const outputFormats = parseOutputFormats(options.format);
         const targetLanguages = parseTargetLanguages(options.targetLang);
         const isMultiLang = targetLanguages.length > 1;
+        const isBilingual = Boolean(options.bilingual);
+        const bilingualOrder = parseBilingualOrder(options.bilingualOrder);
         const resolvedMediaPath = path.resolve(process.cwd(), mediaFile);
         const rawConfig = getConfig(options.ffmpegPath);
 
@@ -795,6 +845,7 @@ program
             outputFormats,
             options.output,
             !isMultiLang,
+            isBilingual,
           );
           for (const { filePath } of targets) {
             predictedTargets.push(filePath);
@@ -804,18 +855,22 @@ program
         if (options.burn) {
           for (const lang of targetLanguages) {
             let burntVideoPath: string;
+            const langTag = isBilingual ? `${lang}.bilingual` : lang;
             if (options.output) {
               const resolvedOut = path.resolve(process.cwd(), options.output);
               const parsedOut = path.parse(resolvedOut);
               if (isMultiLang) {
-                burntVideoPath = path.join(parsedOut.dir, `${parsedOut.name}.${lang}.subbed.mp4`);
+                burntVideoPath = path.join(
+                  parsedOut.dir,
+                  `${parsedOut.name}.${langTag}.subbed.mp4`,
+                );
               } else if (parsedOut.ext === ".mp4") {
                 burntVideoPath = resolvedOut;
               } else {
                 burntVideoPath = path.join(parsedOut.dir, `${parsedOut.name}.subbed.mp4`);
               }
             } else {
-              burntVideoPath = path.join(mediaDir, `${mediaBaseName}.${lang}.subbed.mp4`);
+              burntVideoPath = path.join(mediaDir, `${mediaBaseName}.${langTag}.subbed.mp4`);
             }
             predictedTargets.push(burntVideoPath);
           }
@@ -1150,7 +1205,10 @@ program
           const tempSrtFilesToCleanup: string[] = [];
 
           for (const lang of targetLanguages) {
-            const entries = resultsByLang.get(lang) ?? srtEntries;
+            let entries = resultsByLang.get(lang) ?? srtEntries;
+            if (isBilingual) {
+              entries = mergeBilingualEntries(srtEntries, entries, { order: bilingualOrder });
+            }
             const targets = resolveOutputFilePaths(
               mediaDir,
               mediaBaseName,
@@ -1158,6 +1216,7 @@ program
               outputFormats,
               options.output,
               !isMultiLang,
+              isBilingual,
             );
             for (const { format, filePath } of targets) {
               fs.writeFileSync(filePath, formatEntries(entries, format), "utf-8");
@@ -1197,13 +1256,14 @@ program
                 }
 
                 let burntVideoPath: string;
+                const langTag = isBilingual ? `${lang}.bilingual` : lang;
                 if (options.output) {
                   const resolvedOut = path.resolve(process.cwd(), options.output);
                   const parsedOut = path.parse(resolvedOut);
                   if (isMultiLang) {
                     burntVideoPath = path.join(
                       parsedOut.dir,
-                      `${parsedOut.name}.${lang}.subbed.mp4`,
+                      `${parsedOut.name}.${langTag}.subbed.mp4`,
                     );
                   } else if (parsedOut.ext === ".mp4") {
                     burntVideoPath = resolvedOut;
@@ -1211,7 +1271,7 @@ program
                     burntVideoPath = path.join(parsedOut.dir, `${parsedOut.name}.subbed.mp4`);
                   }
                 } else {
-                  burntVideoPath = path.join(mediaDir, `${mediaBaseName}.${lang}.subbed.mp4`);
+                  burntVideoPath = path.join(mediaDir, `${mediaBaseName}.${langTag}.subbed.mp4`);
                 }
 
                 if (isMultiLang) {
@@ -1262,6 +1322,7 @@ program
                 targetLanguages,
                 skippedLanguages,
                 entriesCount: srtEntries.length,
+                bilingual: isBilingual ? { order: bilingualOrder } : undefined,
                 backedUpFiles:
                   safetyCheck.backedUp.length > 0
                     ? safetyCheck.backedUp.map((b) => b.backup)

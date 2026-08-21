@@ -66,3 +66,54 @@ export function stringifySrt(entries: SrtEntry[]): string {
     })
     .join("\n\n")}\n`;
 }
+
+export type BilingualOrder = "original-first" | "target-first";
+
+export interface MergeBilingualOptions {
+  order?: BilingualOrder;
+  separator?: string;
+}
+
+/**
+ * Merges original and translated SrtEntry arrays into a single bilingual SrtEntry array.
+ * Default order: original-first (original on top, translation below).
+ */
+export function mergeBilingualEntries(
+  originalEntries: SrtEntry[],
+  translatedEntries: SrtEntry[],
+  options?: MergeBilingualOptions,
+): SrtEntry[] {
+  const order = options?.order ?? "original-first";
+  const separator = options?.separator ?? "\n";
+
+  const transMap = new Map<number, SrtEntry>();
+  for (const trans of translatedEntries) {
+    transMap.set(trans.id, trans);
+  }
+
+  return originalEntries.map((orig, index) => {
+    const trans = transMap.get(orig.id) ?? translatedEntries[index];
+    const origText = orig.text.trim();
+    const transText = trans?.text.trim() ?? "";
+
+    let text: string;
+    if (!transText) {
+      text = origText;
+    } else if (!origText) {
+      text = transText;
+    } else if (origText === transText) {
+      text = origText;
+    } else if (order === "target-first") {
+      text = `${transText}${separator}${origText}`;
+    } else {
+      text = `${origText}${separator}${transText}`;
+    }
+
+    return {
+      id: orig.id || index + 1,
+      startTime: orig.startTime,
+      endTime: orig.endTime,
+      text,
+    };
+  });
+}

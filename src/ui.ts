@@ -60,6 +60,7 @@ export interface SummaryData {
   whisperPrompt?: string | undefined;
   prompt?: string | undefined;
   glossaryTermsCount?: number | undefined;
+  bilingual?: boolean | { order?: string | undefined } | undefined;
   backedUpFiles?: string[] | undefined;
   cacheStatus?:
     | {
@@ -146,6 +147,14 @@ export function formatSummaryBox(data: SummaryData): string {
       return `${pc.cyan(lang.toUpperCase())}${pc.dim(transStatus)}`;
     });
     addRow("出力言語", langDisplays.join(", "));
+  }
+
+  if (data.bilingual) {
+    const orderStr =
+      typeof data.bilingual === "object" && data.bilingual.order === "target-first"
+        ? " (訳語 ➔ 原語)"
+        : " (原語 ➔ 訳語)";
+    addRow("字幕モード", `${pc.yellow("バイリンガル併記")}${pc.dim(orderStr)}`);
   }
 
   if (data.glossaryTermsCount !== undefined && data.glossaryTermsCount > 0) {

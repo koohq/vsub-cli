@@ -197,6 +197,34 @@ describe("ui module", () => {
       expect(summary).toContain("出力ファイル");
       expect(summary).toContain("/path/to/sample.ja.srt");
     });
+
+    it("should display bilingual mode in summary box when present", () => {
+      const summaryOriginalFirst = formatSummaryBox({
+        mediaFile: "bilingual.mp4",
+        durationMs: 3000,
+        entriesCount: 15,
+        targetLanguage: "ja",
+        bilingual: true,
+        outputFiles: ["/path/to/bilingual.ja.bilingual.srt"],
+      });
+
+      expect(summaryOriginalFirst).toContain("字幕モード");
+      expect(summaryOriginalFirst).toContain("バイリンガル併記");
+      expect(summaryOriginalFirst).toContain("原語 ➔ 訳語");
+
+      const summaryTargetFirst = formatSummaryBox({
+        mediaFile: "bilingual.mp4",
+        durationMs: 3000,
+        entriesCount: 15,
+        targetLanguage: "ja",
+        bilingual: { order: "target-first" },
+        outputFiles: ["/path/to/bilingual.ja.bilingual.srt"],
+      });
+
+      expect(summaryTargetFirst).toContain("字幕モード");
+      expect(summaryTargetFirst).toContain("バイリンガル併記");
+      expect(summaryTargetFirst).toContain("訳語 ➔ 原語");
+    });
   });
 
   describe("createSpinner", () => {
