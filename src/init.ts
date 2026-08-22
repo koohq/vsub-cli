@@ -120,7 +120,7 @@ export async function runInitWizard(options: InitWizardOptions = {}): Promise<vo
   out("");
 
   const rl = options.ask ? null : readline.createInterface({ input, output });
-  const ask = options.ask || ((q: string) => rl!.question(q));
+  const ask = options.ask || ((q: string) => rl?.question(q) ?? Promise.resolve(""));
 
   const updatedConfig: Partial<AppConfig> = {};
 
