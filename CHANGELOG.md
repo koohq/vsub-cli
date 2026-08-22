@@ -2,6 +2,15 @@
 
 All notable changes to this project will be documented in this file. See [standard-version](https://github.com/conventional-changelog/standard-version) for commit guidelines.
 
+## [1.1.2](https://github.com/koohq/vsub-cli/compare/vsub-cli-v1.1.1...vsub-cli-v1.1.2) (2026-08-22)
+
+
+### Bug Fixes
+
+* **build:** apply macOS ad-hoc code signature to final destination binary after copy and add CI binary verification matrix ([0a73315](https://github.com/koohq/vsub-cli/commit/0a7331586c14721cf2012d1e787cac0b29745699))
+* **ci:** restore setup-env step in Typecheck & Build job ([50c0cf3](https://github.com/koohq/vsub-cli/commit/50c0cf3193ae2c5dc1b35aa582a86a45b0f13f33))
+* **ci:** scope macOS binary builds to Apple Silicon arm64 ([5258656](https://github.com/koohq/vsub-cli/commit/5258656be0c117771922e44ca70def26ecd6818e))
+
 ## [1.1.1](https://github.com/koohq/vsub-cli/compare/vsub-cli-v1.1.0...vsub-cli-v1.1.1) (2026-08-22)
 
 
