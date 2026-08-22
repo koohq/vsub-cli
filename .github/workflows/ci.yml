@@ -57,8 +57,36 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
+      - name: Run build (TypeScript)
+        run: pnpm build
+
+  verify-binaries:
+    name: Verify Binary (${{ matrix.target }})
+    runs-on: ${{ matrix.os }}
+    needs: [build]
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: windows-latest
+            target: vsub-windows-x64.exe
+          - os: windows-11-arm
+            target: vsub-windows-arm64.exe
+          - os: ubuntu-latest
+            target: vsub-linux-x64
+          - os: ubuntu-24.04-arm
+            target: vsub-linux-arm64
+          - os: macos-latest
+            target: vsub-macos-arm64
+          - os: macos-15-intel
+            target: vsub-macos-x64
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
       - name: Setup environment
         uses: ./.github/actions/setup-env
 
-      - name: Run build (TypeScript)
-        run: pnpm build
+      - name: Build and verify standalone binary
+        run: pnpm build:binary --name ${{ matrix.target }}
+

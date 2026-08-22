@@ -144,20 +144,7 @@ export async function buildStandaloneBinary(
     throw new Error(`Binary generation failed: ${intermediateBinaryPath} does not exist.`);
   }
 
-  // 4. macOS codesign
-  if (process.platform === "darwin") {
-    console.log(pc.cyan("🔏 Applying macOS ad-hoc code signature..."));
-    try {
-      await execa("codesign", ["--sign", "-", intermediateBinaryPath], {
-        stdio: "inherit",
-      });
-      console.log(pc.green("✔ Code signature applied"));
-    } catch (err) {
-      console.warn(pc.yellow(`⚠️ codesign failed (non-fatal in some environments): ${err}`));
-    }
-  }
-
-  // 5. Rename to target binary name
+  // 4. Copy to target binary name
   const finalBinaryName = options.name || getDefaultBinaryName(process.platform, process.arch);
   const finalBinaryPath = path.join(outputDir, finalBinaryName);
 
@@ -169,6 +156,24 @@ export async function buildStandaloneBinary(
     // Ensure execute permissions on Unix
     if (process.platform !== "win32") {
       fs.chmodSync(finalBinaryPath, 0o755);
+    }
+    try {
+      fs.unlinkSync(intermediateBinaryPath);
+    } catch {
+      // Ignore cleanup error
+    }
+  }
+
+  // 5. macOS codesign (must be applied to final binary path after copying/permissions)
+  if (process.platform === "darwin") {
+    console.log(pc.cyan(`🔏 Applying macOS ad-hoc code signature to ${finalBinaryPath}...`));
+    try {
+      await execa("codesign", ["--sign", "-", "--force", finalBinaryPath], {
+        stdio: "inherit",
+      });
+      console.log(pc.green("✔ Code signature applied"));
+    } catch (err) {
+      console.warn(pc.yellow(`⚠️ codesign failed (non-fatal in some environments): ${err}`));
     }
   }
 
