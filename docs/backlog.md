@@ -31,8 +31,8 @@
 | **Completed** | 17. AI モデル新着自動監視 & 重複防止 Issue 通知ワークフロー | DevOps/自動化 | 低 | Groq / Gemini API の新モデル検知と自動 Issue 起票 | **完了** |
 | **Completed** | 20. 二言語併記 / バイリンガル字幕モード (`--bilingual` / `-b`) | 機能拡張/UX | 低〜中 | 語学学習や国際配信向け2言語同時字幕・同時焼き込み | **完了** |
 | **Completed** | 21. ディレクトリ / バッチ一括処理モード (`vsub batch` / glob) | 機能拡張/UX | 中 | 複数メディアファイルの一括自動文字起こし・翻訳 | **完了** |
-| **Medium** | 22. 対話型初期セットアップ & 導通確認ウィザード (`vsub init`) | CLI UX | 低 | API キー・FFmpeg・デフォルト言語の対話的初期導入と導通保証 | 未着手 |
-| **Low** | 23. GitHub Releases & スタンドアロンバイナリ配布 | DevOps | 中 | Node.js 未導入ユーザー向け単体バイナリ配布 | 未着手 |
+| **Completed** | 22. 対話型初期セットアップ & 導通確認ウィザード (`vsub init`) | CLI UX | 低 | API キー・FFmpeg・デフォルト言語の対話的初期導入と導通保証 | **完了** |
+| **Final** | 23. GitHub Releases & スタンドアロンバイナリ配布 | DevOps | 中 | Node.js 未導入ユーザー向け単体バイナリ配布 | 未着手 |
 
 ---
 
@@ -190,24 +190,26 @@
   * 全ファイル完了時に処理総数、成功数、失敗数、スキップ数、合計所要時間、ファイル別の生成物・エラー詳細を構造化表示。
 * **対応ファイル**: `src/pipeline.ts`, `src/pipeline.test.ts`, `src/batch.ts`, `src/batch.test.ts`, `src/ui.ts`, `src/ui.test.ts`, `src/index.ts`, `README.md`, `README.ja.md`, `docs/prd.md`, `docs/backlog.md`
 
+### 1.20 対話型初期セットアップ & 導通確認ウィザード (`vsub init`)
+* **対話型セットアップ (`runInitWizard`)**:
+  * `vsub init`（および `vsub config init`）で起動する対話型初期導入ウィザード。
+  * **Groq API 導通確認**: 入力された API キーを用いて Groq モデル一覧エンドポイントへの疎通を即時テストし成否を判定。
+  * **Gemini API 導通確認**: 入力された API キーを用いて Gemini モデル情報取得による疎通を即時テストし成否を判定。
+  * **FFmpeg / FFprobe 環境確認**: システム内の FFmpeg 実行可能状態・バージョンを検出し、未検出時は OS 別インストールコマンドを案内。
+  * **デフォルト言語・モデル永続化**: デフォルト翻訳先言語（`ja` 等）やモデル設定を含めてグローバル設定ファイル（`config.json`）へ一括保存。
+* **対応ファイル**: `src/init.ts`, `src/init.test.ts`, `src/config.ts`, `src/index.ts`, `README.md`, `README.ja.md`, `docs/backlog.md`
+
 ---
 
 ## 2. 今後の改善バックログ (Backlog & Future Work)
 
-### 2.1 対話型初期セットアップ & 導通確認ウィザード (`vsub init`) 【優先度: Medium】
-* **背景/課題**: 初回利用時に Groq API キー、Gemini API キー、FFmpeg のパス確認、デフォルト翻訳言語などの設定手順が分散しており、初心者ユーザーのセットアップ摩擦が生じやすい。
-* **提案内容**:
-  * `vsub init` コマンドで対話型ウィザードを起動（API キー入力・接続テスト・`~/.vsubrc` への保存）。
-  * システム内の FFmpeg / FFprobe の自動検知と未導入時のインストール案内。
-  * デフォルト翻訳先言語（例: `ja`）やモデルの初期登録。
-* **対応スコープ**: `src/index.ts`, `src/config.ts`, `src/init.ts` (新設)
-
-### 2.2 GitHub Releases & スタンドアロンバイナリ配布 【優先度: Low】
+### 2.1 GitHub Releases & スタンドアロンバイナリ配布 【優先度: Final】
 * **背景/課題**: Node.js や pnpm をインストールしていない一般ユーザー向けに単体実行バイナリを提供したい。
 * **提案内容**:
   * Node.js SEA (Single Executable Applications) 等を用いて、Windows (`.exe`), macOS, Linux 向けの単体実行バイナリをビルド。
   * GitHub Releases に各 OS 向けバイナリを自動アップロードする Release ワークフローの構築。
 * **対応スコープ**: `.github/workflows/release.yml`, ビルドスクリプト
+
 
 
 

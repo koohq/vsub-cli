@@ -18,6 +18,7 @@ import { burnSubtitlesToVideo, checkFfmpeg, isVideoFile } from "./ffmpeg.js";
 import { formatEntries, type OutputFormat, parseOutputFormats } from "./formatter.js";
 import { translateSrtEntries } from "./gemini.js";
 import { computeGlossaryHash, parseGlossary } from "./glossary.js";
+import { runInitWizard } from "./init.js";
 import { parseTargetLanguages } from "./languages.js";
 import { type ProcessMediaOptions, processMediaPipeline } from "./pipeline.js";
 import { ensureWritableTargets } from "./safety.js";
@@ -203,14 +204,21 @@ configCmd
 
 configCmd
   .command("init")
-  .description("Initialize API Keys interactively")
+  .description(
+    "Interactive setup wizard to configure API keys and preferences (alias to vsub init)",
+  )
   .action(async () => {
-    const config = getConfig();
-    await ensureApiKeys({
-      ...config,
-      groqApiKey: "",
-      geminiApiKey: "",
-    });
+    await runInitWizard();
+  });
+
+// Subcommand: init (Top-level wizard)
+program
+  .command("init")
+  .description(
+    "Interactive setup wizard to verify and configure Groq API, Gemini API, FFmpeg, and preferences",
+  )
+  .action(async () => {
+    await runInitWizard();
   });
 
 // Subcommand: cache

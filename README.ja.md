@@ -40,17 +40,14 @@
 
 API キーの設定方法は **3つの方法** から選べます：
 
-### 方法 1: 対話型セットアップ (推奨・一番簡単)
-キーが未設定の状態でコマンドを実行すると、自動的にターミナル上で対話入力プロンプトが起動します。
-入力されたキーは**グローバル設定ファイル**（例: `~/.config/vsub/config.json` または `%APPDATA%\vsub\config.json`）に保存されるため、どのディレクトリから実行しても2回目以降は設定不要で利用できます。
-
-直接キーを登録・更新したい場合は以下を実行してください：
+### 方法 1: 対話型セットアップウィザード (推奨・一番簡単)
+`vsub init` コマンドを実行すると対話型ウィザードが起動し、Groq API・Gemini API・FFmpeg の導通確認を行った上でグローバル設定に保存します：
 ```bash
-# 対話型で登録・更新
-pnpm dev config init
+# 対話型セットアップウィザード
+vsub init
 
 # またはコマンドラインから直接設定
-pnpm dev config set --groq-key "your_groq_key" --gemini-key "your_gemini_key"
+vsub config set --groq-key "your_groq_key" --gemini-key "your_gemini_key"
 ```
 
 ### 方法 2: 環境変数 (`VSUB_` プレフィックス)

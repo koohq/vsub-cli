@@ -34,6 +34,7 @@ export interface AppConfig {
   concurrency?: number | undefined;
   geminiModel?: string | undefined;
   groqModel?: string | undefined;
+  targetLang?: string | undefined;
 }
 
 export function getGlobalConfigPath(): string {
@@ -135,6 +136,12 @@ export function getConfig(cliFfmpegPath?: string): AppConfig {
     globalConfig.groqModel?.trim() ||
     DEFAULT_GROQ_MODEL;
 
+  const targetLang =
+    process.env["VSUB_TARGET_LANG"]?.trim() ||
+    process.env["TARGET_LANG"]?.trim() ||
+    globalConfig.targetLang?.trim() ||
+    undefined;
+
   return {
     groqApiKey,
     geminiApiKey,
@@ -145,6 +152,7 @@ export function getConfig(cliFfmpegPath?: string): AppConfig {
     concurrency,
     geminiModel,
     groqModel,
+    targetLang,
   };
 }
 

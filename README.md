@@ -40,17 +40,14 @@ A fast, resilient CLI tool that extracts and optimizes audio from video or audio
 
 You can configure API keys using **3 different methods**:
 
-### Method 1: Interactive Setup (Recommended & Easiest)
-If API keys are not set, running any command will automatically launch an interactive terminal prompt.
-Keys are saved in a **global configuration file** (`~/.config/vsub/config.json` or `%APPDATA%\vsub\config.json`), so you only need to configure them once across your entire system.
-
-To manually register or update keys interactively:
+### Method 1: Interactive Setup Wizard (Recommended & Easiest)
+Run `vsub init` to launch the interactive setup wizard, which verifies Groq API, Gemini API, and FFmpeg connectivity before saving:
 ```bash
-# Interactive setup
-pnpm dev config init
+# Run setup wizard
+vsub init
 
 # Or set directly via CLI arguments
-pnpm dev config set --groq-key "your_groq_key" --gemini-key "your_gemini_key"
+vsub config set --groq-key "your_groq_key" --gemini-key "your_gemini_key"
 ```
 
 ### Method 2: Environment Variables (`VSUB_` Prefix)
