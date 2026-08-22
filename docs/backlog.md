@@ -32,7 +32,7 @@
 | **Completed** | 20. 二言語併記 / バイリンガル字幕モード (`--bilingual` / `-b`) | 機能拡張/UX | 低〜中 | 語学学習や国際配信向け2言語同時字幕・同時焼き込み | **完了** |
 | **Completed** | 21. ディレクトリ / バッチ一括処理モード (`vsub batch` / glob) | 機能拡張/UX | 中 | 複数メディアファイルの一括自動文字起こし・翻訳 | **完了** |
 | **Completed** | 22. 対話型初期セットアップ & 導通確認ウィザード (`vsub init`) | CLI UX | 低 | API キー・FFmpeg・デフォルト言語の対話的初期導入と導通保証 | **完了** |
-| **Final** | 23. GitHub Releases & スタンドアロンバイナリ配布 | DevOps | 中 | Node.js 未導入ユーザー向け単体バイナリ配布 | 未着手 |
+| **Completed** | 23. GitHub Releases & スタンドアロンバイナリ配布 (SEA) | DevOps/配布 | 中 | Node.js 未導入ユーザー向け単体バイナリ配布 & OSS ライセンス保護 | **完了** |
 
 ---
 
@@ -199,16 +199,26 @@
   * **デフォルト言語・モデル永続化**: デフォルト翻訳先言語（`ja` 等）やモデル設定を含めてグローバル設定ファイル（`config.json`）へ一括保存。
 * **対応ファイル**: `src/init.ts`, `src/init.test.ts`, `src/config.ts`, `src/index.ts`, `README.md`, `README.ja.md`, `docs/backlog.md`
 
+### 1.21 GitHub Releases & スタンドアロンバイナリ配布 (SEA) & サードパーティライセンス保護
+* **Node.js SEA (Single Executable Applications) バイナリビルド**:
+  * Node.js 26 の `node --build-sea` および `esbuild` による自己完結型単一バイナリ生成スクリプト (`scripts/build-binary.ts`)。
+  * ターゲット別命名規則（`vsub-windows-x64.exe`, `vsub-windows-arm64.exe`, `vsub-linux-x64`, `vsub-linux-arm64`, `vsub-macos-arm64`, `vsub-macos-x64`）。
+  * macOS 向け ad-hoc コード署名 (`codesign --sign -`)、SHA-256 チェックサム算出、バイナリ自己検証テスト機構を内蔵。
+* **GitHub Actions 6マトリックス自動ビルド & アセット添付 (`.github/workflows/release.yml`)**:
+  * Windows (x64, arm64), Linux (x64, arm64), macOS (arm64, x64) の最新 Standard Runners 6 パターンでネイティブビルド。
+  * Release Please と連動し、GitHub Releases に全バイナリ、`SHA256SUMS.txt`、およびライセンスファイルを全自動添付。
+* **サードパーティライセンス自動抽出 & CLI 表示 (`vsub licenses`)**:
+  * `scripts/generate-licenses.ts` により本番依存パッケージのライセンス条文（MIT, Apache-2.0, BSD 等）を抽出し `dist/THIRD_PARTY_LICENSES.txt` および `src/licenses.data.ts` を自動生成。
+  * `vsub licenses`（および `--full`）サブコマンドにより、ターミナル上でいつでも法的告知と全文条文を確認可能。
+* **対応ファイル**: `scripts/build-binary.ts`, `scripts/build-binary.test.ts`, `scripts/generate-licenses.ts`, `src/licenses.ts`, `src/licenses.test.ts`, `src/licenses.data.ts`, `src/index.ts`, `.github/workflows/release.yml`, `package.json`, `docs/backlog.md`, `README.md`, `README.ja.md`
+
 ---
 
-## 2. 今後の改善バックログ (Backlog & Future Work)
+## 2. ロードマップ完遂状況 (Roadmap Status)
 
-### 2.1 GitHub Releases & スタンドアロンバイナリ配布 【優先度: Final】
-* **背景/課題**: Node.js や pnpm をインストールしていない一般ユーザー向けに単体実行バイナリを提供したい。
-* **提案内容**:
-  * Node.js SEA (Single Executable Applications) 等を用いて、Windows (`.exe`), macOS, Linux 向けの単体実行バイナリをビルド。
-  * GitHub Releases に各 OS 向けバイナリを自動アップロードする Release ワークフローの構築。
-* **対応スコープ**: `.github/workflows/release.yml`, ビルドスクリプト
+🎉 **おめでとうございます！`vsub-cli` の改善バックログ & ロードマップに定義された全 23 タスクがすべて完了しました。**
+
+現在はコア機能（Groq Whisper + Gemini 翻訳 + 字幕焼き込み + バイリンガル + バッチ処理 + init ウィザード）、品質保証（Vitest + Coverage + E2E スモークテスト + CI マトリックス）、運用自動化（Release Please + npm publish + AI モデル新着監視）、および一般配布機構（6 プラットフォーム向け Standalone SEA バイナリ配布）のすべてが揃い、実運用（ドッグフーディング）および OSS コミュニティ展開の準備が整っています。
 
 
 

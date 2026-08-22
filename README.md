@@ -25,14 +25,47 @@ A fast, resilient CLI tool that extracts and optimizes audio from video or audio
 
 ---
 
+## Installation & Distribution
+
+`vsub-cli` is available as **standalone single executables (no Node.js required)** and as an npm package.
+
+### Option A: Standalone Single Executables (No Node.js Required)
+Download the prebuilt binary for your operating system and CPU architecture from [GitHub Releases](https://github.com/koohq/vsub-cli/releases):
+
+* **Windows x64**: `vsub-windows-x64.exe`
+* **Windows ARM64**: `vsub-windows-arm64.exe`
+* **Linux x64**: `vsub-linux-x64`
+* **Linux ARM64**: `vsub-linux-arm64`
+* **macOS ARM64 (Apple Silicon)**: `vsub-macos-arm64`
+* **macOS x64 (Intel)**: `vsub-macos-x64`
+
+*(Note: `ffmpeg` / `ffprobe` is still required on the system for audio extraction and subtitle burn-in).*
+
+```bash
+# Make binary executable (Linux/macOS)
+chmod +x vsub-macos-arm64
+
+# Run interactive setup wizard
+./vsub-macos-arm64 init
+```
+
+### Option B: Global Install via npm / pnpm
+```bash
+# Install via npm
+npm install -g vsub-cli
+# Or via pnpm
+pnpm add -g vsub-cli
+```
+
+---
+
 ## Prerequisites & Dependencies
 
-1. **Node.js**: v26+ (or v24+)
-2. **ffmpeg / ffprobe**: Must be installed on your system (or specify executable path)
-3. **API Keys**:
+1. **ffmpeg / ffprobe**: Must be installed on your system (or specify executable path)
+2. **API Keys**:
    * `VSUB_GROQ_API_KEY` obtained from [Groq Console](https://console.groq.com/)
    * `VSUB_GEMINI_API_KEY` obtained from [Google AI Studio](https://aistudio.google.com/)
-4. **pnpm**: Package manager *(Required for development & building from source)*
+3. **Node.js**: v26+ or v24+ *(Required only when using npm package or building from source)*
 
 ---
 
@@ -246,6 +279,25 @@ pnpm dev config path
 
 ---
 
-## License
+## Open Source Licenses & Legal Notices
 
-[The Unlicense](LICENSE)
+The source code of `vsub-cli` is released under [The Unlicense](LICENSE) (Public Domain).
+
+The distributed binary and npm package bundle the following open-source libraries:
+* `@google/genai` (Apache-2.0)
+* `commander` (MIT)
+* `dotenv` (BSD-2-Clause)
+* `execa` (MIT)
+* `groq-sdk` (Apache-2.0)
+* `ora` (MIT)
+* `picocolors` (ISC)
+
+You can inspect the third-party licenses and full legal notices at any time via the CLI:
+```bash
+# Display bundled third-party licenses summary
+vsub licenses
+
+# Display full legal notice texts
+vsub licenses --full
+```
+A consolidated `THIRD_PARTY_LICENSES.txt` is also included in each GitHub Release.

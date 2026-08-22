@@ -25,14 +25,47 @@
 
 ---
 
+## インストール & 配布形態
+
+`vsub-cli` は、**Node.js 未導入の環境でも単体で動くスタンドアロンバイナリ**、および npm パッケージの 2 つの形態でご利用いただけます。
+
+### 形態 A: スタンドアロン単体バイナリ (Node.js 不要)
+[GitHub Releases](https://github.com/koohq/vsub-cli/releases) より、お使いの OS / アーキテクチャに合わせたバイナリをダウンロードして任意の場所に配置するだけで、Node.js や pnpm をインストールせずに即座に実行できます：
+
+* **Windows x64**: `vsub-windows-x64.exe`
+* **Windows ARM64**: `vsub-windows-arm64.exe`
+* **Linux x64**: `vsub-linux-x64`
+* **Linux ARM64**: `vsub-linux-arm64`
+* **macOS ARM64 (Apple Silicon)**: `vsub-macos-arm64`
+* **macOS x64 (Intel)**: `vsub-macos-x64`
+
+*(※ 動画からの音声抽出・最適化および字幕焼き込みを行うため、実行環境に `ffmpeg` / `ffprobe` が必要です)*
+
+```bash
+# ダウンロード後、実行権限を付与 (Linux/macOS)
+chmod +x vsub-macos-arm64
+
+# 初期セットアップウィザードを起動
+./vsub-macos-arm64 init
+```
+
+### 形態 B: npm / pnpm によるグローバルインストール
+```bash
+# npm または pnpm でグローバルインストール
+npm install -g vsub-cli
+# または
+pnpm add -g vsub-cli
+```
+
+---
+
 ## 前提条件・外部依存
 
-1. **Node.js**: v26+ (または v24+)
-2. **ffmpeg / ffprobe**: ローカル環境にインストール済みであること（または実行ファイルパスを指定）
-3. **API キー**:
+1. **ffmpeg / ffprobe**: ローカル環境にインストール済みであること（または実行ファイルパスを指定）
+2. **API キー**:
    * [Groq Console](https://console.groq.com/) にて取得できる `VSUB_GROQ_API_KEY`
    * [Google AI Studio](https://aistudio.google.com/) にて取得できる `VSUB_GEMINI_API_KEY`
-4. **pnpm**: パッケージマネージャー *(開発・ソースからのビルド時に必要)*
+3. **Node.js**: v26+ または v24+ *(npm パッケージ利用時またはソースビルド時のみ)*
 
 ---
 
@@ -246,6 +279,26 @@ pnpm dev config path
 
 ---
 
-## ライセンス
+## オープンソースライセンス & 法的告知
 
-[The Unlicense](LICENSE)
+本ツール自体のソースコードは [The Unlicense](LICENSE)（パブリックドメイン）に基づき公開されています。
+
+なお、本ツールおよび単体実行バイナリには以下のオープンソースライブラリ（MIT, Apache-2.0, BSD, ISC 等）が同梱・使用されています：
+* `@google/genai` (Apache-2.0)
+* `commander` (MIT)
+* `dotenv` (BSD-2-Clause)
+* `execa` (MIT)
+* `groq-sdk` (Apache-2.0)
+* `ora` (MIT)
+* `picocolors` (ISC)
+
+CLI からいつでも以下のコマンドでサードパーティライセンス一覧および条文を確認できます：
+```bash
+# サードパーティライセンス一覧を表示
+vsub licenses
+
+# 全文ライセンス条文を出力
+vsub licenses --full
+```
+また、各リリースの配布物には `THIRD_PARTY_LICENSES.txt` が同梱されています。
+

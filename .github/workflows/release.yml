@@ -31,7 +31,7 @@ jobs:
           manifest-file: .release-please-manifest.json
 
   github-release:
-    name: Create GitHub Release
+    name: Ensure GitHub Release
     runs-on: ubuntu-latest
     if: startsWith(github.ref, 'refs/tags/v')
     steps:
@@ -42,7 +42,7 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          gh release create "${{ github.ref_name }}" \
+          gh release view "${{ github.ref_name }}" || gh release create "${{ github.ref_name }}" \
             --title "${{ github.ref_name }}" \
             --notes-file CHANGELOG.md \
             --verify-tag || gh release create "${{ github.ref_name }}" --title "${{ github.ref_name }}" --generate-notes
@@ -82,3 +82,109 @@ jobs:
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
           NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
+
+  build-binaries:
+    name: Build Binary (${{ matrix.target }})
+    needs: [release-please]
+    if: |
+      always() &&
+      (needs.release-please.outputs.releases_created == 'true' || startsWith(github.ref, 'refs/tags/v') || github.event_name == 'workflow_dispatch')
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: windows-latest
+            target: vsub-windows-x64.exe
+          - os: windows-11-arm
+            target: vsub-windows-arm64.exe
+          - os: ubuntu-latest
+            target: vsub-linux-x64
+          - os: ubuntu-24.04-arm
+            target: vsub-linux-arm64
+          - os: macos-latest
+            target: vsub-macos-arm64
+          - os: macos-13
+            target: vsub-macos-x64
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ needs.release-please.outputs.tag_name || github.ref }}
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86 # v6.0.10
+
+      - name: Setup Node.js
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version-file: .node-version
+          cache: "pnpm"
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Build standalone binary
+        run: pnpm build:binary --name ${{ matrix.target }} --output-dir dist/binaries --checksum
+
+      - name: Upload binary artifact
+        uses: actions/upload-artifact@4cec3d8aa003d5272a44d0365773173715893d56 # v4.6.1
+        with:
+          name: binary-${{ matrix.target }}
+          path: dist/binaries/
+          if-no-files-found: error
+
+  upload-release-assets:
+    name: Upload Release Assets
+    needs: [release-please, github-release, build-binaries]
+    if: |
+      always() &&
+      (needs.release-please.outputs.releases_created == 'true' || startsWith(github.ref, 'refs/tags/v') || github.event_name == 'workflow_dispatch')
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ needs.release-please.outputs.tag_name || github.ref }}
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86 # v6.0.10
+
+      - name: Setup Node.js
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version-file: .node-version
+          cache: "pnpm"
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Generate third-party licenses file
+        run: pnpm build:licenses
+
+      - name: Download all binary artifacts
+        uses: actions/download-artifact@fa0a91b85d4f404e444e00e005971372dc801d16 # v4.1.8
+        with:
+          pattern: binary-*
+          path: dist/all-binaries
+          merge-multiple: true
+
+      - name: Consolidate checksums and license notices
+        run: |
+          cp dist/THIRD_PARTY_LICENSES.txt dist/all-binaries/
+          cd dist/all-binaries
+          # Generate consolidated SHA256SUMS.txt
+          sha256sum vsub-* THIRD_PARTY_LICENSES.txt > SHA256SUMS.txt
+          ls -la
+
+      - name: Upload assets to GitHub Release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          TARGET_TAG="${{ needs.release-please.outputs.tag_name || github.ref_name }}"
+          if [ "$TARGET_TAG" = "main" ]; then
+            TARGET_TAG="latest"
+          fi
+          echo "Uploading release assets for tag: $TARGET_TAG"
+          gh release view "$TARGET_TAG" || gh release create "$TARGET_TAG" --title "$TARGET_TAG" --generate-notes
+          gh release upload "$TARGET_TAG" dist/all-binaries/* --clobber

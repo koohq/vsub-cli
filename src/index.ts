@@ -20,6 +20,7 @@ import { translateSrtEntries } from "./gemini.js";
 import { computeGlossaryHash, parseGlossary } from "./glossary.js";
 import { runInitWizard } from "./init.js";
 import { parseTargetLanguages } from "./languages.js";
+import { printLicenses } from "./licenses.js";
 import { type ProcessMediaOptions, processMediaPipeline } from "./pipeline.js";
 import { ensureWritableTargets } from "./safety.js";
 import type { BilingualOrder, SrtEntry } from "./srt.js";
@@ -81,9 +82,19 @@ const program = new Command();
 
 program
   .name("vsub")
+  .version("1.0.0")
   .description(
     "CLI tool to extract audio from video/audio files, transcribe speech via Groq API, and generate multilingual subtitles (.srt, .vtt, .txt, .json) via Gemini API.",
   );
+
+// Subcommand: licenses
+program
+  .command("licenses")
+  .description("Display third-party open source licenses and legal notices")
+  .option("--full", "Display full license text for all bundled dependencies")
+  .action((options: { full?: boolean }) => {
+    printLicenses({ full: options.full });
+  });
 
 // Subcommand: config
 const configCmd = program.command("config").description("Manage global configuration settings");
