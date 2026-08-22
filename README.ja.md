@@ -25,35 +25,37 @@
 
 ---
 
-## インストール & 配布形態
+## インストール方法
 
-`vsub-cli` は、**Node.js 未導入の環境でも単体で動くスタンドアロンバイナリ**、および npm パッケージの 2 つの形態でご利用いただけます。
+`vsub-cli` は、**Node.js 不要の単体実行バイナリ**、および npm パッケージの 2 通りの方法で利用できます。
 
-### 形態 A: スタンドアロン単体バイナリ (Node.js 不要)
-[GitHub Releases](https://github.com/koohq/vsub-cli/releases) より、お使いの OS / アーキテクチャに合わせたバイナリをダウンロードして任意の場所に配置するだけで、Node.js や pnpm をインストールせずに即座に実行できます：
+### 方法 1: スタンドアロン単体バイナリ（推奨・Node.js 不要）
+[GitHub Releases](https://github.com/koohq/vsub-cli/releases) から、お使いの OS / CPU アーキテクチャに合わせたバイナリをダウンロードするだけで、Node.js や pnpm をインストールすることなくそのまま実行できます：
 
 * **Windows x64**: `vsub-windows-x64.exe`
 * **Windows ARM64**: `vsub-windows-arm64.exe`
 * **Linux x64**: `vsub-linux-x64`
 * **Linux ARM64**: `vsub-linux-arm64`
-* **macOS ARM64 (Apple Silicon)**: `vsub-macos-arm64`
-* **macOS x64 (Intel)**: `vsub-macos-x64`
+* **macOS Apple Silicon (ARM64)**: `vsub-macos-arm64`
+* **macOS Intel (x64)**: `vsub-macos-x64`
 
-*(※ 動画からの音声抽出・最適化および字幕焼き込みを行うため、実行環境に `ffmpeg` / `ffprobe` が必要です)*
+> [!NOTE]
+> 音声の抽出・圧縮や字幕焼き込み（`--burn`）を行うため、実行環境に `ffmpeg` / `ffprobe` が必要です（未導入の場合は `vsub init` 実行時に案内されます）。
 
 ```bash
-# ダウンロード後、実行権限を付与 (Linux/macOS)
+# macOS / Linux の場合は実行権限を付与
 chmod +x vsub-macos-arm64
 
 # 初期セットアップウィザードを起動
 ./vsub-macos-arm64 init
 ```
 
-### 形態 B: npm / pnpm によるグローバルインストール
+### 方法 2: npm / pnpm によるグローバルインストール（Node.js 環境向け）
 ```bash
-# npm または pnpm でグローバルインストール
+# npm でインストール
 npm install -g vsub-cli
-# または
+
+# または pnpm でインストール
 pnpm add -g vsub-cli
 ```
 
@@ -203,7 +205,7 @@ pnpm dev batch ./videos/ --no-recursive --fail-fast
 pnpm dev translate sample.ja.srt -t en -f srt,vtt
 ```
 
-### 4. 動画への字幕焼き込み (`--burn` & `vsub burn`)
+### 5. 動画への字幕焼き込み (`--burn` & `vsub burn`)
 FFmpeg を利用して、字幕が合成された mp4 動画をワンストップで出力します：
 ```bash
 # 文字起こし・翻訳と同時に字幕焼き込み動画を出力
@@ -213,7 +215,7 @@ pnpm dev video.mp4 -t ja --burn
 pnpm dev burn video.mp4 video.ja.srt -o video.subbed.mp4
 ```
 
-### 5. 用語集 (Glossary) & カスタムプロンプトの活用
+### 6. 用語集 (Glossary) & カスタムプロンプトの活用
 
 #### インライン用語集の指定
 ```bash
@@ -247,7 +249,7 @@ pnpm dev video.mp4 -t ja,zh --glossary ./glossary.json
 pnpm dev video.mp4 -t ja --prompt "ITエンジニア向けの丁寧なです・ます調で翻訳してください。各行は30文字以内で簡潔にまとめてください。"
 ```
 
-### 5. キャッシュ管理 & パフォーマンス最適化
+### 7. キャッシュ管理 & パフォーマンス最適化
 ```bash
 # キャッシュ使用状況の確認
 pnpm dev cache stats

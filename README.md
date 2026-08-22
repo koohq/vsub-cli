@@ -25,11 +25,11 @@ A fast, resilient CLI tool that extracts and optimizes audio from video or audio
 
 ---
 
-## Installation & Distribution
+## Installation
 
 `vsub-cli` is available as **standalone single executables (no Node.js required)** and as an npm package.
 
-### Option A: Standalone Single Executables (No Node.js Required)
+### Method 1: Standalone Single Executables (Recommended, No Node.js Required)
 Download the prebuilt binary for your operating system and CPU architecture from [GitHub Releases](https://github.com/koohq/vsub-cli/releases):
 
 * **Windows x64**: `vsub-windows-x64.exe`
@@ -49,10 +49,11 @@ chmod +x vsub-macos-arm64
 ./vsub-macos-arm64 init
 ```
 
-### Option B: Global Install via npm / pnpm
+### Method 2: Global Install via npm / pnpm (For Node.js environments)
 ```bash
 # Install via npm
 npm install -g vsub-cli
+
 # Or via pnpm
 pnpm add -g vsub-cli
 ```
@@ -203,7 +204,7 @@ Translate an existing `.srt` file without needing video files or Groq API:
 pnpm dev translate sample.ja.srt -t en -f srt,vtt
 ```
 
-### 4. Video Subtitle Hardsub / Burn-in (`--burn` & `vsub burn`)
+### 5. Video Subtitle Hardsub / Burn-in (`--burn` & `vsub burn`)
 Bake subtitles directly into a `.mp4` video with FFmpeg:
 ```bash
 # Transcribe, translate, and bake subtitles into video in a single command
@@ -213,7 +214,7 @@ pnpm dev video.mp4 -t ja --burn
 pnpm dev burn video.mp4 video.ja.srt -o video.subbed.mp4
 ```
 
-### 5. Using Glossary & Custom Prompts
+### 6. Using Glossary & Custom Prompts
 
 #### Inline Glossary Mapping
 ```bash
@@ -247,7 +248,7 @@ pnpm dev video.mp4 -t ja,zh --glossary ./glossary.json
 pnpm dev video.mp4 -t ja --prompt "Translate in a polite and professional tone suited for software engineers. Keep subtitles concise."
 ```
 
-### 5. Cache Management & Performance Tuning
+### 7. Cache Management & Performance Tuning
 ```bash
 # View cache usage statistics
 pnpm dev cache stats
