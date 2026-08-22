@@ -32,8 +32,6 @@
 | **Completed** | 20. 二言語併記 / バイリンガル字幕モード (`--bilingual` / `-b`) | 機能拡張/UX | 低〜中 | 語学学習や国際配信向け2言語同時字幕・同時焼き込み | **完了** |
 | **Completed** | 21. ディレクトリ / バッチ一括処理モード (`vsub batch` / glob) | 機能拡張/UX | 中 | 複数メディアファイルの一括自動文字起こし・翻訳 | **完了** |
 | **Medium** | 22. 対話型初期セットアップ & 導通確認ウィザード (`vsub init`) | CLI UX | 低 | API キー・FFmpeg・デフォルト言語の対話的初期導入と導通保証 | 未着手 |
-| **Medium** | 24. 字幕焼き込み (`--burn`) スタイル・フォント・配置カスタマイズ | 機能拡張 | 中 | 用途（Shorts/講義等）に応じた字幕デザイン・レイアウト調整 | 未着手 |
-| **Low** | 25. パイプライン層・設定層のテストカバレッジ拡充 (`pipeline.ts` & `config.ts`) | DevOps/品質 | 低〜中 | 結合テスト拡充とカバレッジ 85%+ 維持 | 未着手 |
 | **Low** | 23. GitHub Releases & スタンドアロンバイナリ配布 | DevOps | 中 | Node.js 未導入ユーザー向け単体バイナリ配布 | 未着手 |
 
 ---
@@ -211,20 +209,5 @@
   * GitHub Releases に各 OS 向けバイナリを自動アップロードする Release ワークフローの構築。
 * **対応スコープ**: `.github/workflows/release.yml`, ビルドスクリプト
 
-### 2.3 字幕焼き込み (`--burn`) スタイル・フォント・配置カスタマイズ 【優先度: Medium】
-* **背景/課題**: 現在の字幕焼き込み（`--burn` / `vsub burn`）は FFmpeg の標準スタイルで焼き込まれるため、動画の背景色で見づらい場合や、TikTok / YouTube Shorts / 講義動画等のレイアウト・文字装飾調整に対応しづらい。
-* **提案内容**:
-  * `--burn-font-size <size>`, `--burn-font-color <color>`, `--burn-outline-color <color>`, `--burn-bg <color>` 等のスタイルオプション追加。
-  * `--burn-position (bottom|top|center)` による縦位置配置指定のサポート。
-  * FFmpeg `subtitles` フィルタの `force_style` パラメータへの安全なエスケープとマッピング。
-* **対応スコープ**: `src/ffmpeg.ts`, `src/ffmpeg.test.ts`, `src/index.ts`, `README.md`, `README.ja.md`
-
-### 2.4 パイプライン層・設定層のテストカバレッジ拡充 (`pipeline.ts` & `config.ts`) 【優先度: Low】
-* **背景/課題**: バッチ化に伴いコア処理を切り出した `src/pipeline.ts` や `src/config.ts` の単体・結合テストカバレッジをさらに引き上げ、将来の破壊的変更を未然に防ぎたい。
-* **提案内容**:
-  * `runSubtitlePipeline` および `runTranslatePipeline` のモック結合テスト拡充。
-  * CLI オプション・設定ファイル（`.vsubrc`）・環境変数の優先順位フォールバック境界値テスト。
-  * プロジェクト全体のラインカバレッジ 85%+ の達成と維持。
-* **対応スコープ**: `src/pipeline.test.ts`, `src/config.test.ts`
 
 
