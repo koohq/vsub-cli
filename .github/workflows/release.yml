@@ -128,7 +128,7 @@ jobs:
         run: pnpm build:binary --name ${{ matrix.target }} --output-dir dist/binaries --checksum
 
       - name: Upload binary artifact
-        uses: actions/upload-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: binary-${{ matrix.target }}
           path: dist/binaries/
@@ -163,7 +163,7 @@ jobs:
         run: pnpm build:licenses
 
       - name: Download all binary artifacts
-        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
           pattern: binary-*
           path: dist/all-binaries
@@ -171,6 +171,7 @@ jobs:
 
       - name: Consolidate checksums and license notices
         run: |
+          mkdir -p dist/all-binaries
           cp dist/THIRD_PARTY_LICENSES.txt dist/all-binaries/
           cd dist/all-binaries
           # Generate consolidated SHA256SUMS.txt
