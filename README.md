@@ -218,7 +218,7 @@ pnpm dev burn video.mp4 video.ja.srt -o video.subbed.mp4
 
 #### Inline Glossary Mapping
 ```bash
-pnpm dev video.mp4 -t ja --glossary "Antigravity=アンチグラビティ,vsub=ブイサブ"
+pnpm dev video.mp4 -t ja --glossary "Generative AI=生成AI,vsub=ブイサブ"
 ```
 
 #### JSON Glossary File (Multilingual / Flat)
@@ -230,18 +230,18 @@ pnpm dev video.mp4 -t ja,zh --glossary ./glossary.json
 ```json
 {
   "ja": {
-    "Antigravity": "アンチグラビティ",
+    "Large Language Model": "大規模言語モデル",
     "Agentic AI": "エージェンティックAI"
   },
   "zh": {
-    "Antigravity": "反重力",
+    "Large Language Model": "大语言模型",
     "Agentic AI": "智能体AI"
   }
 }
 ```
 
 > [!TIP]
-> If `--whisper-prompt` is omitted, source terms from `--glossary` (`Antigravity, Agentic AI`) are automatically passed to Whisper as recognition hints to improve speech recognition accuracy as well!
+> If `--whisper-prompt` is omitted, source terms from `--glossary` (`Large Language Model, Agentic AI`) are automatically passed to Whisper as recognition hints to improve speech recognition accuracy as well!
 
 #### Custom Translation Tone & Instructions
 ```bash

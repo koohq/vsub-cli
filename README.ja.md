@@ -219,7 +219,7 @@ pnpm dev burn video.mp4 video.ja.srt -o video.subbed.mp4
 
 #### インライン用語集の指定
 ```bash
-pnpm dev video.mp4 -t ja --glossary "Antigravity=アンチグラビティ,vsub=ブイサブ"
+pnpm dev video.mp4 -t ja --glossary "Generative AI=生成AI,vsub=ブイサブ"
 ```
 
 #### JSON 用語集ファイルの指定 (多言語・フラット両対応)
@@ -231,18 +231,18 @@ pnpm dev video.mp4 -t ja,zh --glossary ./glossary.json
 ```json
 {
   "ja": {
-    "Antigravity": "アンチグラビティ",
+    "Large Language Model": "大規模言語モデル",
     "Agentic AI": "エージェンティックAI"
   },
   "zh": {
-    "Antigravity": "反重力",
+    "Large Language Model": "大语言模型",
     "Agentic AI": "智能体AI"
   }
 }
 ```
 
 > [!TIP]
-> `--whisper-prompt` を明示しない場合でも、`--glossary` で指定された元単語（`Antigravity, Agentic AI`）が自動的に Whisper の認識ヒントとして渡され、音声認識の聞き取り精度も同時に向上します。
+> `--whisper-prompt` を明示しない場合でも、`--glossary` で指定された元単語（`Large Language Model, Agentic AI`）が自動的に Whisper の認識ヒントとして渡され、音声認識の聞き取り精度も同時に向上します。
 
 #### 翻訳口調・スタイルのプロンプト指定
 ```bash
