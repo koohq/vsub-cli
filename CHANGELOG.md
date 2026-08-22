@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file. See [standard-version](https://github.com/conventional-changelog/standard-version) for commit guidelines.
 
+## [1.1.1](https://github.com/koohq/vsub-cli/compare/vsub-cli-v1.1.0...vsub-cli-v1.1.1) (2026-08-22)
+
+
+### Bug Fixes
+
+* **ci:** use verified commit SHAs for upload and download artifact actions ([5f689a1](https://github.com/koohq/vsub-cli/commit/5f689a154a168a75f1ae7de163b61143b9956d65))
+
 ## [1.1.0](https://github.com/koohq/vsub-cli/compare/vsub-cli-v1.0.0...vsub-cli-v1.1.0) (2026-08-22)
 
 
