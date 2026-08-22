@@ -104,8 +104,6 @@ jobs:
             target: vsub-linux-arm64
           - os: macos-latest
             target: vsub-macos-arm64
-          - os: macos-15-intel
-            target: vsub-macos-x64
     steps:
       - name: Checkout code
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1

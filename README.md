@@ -37,9 +37,10 @@ Download the prebuilt binary for your operating system and CPU architecture from
 * **Linux x64**: `vsub-linux-x64`
 * **Linux ARM64**: `vsub-linux-arm64`
 * **macOS ARM64 (Apple Silicon)**: `vsub-macos-arm64`
-* **macOS x64 (Intel)**: `vsub-macos-x64`
 
-*(Note: `ffmpeg` / `ffprobe` is still required on the system for audio extraction and subtitle burn-in).*
+> [!NOTE]
+> * For Intel Mac (x64) users, please use **Method 2 (npm / pnpm)** due to an upstream Node.js SEA limitation.
+> * `ffmpeg` / `ffprobe` is required on the system for audio extraction and subtitle burn-in.
 
 ```bash
 # Make binary executable (Linux/macOS)

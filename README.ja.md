@@ -37,10 +37,10 @@
 * **Linux x64**: `vsub-linux-x64`
 * **Linux ARM64**: `vsub-linux-arm64`
 * **macOS Apple Silicon (ARM64)**: `vsub-macos-arm64`
-* **macOS Intel (x64)**: `vsub-macos-x64`
 
 > [!NOTE]
-> 音声の抽出・圧縮や字幕焼き込み（`--burn`）を行うため、実行環境に `ffmpeg` / `ffprobe` が必要です（未導入の場合は `vsub init` 実行時に案内されます）。
+> * Intel Mac (x64) 環境では、Node.js アップストリーム（SEA）の制限により、**方法 2（npm / pnpm）** をご利用ください。
+> * 音声の抽出・圧縮や字幕焼き込み（`--burn`）を行うため、実行環境に `ffmpeg` / `ffprobe` が必要です（未導入の場合は `vsub init` 実行時に案内されます）。
 
 ```bash
 # macOS / Linux の場合は実行権限を付与
