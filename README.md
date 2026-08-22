@@ -280,11 +280,12 @@ pnpm dev config path
 
 ---
 
-## Open Source Licenses & Legal Notices
+## License
 
 The source code of `vsub-cli` is released under [The Unlicense](LICENSE) (Public Domain).
 
-The distributed binary and npm package bundle the following open-source libraries:
+### Third-Party Licenses
+The standalone single executables bundle the following open-source libraries (MIT, Apache-2.0, BSD-2-Clause, ISC):
 * `@google/genai` (Apache-2.0)
 * `commander` (MIT)
 * `dotenv` (BSD-2-Clause)
@@ -293,12 +294,12 @@ The distributed binary and npm package bundle the following open-source librarie
 * `ora` (MIT)
 * `picocolors` (ISC)
 
-You can inspect the third-party licenses and full legal notices at any time via the CLI:
+You can inspect the third-party licenses and full texts at any time via the CLI:
 ```bash
 # Display bundled third-party licenses summary
 vsub licenses
 
-# Display full legal notice texts
+# Display full license texts
 vsub licenses --full
 ```
 A consolidated `THIRD_PARTY_LICENSES.txt` is also included in each GitHub Release.

@@ -281,11 +281,12 @@ pnpm dev config path
 
 ---
 
-## オープンソースライセンス & 法的告知
+## ライセンス
 
-本ツール自体のソースコードは [The Unlicense](LICENSE)（パブリックドメイン）に基づき公開されています。
+本ツールのソースコードは [The Unlicense](LICENSE)（パブリックドメイン）に基づき公開されています。
 
-なお、本ツールおよび単体実行バイナリには以下のオープンソースライブラリ（MIT, Apache-2.0, BSD, ISC 等）が同梱・使用されています：
+### サードパーティライセンス表記
+スタンドアロンバイナリ（単体実行版）には、以下のオープンソースライブラリ（MIT, Apache-2.0, BSD-2-Clause, ISC 等）が同梱されています：
 * `@google/genai` (Apache-2.0)
 * `commander` (MIT)
 * `dotenv` (BSD-2-Clause)
@@ -294,13 +295,14 @@ pnpm dev config path
 * `ora` (MIT)
 * `picocolors` (ISC)
 
-CLI からいつでも以下のコマンドでサードパーティライセンス一覧および条文を確認できます：
+CLI からいつでも同梱ライセンス一覧や条文を確認できます：
 ```bash
 # サードパーティライセンス一覧を表示
 vsub licenses
 
-# 全文ライセンス条文を出力
+# 全文条文を出力
 vsub licenses --full
 ```
-また、各リリースの配布物には `THIRD_PARTY_LICENSES.txt` が同梱されています。
+また、GitHub Releases の各配布物には `THIRD_PARTY_LICENSES.txt` が同梱されています。
+
 
