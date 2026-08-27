@@ -1,3 +1,4 @@
+import fs from "node:fs";
 import { describe, expect, it, vi } from "vitest";
 import {
   buildIssueContent,
@@ -200,6 +201,55 @@ describe("watch-models.ts", () => {
       expect(groqResult?.detectedModels).toHaveLength(2);
       expect(groqResult?.newModels).toHaveLength(1); // v4
       expect(groqResult?.createdIssues).toEqual(["whisper-large-v4"]);
+    });
+
+    it("should not write to GITHUB_STEP_SUMMARY by default during tests", async () => {
+      const appendSpy = vi.spyOn(fs, "appendFileSync").mockImplementation(() => {});
+      const originalSummary = process.env["GITHUB_STEP_SUMMARY"];
+      process.env["GITHUB_STEP_SUMMARY"] = "/mock/path/summary.md";
+
+      try {
+        await runModelWatcher({
+          fetchGemini: vi.fn().mockResolvedValue([]),
+          fetchGroq: vi.fn().mockResolvedValue([]),
+        });
+
+        expect(appendSpy).not.toHaveBeenCalled();
+      } finally {
+        if (originalSummary !== undefined) {
+          process.env["GITHUB_STEP_SUMMARY"] = originalSummary;
+        } else {
+          delete process.env["GITHUB_STEP_SUMMARY"];
+        }
+        appendSpy.mockRestore();
+      }
+    });
+
+    it("should write to GITHUB_STEP_SUMMARY when writeSummary is explicitly true", async () => {
+      const appendSpy = vi.spyOn(fs, "appendFileSync").mockImplementation(() => {});
+      const originalSummary = process.env["GITHUB_STEP_SUMMARY"];
+      process.env["GITHUB_STEP_SUMMARY"] = "/mock/path/summary.md";
+
+      try {
+        await runModelWatcher({
+          writeSummary: true,
+          fetchGemini: vi.fn().mockResolvedValue([]),
+          fetchGroq: vi.fn().mockResolvedValue([]),
+        });
+
+        expect(appendSpy).toHaveBeenCalledWith(
+          "/mock/path/summary.md",
+          expect.stringContaining("AI Model Watch Summary"),
+          "utf-8",
+        );
+      } finally {
+        if (originalSummary !== undefined) {
+          process.env["GITHUB_STEP_SUMMARY"] = originalSummary;
+        } else {
+          delete process.env["GITHUB_STEP_SUMMARY"];
+        }
+        appendSpy.mockRestore();
+      }
     });
   });
 });

@@ -305,6 +305,7 @@ export async function runModelWatcher(
     fetchGroq?: (key?: string) => Promise<ModelMetadata[]>;
     issueChecker?: (title: string) => Promise<boolean>;
     issueCreator?: (model: ModelMetadata) => Promise<boolean>;
+    writeSummary?: boolean;
   } = {},
 ): Promise<WatchResult[]> {
   const dryRun = options.dryRun ?? process.argv.includes("--dry-run");
@@ -314,6 +315,7 @@ export async function runModelWatcher(
   const fetchGroq = options.fetchGroq ?? fetchGroqCandidateModels;
   const checkIssue = options.issueChecker ?? doesIssueExist;
   const createIssue = options.issueCreator ?? createModelIssue;
+  const writeSummary = options.writeSummary ?? false;
 
   const results: WatchResult[] = [];
 
@@ -385,8 +387,8 @@ export async function runModelWatcher(
   }
   results.push(groqResult);
 
-  // 3. Write GitHub Step Summary if available
-  const summaryPath = process.env["GITHUB_STEP_SUMMARY"];
+  // 3. Write GitHub Step Summary if explicitly enabled (e.g. CLI direct execution in workflow)
+  const summaryPath = writeSummary ? process.env["GITHUB_STEP_SUMMARY"] : undefined;
   if (summaryPath) {
     let md = "## 🤖 AI Model Watch Summary\n\n";
     md +=
@@ -407,7 +409,7 @@ const isDirectRun =
   path.resolve(process.argv[1]) === path.resolve(fileURLToPath(import.meta.url));
 
 if (isDirectRun) {
-  runModelWatcher()
+  runModelWatcher({ writeSummary: true })
     .then(() => {
       console.log("\n✅ Model watch check completed successfully.");
     })
