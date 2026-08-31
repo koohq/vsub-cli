@@ -18,7 +18,7 @@ export interface ModelMetadata {
   inputTokenLimit?: number;
   outputTokenLimit?: number;
   contextWindow?: number;
-  benchmarkUrl?: string;
+  documentationUrl?: string;
 }
 
 export interface WatchResult {
@@ -90,11 +90,11 @@ export function isRelevantGroqModel(modelId: string): boolean {
 }
 
 /**
- * Generate Artificial Analysis / official documentation link for a model
+ * Get official documentation URL for a provider
  */
-export function getModelReferenceUrl(provider: "Gemini" | "Groq", modelId: string): string {
+export function getModelDocumentationUrl(provider: "Gemini" | "Groq"): string {
   if (provider === "Gemini") {
-    return `https://artificialanalysis.ai/models/${normalizeModelId(modelId)}`;
+    return "https://ai.google.dev/gemini-api/docs/models";
   }
   return "https://console.groq.com/docs/models";
 }
@@ -127,7 +127,7 @@ export async function fetchGeminiCandidateModels(apiKey?: string): Promise<Model
           description: model.description ?? undefined,
           inputTokenLimit: model.inputTokenLimit ?? undefined,
           outputTokenLimit: model.outputTokenLimit ?? undefined,
-          benchmarkUrl: getModelReferenceUrl("Gemini", modelId),
+          documentationUrl: getModelDocumentationUrl("Gemini"),
         });
       }
     }
@@ -160,7 +160,7 @@ export async function fetchGroqCandidateModels(apiKey?: string): Promise<ModelMe
           id: model.id,
           provider: "Groq",
           contextWindow: model.context_window ?? undefined,
-          benchmarkUrl: getModelReferenceUrl("Groq", model.id),
+          documentationUrl: getModelDocumentationUrl("Groq"),
         });
       }
     }
@@ -231,6 +231,12 @@ export function buildIssueContent(model: ModelMetadata): {
   const optFlag = model.provider === "Gemini" ? "--gemini-model" : "--groq-model";
   const defaultConst = model.provider === "Gemini" ? "DEFAULT_GEMINI_MODEL" : "DEFAULT_GROQ_MODEL";
 
+  const docUrl = model.documentationUrl ?? getModelDocumentationUrl(model.provider);
+  const docTitle =
+    model.provider === "Gemini"
+      ? "Google Gemini Models Documentation"
+      : "Groq Supported Models Documentation";
+
   const body = `## 🤖 New AI Model Detected: \`${model.id}\`
 
 A new candidate model for **${model.provider}** has been discovered by the automated model-watch workflow.
@@ -240,13 +246,11 @@ A new candidate model for **${model.provider}** has been discovered by the autom
 ${rows.join("\n")}
 
 ${model.description ? `\n> ${model.description}\n` : ""}
-
 ---
 
-### 🔍 Benchmark & Comparison
+### 📚 Official Documentation
 
-- [Artificial Analysis Benchmark](${model.benchmarkUrl ?? "https://artificialanalysis.ai/"})
-- ${model.provider === "Gemini" ? "[Google AI Studio Models](https://aistudio.google.com/)" : "[Groq Supported Models](https://console.groq.com/docs/models)"}
+- [${docTitle}](${docUrl})
 
 ---
 

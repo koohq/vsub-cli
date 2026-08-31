@@ -4,7 +4,7 @@ import {
   buildIssueContent,
   type CommandRunner,
   doesIssueExist,
-  getModelReferenceUrl,
+  getModelDocumentationUrl,
   isRelevantGeminiModel,
   isRelevantGroqModel,
   type ModelMetadata,
@@ -58,17 +58,15 @@ describe("watch-models.ts", () => {
     });
   });
 
-  describe("getModelReferenceUrl", () => {
-    it("should return Artificial Analysis URL for Gemini", () => {
-      expect(getModelReferenceUrl("Gemini", "models/gemini-2.5-flash")).toBe(
-        "https://artificialanalysis.ai/models/gemini-2.5-flash",
+  describe("getModelDocumentationUrl", () => {
+    it("should return official Google AI docs URL for Gemini", () => {
+      expect(getModelDocumentationUrl("Gemini")).toBe(
+        "https://ai.google.dev/gemini-api/docs/models",
       );
     });
 
     it("should return Groq docs URL for Groq", () => {
-      expect(getModelReferenceUrl("Groq", "whisper-large-v3")).toBe(
-        "https://console.groq.com/docs/models",
-      );
+      expect(getModelDocumentationUrl("Groq")).toBe("https://console.groq.com/docs/models");
     });
   });
 
@@ -81,7 +79,7 @@ describe("watch-models.ts", () => {
         inputTokenLimit: 1048576,
         outputTokenLimit: 8192,
         description: "Next-gen multimodal workhorse model",
-        benchmarkUrl: "https://artificialanalysis.ai/models/gemini-4.0-flash",
+        documentationUrl: "https://ai.google.dev/gemini-api/docs/models",
       };
 
       const { title, body } = buildIssueContent(metadata);
@@ -93,7 +91,8 @@ describe("watch-models.ts", () => {
       expect(body).toContain("| **Input Token Limit** | 1,048,576 |");
       expect(body).toContain("| **Output Token Limit** | 8,192 |");
       expect(body).toContain("Next-gen multimodal workhorse model");
-      expect(body).toContain("https://artificialanalysis.ai/models/gemini-4.0-flash");
+      expect(body).toContain("https://ai.google.dev/gemini-api/docs/models");
+      expect(body).toContain("Google Gemini Models Documentation");
       expect(body).toContain("vsub input.mp4 --gemini-model gemini-4.0-flash");
     });
 
@@ -102,7 +101,7 @@ describe("watch-models.ts", () => {
         id: "whisper-large-v4",
         provider: "Groq",
         contextWindow: 448,
-        benchmarkUrl: "https://console.groq.com/docs/models",
+        documentationUrl: "https://console.groq.com/docs/models",
       };
 
       const { title, body } = buildIssueContent(metadata);
@@ -111,6 +110,8 @@ describe("watch-models.ts", () => {
       expect(body).toContain("## 🤖 New AI Model Detected: `whisper-large-v4`");
       expect(body).toContain("| **Provider** | Groq |");
       expect(body).toContain("| **Context Window** | 448 tokens |");
+      expect(body).toContain("https://console.groq.com/docs/models");
+      expect(body).toContain("Groq Supported Models Documentation");
       expect(body).toContain("vsub input.mp4 --groq-model whisper-large-v4");
     });
   });
