@@ -39,6 +39,8 @@ describe("watch-models.ts", () => {
       expect(isRelevantGeminiModel("gemini-2.5-flash-image")).toBe(false);
       expect(isRelevantGeminiModel("gemini-2.5-flash-preview-tts")).toBe(false);
       expect(isRelevantGeminiModel("gemini-2.5-flash-native-audio-latest")).toBe(false);
+      expect(isRelevantGeminiModel("gemini-omni-1.1-flash")).toBe(false);
+      expect(isRelevantGeminiModel("gemini-omni-flash-preview")).toBe(false);
     });
   });
 

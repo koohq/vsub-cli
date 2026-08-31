@@ -47,6 +47,7 @@ export const KNOWN_GEMINI_MODELS = new Set([
   "gemini-flash-latest",
   "gemini-flash-lite-latest",
   "gemini-omni-flash-preview",
+  "gemini-omni-1.1-flash",
   "gemini-3.1-flash-live-preview",
 ]);
 
@@ -71,11 +72,12 @@ export function isRelevantGeminiModel(modelId: string): boolean {
   if (!normalized.startsWith("gemini-") || !normalized.includes("flash")) {
     return false;
   }
-  // Exclude image generation or TTS / native-audio specific models
+  // Exclude image/video generation or TTS / native-audio specialized models
   const isSpecializedOutput =
     normalized.includes("image") ||
     normalized.includes("tts") ||
-    normalized.includes("native-audio");
+    normalized.includes("native-audio") ||
+    normalized.includes("omni");
   return !isSpecializedOutput;
 }
 
