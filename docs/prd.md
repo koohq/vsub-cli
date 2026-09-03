@@ -5,7 +5,7 @@
 
 * **高速文字起こし**: Groq API（`whisper-large-v3-turbo`）を利用し、元音声の言語を自動検出しながらタイムコード付きテキストを超高速生成。
 * **音声最適化**: `ffmpeg` を用いて 16kHz モノラル / 低ビットレート音声へ圧縮し、Groq の 25MB アップロード制限をクリア（24.5MB 超過時は自動分割処理）。長尺音声分割時も実測再生時間に基づくミリ秒精度のタイムコード補正を実施。
-* **高品質・並列翻訳**: Google Gemini API（`@google/genai`, デフォルト: `gemini-3.7-flash`）を利用。SRT 構造を JSON 化してテキスト部分のみをチャンク分割翻訳することでタイムコード破綻を 100% 防止。非同期ワーカプールによる並列リクエスト制御（デフォルト 3 並列）と指数バックオフ再試行を搭載。
+* **高品質・並列翻訳**: Google Gemini API（`@google/genai`, デフォルト: `gemini-3.8-flash`）を利用。SRT 構造を JSON 化してテキスト部分のみをチャンク分割翻訳することでタイムコード破綻を 100% 防止。非同期ワーカプールによる並列リクエスト制御（デフォルト 3 並列）と指数バックオフ再試行を搭載。
 * **マルチフォーマット出力**: 字幕フォーマット（`.srt`, `.vtt`）に加え、プレーンテキスト（`.txt`）や構造化データ（`.json`）の一括出力に対応。
 * **二言語併記 / バイリンガル字幕**: `--bilingual` / `-b` により、原語と翻訳文を同一字幕ブロック内に上下併記（`.srt`, `.vtt`, `.txt`, `.json` および `--burn` 動画焼き込み対応）。`--bilingual-order` で並び順指定可能。
 * **ディレクトリ / バッチ一括処理**: `vsub batch <targets...>` により、フォルダ配下や glob パターンに合致する複数メディアファイルを逐次自動キュー処理し、総合サマリーレポートを出力。
@@ -35,7 +35,7 @@
   * `ffmpeg` / `ffprobe` (システム PATH、環境変数 `VSUB_FFMPEG_PATH` / `FFMPEG_PATH`、または設定ファイル指定パス)
 * **External APIs**:
   * Groq API (Speech-to-Text: `whisper-large-v3-turbo`)
-  * Google Gemini API (Translation: `gemini-3.7-flash`)
+  * Google Gemini API (Translation: `gemini-3.8-flash`)
 
 ---
 
@@ -71,7 +71,7 @@ vsub <media-file> [options]
 * `--prompt <instruction>`: Gemini 翻訳時のカスタム指示プロンプト（口調、スタイル、文字数制限等）。
 * `--glossary <path-or-terms>`: 用語集 JSON ファイルパスまたはインライン対訳（`Key=Val,Key=Val`）。
 * `--concurrency <number>`: Gemini API への同時並行リクエスト数（デフォルト: `3`）。
-* `--gemini-model <model>`: Gemini 翻訳モデルの指定（デフォルト: `gemini-3.7-flash`）。
+* `--gemini-model <model>`: Gemini 翻訳モデルの指定（デフォルト: `gemini-3.8-flash`）。
 * `--groq-model <model>`: Groq Whisper 文字起こしモデルの指定（デフォルト: `whisper-large-v3-turbo`）。
 * `--no-cache`: 中間キャッシュを使用・保存せずに実行。
 * `--fresh`: 既存キャッシュを無視して新規実行し、結果をキャッシュへ上書き。
@@ -171,7 +171,7 @@ vsub translate <subtitle-file> [options]
      - 翻訳実行時:
        - SRT を JSON 配列（`[{ id, startTime, endTime, text }]`）にパース。
        - 50〜100 件単位のチャンクに分割。
-       - `asyncPool`（デフォルト 3 並行）を用いて Gemini API（`gemini-3.7-flash`）へ並列送信。
+       - `asyncPool`（デフォルト 3 並行）を用いて Gemini API（`gemini-3.8-flash`）へ並列送信。
        - `--glossary`（対訳ルール）および `--prompt`（口調・スタイル指示）をシステム/指示プロンプトへ注入。
        - 429 / レートリミット時はランダムジッター付き指数バックオフで最大 3 回再試行。
        - 完了した言語ごとに翻訳キャッシュを保存（中断時のリカバリ対応）。

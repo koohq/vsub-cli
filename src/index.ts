@@ -148,7 +148,7 @@ configCmd
   .option("--groq-key <key>", "Groq API Key")
   .option("--gemini-key <key>", "Gemini API Key")
   .option("--ffmpeg-path <path>", "Path to ffmpeg executable")
-  .option("--gemini-model <model>", "Default Gemini translation model (e.g. gemini-3.7-flash)")
+  .option("--gemini-model <model>", "Default Gemini translation model (e.g. gemini-3.8-flash)")
   .option(
     "--groq-model <model>",
     "Default Groq Whisper transcription model (e.g. whisper-large-v3-turbo)",
@@ -192,7 +192,7 @@ configCmd
         concurrencyNum === undefined
       ) {
         console.log(
-          "⚠️ Please specify settings to save. (Example: vsub config set --gemini-model gemini-3.7-flash)",
+          "⚠️ Please specify settings to save. (Example: vsub config set --gemini-model gemini-3.8-flash)",
         );
         return;
       }

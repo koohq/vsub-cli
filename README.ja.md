@@ -11,7 +11,7 @@
 * ⚡ **超高速文字起こし**: Groq LPU 上で動作する `whisper-large-v3-turbo` を採用し、音声認識を高速処理。
 * 🎵 **動画・音声両対応**: 動画ファイル（`.mp4`, `.mkv`, `.mov` 等）だけでなく、音声ファイル（`.mp3`, `.wav`, `.m4a`, `.aac`, `.flac`, `.ogg`, `.opus` 等）も直接入力可能。
 * 🔊 **音質・ファイルサイズ自動最適化**: `ffmpeg` を用いて 16kHz モノラル / 低ビットレート（32〜48kbps）に圧縮・最適化し、Groq の 25MB 上限を自動クリア。超長尺メディアの自動分割時も、実測再生時間に基づくミリ秒精度のタイムコード補正で字幕ズレを防止。
-* 🎯 **タイムコード破綻防止翻訳**: SRT 構造を JSON 化し、字幕テキストのみを Gemini（`gemini-3.7-flash`）でチャンク分割翻訳。タイムコードの行崩れやズレを 100% 防止。
+* 🎯 **タイムコード破綻防止翻訳**: SRT 構造を JSON 化し、字幕テキストのみを Gemini（`gemini-3.8-flash`）でチャンク分割翻訳。タイムコードの行崩れやズレを 100% 防止。
 * 🚀 **Gemini API 並列リクエスト制御**: 非同期ワーカプール（`--concurrency`、デフォルト 3 並列）による高速並行翻訳と、429 レートリミット時の自動指数バックオフ再試行を搭載。
 * 💾 **中間キャッシュ & 再開機構**: ファイルサイズと更新日時の SHA-256 ハッシュに基づき文字起こし・翻訳結果を自動保存。再実行時や別言語追加時の API コストと待ち時間をゼロ化（`vsub cache`）。
 * 📖 **用語集 (Glossary) & プロンプト制御**: 専門用語の誤訳を防ぐ `--glossary`（JSON またはインライン対訳）、翻訳口調を指定する `--prompt`、Whisper の認識精度を高める `--whisper-prompt` をサポート。
@@ -137,7 +137,7 @@ Options:
   --prompt <instruction>        Gemini 翻訳時のカスタム指示プロンプト (口調・文字数制限等)
   --glossary <path-or-terms>    用語集 JSON ファイルパスまたはインライン対訳 (Key=Val,Key=Val)
   --concurrency <number>        Gemini API への同時並行リクエスト数 (デフォルト: 3)
-  --gemini-model <model>        Gemini 翻訳モデルの指定 (デフォルト: gemini-3.7-flash)
+  --gemini-model <model>        Gemini 翻訳モデルの指定 (デフォルト: gemini-3.8-flash)
   --groq-model <model>          Groq Whisper 文字起こしモデルの指定 (デフォルト: whisper-large-v3-turbo)
   --no-cache                    中間キャッシュを使用・保存せずに実行 (デフォルト: false)
   --fresh                       既存キャッシュを無視して新規実行し、結果をキャッシュへ上書き (デフォルト: false)

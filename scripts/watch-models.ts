@@ -35,7 +35,8 @@ export type CommandRunner = (file: string, args: readonly string[]) => Promise<{
  * Known/baseline models currently returned by Gemini / Groq APIs
  */
 export const KNOWN_GEMINI_MODELS = new Set([
-  DEFAULT_GEMINI_MODEL, // gemini-3.7-flash
+  DEFAULT_GEMINI_MODEL, // gemini-3.8-flash
+  "gemini-3.7-flash",
   "gemini-3.6-flash",
   "gemini-3.5-flash",
   "gemini-3.5-flash-lite",
@@ -57,7 +58,7 @@ export const KNOWN_GROQ_MODELS = new Set([
 ]);
 
 /**
- * Clean model ID (e.g. "models/gemini-3.7-flash" -> "gemini-3.7-flash")
+ * Clean model ID (e.g. "models/gemini-3.8-flash" -> "gemini-3.8-flash")
  */
 export function normalizeModelId(rawId: string): string {
   return rawId.replace(/^models\//, "");

@@ -11,7 +11,7 @@ A fast, resilient CLI tool that extracts and optimizes audio from video or audio
 * ⚡ **Ultra-Fast Transcription**: Powered by `whisper-large-v3-turbo` running on Groq LPUs for near-instant speech recognition.
 * 🎵 **Video & Audio File Support**: Directly accepts video files (`.mp4`, `.mkv`, `.mov`, etc.) and audio files (`.mp3`, `.wav`, `.m4a`, `.aac`, `.flac`, `.ogg`, `.opus`, etc.).
 * 🔊 **Automated Audio Optimization**: Compresses media to 16kHz mono (32–48kbps) via `ffmpeg` to stay under Groq's 25MB limit. Automatically splits ultra-long media and calculates timecodes with millisecond precision based on measured segment durations.
-* 🎯 **100% Timecode-Preserving Translation**: Converts subtitle structures to JSON and translates only text chunks via Google Gemini (`gemini-3.7-flash`), eliminating timecode corruption or line-drift.
+* 🎯 **100% Timecode-Preserving Translation**: Converts subtitle structures to JSON and translates only text chunks via Google Gemini (`gemini-3.8-flash`), eliminating timecode corruption or line-drift.
 * 🚀 **Concurrent Translation Control**: Translates subtitle chunks concurrently using an asynchronous worker pool (`--concurrency`, default: 3) with jittered exponential backoff for 429/rate-limit recovery.
 * 💾 **Smart Intermediate Caching**: Automatically caches transcription and language-specific translations by media content hash (size + mtime). Resume immediately without repeating API calls (`vsub cache`).
 * 📖 **Glossary & Custom Prompting**: Pass custom translation instructions (`--prompt`), domain glossaries (`--glossary` via JSON or inline `Key=Val`), and Whisper recognition hints (`--whisper-prompt`).
@@ -137,7 +137,7 @@ Options:
   --prompt <instruction>        Additional instruction prompt for Gemini translation (tone, style, brevity)
   --glossary <path-or-terms>    Glossary file path (JSON) or inline terms (Key=Val,Key=Val)
   --concurrency <number>        Number of concurrent translation requests to Gemini API (default: 3)
-  --gemini-model <model>        Gemini translation model (default: gemini-3.7-flash)
+  --gemini-model <model>        Gemini translation model (default: gemini-3.8-flash)
   --groq-model <model>          Groq Whisper transcription model (default: whisper-large-v3-turbo)
   --no-cache                    Do not use or save intermediate cache (default: false)
   --fresh                       Ignore existing cache and generate fresh output, overwriting cache (default: false)

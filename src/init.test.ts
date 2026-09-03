@@ -166,7 +166,7 @@ describe("init.ts", () => {
         .mockResolvedValueOnce("gsk_new_groq_key")
         .mockResolvedValueOnce("AIza_new_gemini_key")
         .mockResolvedValueOnce("ja,en")
-        .mockResolvedValueOnce("gemini-3.7-flash")
+        .mockResolvedValueOnce("gemini-3.8-flash")
         .mockResolvedValueOnce("whisper-large-v3-turbo");
 
       await runInitWizard({
@@ -186,7 +186,7 @@ describe("init.ts", () => {
           geminiApiKey: "AIza_new_gemini_key",
           ffmpegPath: "ffmpeg",
           targetLang: "ja,en",
-          geminiModel: "gemini-3.7-flash",
+          geminiModel: "gemini-3.8-flash",
           groqModel: "whisper-large-v3-turbo",
         }),
       );

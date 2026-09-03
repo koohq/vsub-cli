@@ -17,6 +17,7 @@ describe("watch-models.ts", () => {
     it("should strip 'models/' prefix if present", () => {
       expect(normalizeModelId("models/gemini-2.5-flash")).toBe("gemini-2.5-flash");
       expect(normalizeModelId("models/gemini-3.7-flash")).toBe("gemini-3.7-flash");
+      expect(normalizeModelId("models/gemini-3.8-flash")).toBe("gemini-3.8-flash");
     });
 
     it("should keep raw id if prefix is absent", () => {
@@ -29,6 +30,7 @@ describe("watch-models.ts", () => {
     it("should match gemini flash models", () => {
       expect(isRelevantGeminiModel("models/gemini-2.5-flash")).toBe(true);
       expect(isRelevantGeminiModel("gemini-3.7-flash")).toBe(true);
+      expect(isRelevantGeminiModel("gemini-3.8-flash")).toBe(true);
       expect(isRelevantGeminiModel("gemini-2.0-flash-lite")).toBe(true);
     });
 

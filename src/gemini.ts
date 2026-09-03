@@ -1,4 +1,5 @@
 import { GoogleGenAI } from "@google/genai";
+import { DEFAULT_GEMINI_MODEL } from "./config.js";
 import { type FlatGlossary, formatGlossaryPrompt } from "./glossary.js";
 import type { SrtEntry } from "./srt.js";
 
@@ -168,7 +169,7 @@ export async function translateSrtEntries(
     options?.model ||
     process.env["VSUB_GEMINI_MODEL"] ||
     process.env["GEMINI_MODEL"] ||
-    "gemini-3.7-flash";
+    DEFAULT_GEMINI_MODEL;
 
   const totalChunks = Math.ceil(entries.length / DEFAULT_CHUNK_SIZE);
   const chunks: SrtEntry[][] = [];

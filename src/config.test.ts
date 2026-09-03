@@ -170,7 +170,7 @@ describe("config.ts", () => {
       expect(config.prompt).toBeUndefined();
       expect(config.glossary).toBeUndefined();
       expect(config.concurrency).toBeUndefined();
-      expect(config.geminiModel).toBe("gemini-3.7-flash");
+      expect(config.geminiModel).toBe("gemini-3.8-flash");
       expect(config.groqModel).toBe("whisper-large-v3-turbo");
     });
   });
