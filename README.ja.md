@@ -30,25 +30,32 @@
 `vsub-cli` は、**Node.js 不要の単体実行バイナリ**、および npm パッケージの 2 通りの方法で利用できます。
 
 ### 方法 1: スタンドアロン単体バイナリ（推奨・Node.js 不要）
-[GitHub Releases](https://github.com/koohq/vsub-cli/releases) から、お使いの OS / CPU アーキテクチャに合わせたバイナリをダウンロードするだけで、Node.js や pnpm をインストールすることなくそのまま実行できます：
+[GitHub Releases](https://github.com/koohq/vsub-cli/releases) から、お使いの OS / CPU アーキテクチャに合わせた圧縮アーカイブをダウンロードするだけで、Node.js や pnpm をインストールすることなくそのまま実行できます：
 
-* **Windows x64**: `vsub-windows-x64.exe`
-* **Windows ARM64**: `vsub-windows-arm64.exe`
-* **Linux x64**: `vsub-linux-x64`
-* **Linux ARM64**: `vsub-linux-arm64`
-* **macOS Apple Silicon (ARM64)**: `vsub-macos-arm64`
+* **Windows x64**: `vsub-windows-x64.zip`
+* **Windows ARM64**: `vsub-windows-arm64.zip`
+* **Linux x64**: `vsub-linux-x64.tar.gz`
+* **Linux ARM64**: `vsub-linux-arm64.tar.gz`
+* **macOS Apple Silicon (ARM64)**: `vsub-macos-arm64.tar.gz`
+
+各アーカイブには実行バイナリ本体（`vsub` または `vsub.exe`）およびライセンス通知が同梱されており、ダウンロード容量も約 25〜35 MB に大幅圧縮されています。
 
 > [!NOTE]
 > * Intel Mac (x64) 環境では、Node.js アップストリーム（SEA）の制限により、**方法 2（npm / pnpm）** をご利用ください。
 > * 音声の抽出・圧縮や字幕焼き込み（`--burn`）を行うため、実行環境に `ffmpeg` / `ffprobe` が必要です（未導入の場合は `vsub init` 実行時に案内されます）。
 
 ```bash
-# macOS / Linux の場合は実行権限を付与
-chmod +x vsub-macos-arm64
+# アーカイブを展開（Linux / macOS）
+tar -xzf vsub-macos-arm64.tar.gz
+
+# 実行権限を付与
+chmod +x vsub
 
 # 初期セットアップウィザードを起動
-./vsub-macos-arm64 init
+./vsub init
 ```
+
+Windows の場合は、ダウンロードした `vsub-windows-x64.zip` を右クリック等で展開し、`vsub.exe init` を実行してください（PATH の通ったフォルダに配置すると `vsub` コマンドとしてどこからでも呼び出せます）。
 
 ### 方法 2: npm / pnpm によるグローバルインストール（Node.js 環境向け）
 ```bash

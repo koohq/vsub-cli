@@ -2,7 +2,12 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
-import { computeFileSha256, getDefaultBinaryName, parseBuildArgs } from "./build-binary.js";
+import {
+  computeFileSha256,
+  getDefaultArchiveName,
+  getDefaultBinaryName,
+  parseBuildArgs,
+} from "./build-binary.js";
 
 describe("build-binary", () => {
   describe("getDefaultBinaryName", () => {
@@ -31,13 +36,35 @@ describe("build-binary", () => {
     });
   });
 
+  describe("getDefaultArchiveName", () => {
+    it("should resolve Windows x64 zip archive name", () => {
+      expect(getDefaultArchiveName("win32", "x64")).toBe("vsub-windows-x64.zip");
+    });
+
+    it("should resolve Windows arm64 zip archive name", () => {
+      expect(getDefaultArchiveName("win32", "arm64")).toBe("vsub-windows-arm64.zip");
+    });
+
+    it("should resolve Linux x64 tar.gz archive name", () => {
+      expect(getDefaultArchiveName("linux", "x64")).toBe("vsub-linux-x64.tar.gz");
+    });
+
+    it("should resolve Linux arm64 tar.gz archive name", () => {
+      expect(getDefaultArchiveName("linux", "arm64")).toBe("vsub-linux-arm64.tar.gz");
+    });
+
+    it("should resolve macOS arm64 tar.gz archive name", () => {
+      expect(getDefaultArchiveName("darwin", "arm64")).toBe("vsub-macos-arm64.tar.gz");
+    });
+  });
+
   describe("parseBuildArgs", () => {
     it("should parse bundle-only flag", () => {
       const opts = parseBuildArgs(["--bundle-only"]);
       expect(opts.bundleOnly).toBe(true);
     });
 
-    it("should parse name, output-dir, checksum, and skip-test flags", () => {
+    it("should parse name, output-dir, checksum, skip-test, and archive flags", () => {
       const opts = parseBuildArgs([
         "--name",
         "custom-vsub.exe",
@@ -45,11 +72,16 @@ describe("build-binary", () => {
         "./out",
         "--checksum",
         "--skip-test",
+        "--archive",
+        "--archive-name",
+        "custom-vsub.zip",
       ]);
       expect(opts.name).toBe("custom-vsub.exe");
       expect(opts.outputDir).toBe("./out");
       expect(opts.checksum).toBe(true);
       expect(opts.skipTest).toBe(true);
+      expect(opts.archive).toBe(true);
+      expect(opts.archiveName).toBe("custom-vsub.zip");
     });
 
     it("should handle empty args", () => {
