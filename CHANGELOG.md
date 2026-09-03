@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file. See [standard-version](https://github.com/conventional-changelog/standard-version) for commit guidelines.
 
+## [1.2.0](https://github.com/koohq/vsub-cli/compare/vsub-cli-v1.1.2...vsub-cli-v1.2.0) (2026-09-03)
+
+
+### Features
+
+* update default Gemini model to gemini-3.8-flash ([74033cc](https://github.com/koohq/vsub-cli/commit/74033ccc11c807fdd304d3dd5de01f27311e59d7))
+
 ## [1.1.2](https://github.com/koohq/vsub-cli/compare/vsub-cli-v1.1.1...vsub-cli-v1.1.2) (2026-08-22)
 
 
