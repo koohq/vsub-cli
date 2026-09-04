@@ -167,14 +167,10 @@ jobs:
           path: dist/all-binaries
           merge-multiple: true
 
-      - name: Consolidate checksums and license notices
+      - name: Package release archives and checksums
         run: |
-          mkdir -p dist/all-binaries
-          cp dist/THIRD_PARTY_LICENSES.txt dist/all-binaries/
-          cd dist/all-binaries
-          # Generate consolidated SHA256SUMS.txt
-          sha256sum vsub-* THIRD_PARTY_LICENSES.txt > SHA256SUMS.txt
-          ls -la
+          pnpm package:release dist/all-binaries dist/release-assets
+          ls -lh dist/release-assets
 
       - name: Upload assets to GitHub Release
         env:
@@ -186,4 +182,4 @@ jobs:
           fi
           echo "Uploading release assets for tag: $TARGET_TAG"
           gh release view "$TARGET_TAG" || gh release create "$TARGET_TAG" --title "$TARGET_TAG" --generate-notes
-          gh release upload "$TARGET_TAG" dist/all-binaries/* --clobber
+          gh release upload "$TARGET_TAG" dist/release-assets/* --clobber

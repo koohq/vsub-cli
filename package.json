@@ -23,6 +23,7 @@
     "build:licenses": "tsx scripts/generate-licenses.ts",
     "build:bundle": "tsx scripts/build-binary.ts --bundle-only",
     "build:binary": "tsx scripts/build-binary.ts",
+    "package:release": "tsx scripts/package-release.ts",
     "typecheck": "pnpm -r --if-present typecheck",
     "deps:semver": "pnpm up -r",
     "deps:latest": "pnpm up -r --latest",

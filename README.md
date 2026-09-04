@@ -30,25 +30,32 @@ A fast, resilient CLI tool that extracts and optimizes audio from video or audio
 `vsub-cli` is available as **standalone single executables (no Node.js required)** and as an npm package.
 
 ### Method 1: Standalone Single Executables (Recommended, No Node.js Required)
-Download the prebuilt binary for your operating system and CPU architecture from [GitHub Releases](https://github.com/koohq/vsub-cli/releases):
+Download the prebuilt compressed archive for your operating system and CPU architecture from [GitHub Releases](https://github.com/koohq/vsub-cli/releases):
 
-* **Windows x64**: `vsub-windows-x64.exe`
-* **Windows ARM64**: `vsub-windows-arm64.exe`
-* **Linux x64**: `vsub-linux-x64`
-* **Linux ARM64**: `vsub-linux-arm64`
-* **macOS ARM64 (Apple Silicon)**: `vsub-macos-arm64`
+* **Windows x64**: `vsub-windows-x64.zip`
+* **Windows ARM64**: `vsub-windows-arm64.zip`
+* **Linux x64**: `vsub-linux-x64.tar.gz`
+* **Linux ARM64**: `vsub-linux-arm64.tar.gz`
+* **macOS ARM64 (Apple Silicon)**: `vsub-macos-arm64.tar.gz`
+
+Each archive includes the standalone executable (`vsub` or `vsub.exe`) along with project and third-party license notices, compressed to ~25–35 MB for fast downloading.
 
 > [!NOTE]
 > * For Intel Mac (x64) users, please use **Method 2 (npm / pnpm)** due to an upstream Node.js SEA limitation.
 > * `ffmpeg` / `ffprobe` is required on the system for audio extraction and subtitle burn-in.
 
 ```bash
-# Make binary executable (Linux/macOS)
-chmod +x vsub-macos-arm64
+# Extract archive (Linux/macOS)
+tar -xzf vsub-macos-arm64.tar.gz
+
+# Ensure binary is executable (Linux/macOS)
+chmod +x vsub
 
 # Run interactive setup wizard
-./vsub-macos-arm64 init
+./vsub init
 ```
+
+On Windows, simply extract `vsub-windows-x64.zip` and run `vsub.exe init` (or place `vsub.exe` in your `PATH`).
 
 ### Method 2: Global Install via npm / pnpm (For Node.js environments)
 ```bash

@@ -1,5 +1,6 @@
 import crypto from "node:crypto";
 import fs from "node:fs";
+import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import * as esbuild from "esbuild";
@@ -18,6 +19,8 @@ export interface BuildBinaryOptions {
   checksum?: boolean;
   skipTest?: boolean;
   rootDir?: string;
+  archive?: boolean;
+  archiveName?: string;
 }
 
 /**
@@ -26,6 +29,15 @@ export interface BuildBinaryOptions {
 export function getDefaultBinaryName(platform = process.platform, arch = process.arch): string {
   const osName = platform === "win32" ? "windows" : platform === "darwin" ? "macos" : platform;
   const ext = platform === "win32" ? ".exe" : "";
+  return `vsub-${osName}-${arch}${ext}`;
+}
+
+/**
+ * Resolves standard target archive name based on platform and architecture.
+ */
+export function getDefaultArchiveName(platform = process.platform, arch = process.arch): string {
+  const osName = platform === "win32" ? "windows" : platform === "darwin" ? "macos" : platform;
+  const ext = platform === "win32" ? ".zip" : ".tar.gz";
   return `vsub-${osName}-${arch}${ext}`;
 }
 
@@ -54,6 +66,10 @@ export function parseBuildArgs(args: string[]): BuildBinaryOptions {
       options.checksum = true;
     } else if (arg === "--skip-test") {
       options.skipTest = true;
+    } else if (arg === "--archive") {
+      options.archive = true;
+    } else if (arg === "--archive-name" && i + 1 < args.length) {
+      options.archiveName = args[++i];
     }
   }
   return options;
@@ -101,11 +117,84 @@ export async function bundleApplication(rootDir = ROOT_DIR): Promise<string> {
 }
 
 /**
+ * Packages a standalone binary and license files into a compressed archive (.zip for Windows, .tar.gz for Unix).
+ */
+export async function createBinaryArchive(
+  binaryPath: string,
+  archivePath: string,
+  rootDir = ROOT_DIR,
+): Promise<string> {
+  const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "vsub-archive-"));
+
+  try {
+    const isWindowsTarget = archivePath.endsWith(".zip");
+    const canonicalBinaryName = isWindowsTarget ? "vsub.exe" : "vsub";
+    const destBinaryPath = path.join(tempDir, canonicalBinaryName);
+
+    // Copy binary
+    fs.copyFileSync(binaryPath, destBinaryPath);
+    if (!isWindowsTarget && process.platform !== "win32") {
+      fs.chmodSync(destBinaryPath, 0o755);
+    }
+
+    // Copy license files if available
+    const licenseSrc = path.join(rootDir, "LICENSE");
+    if (fs.existsSync(licenseSrc)) {
+      fs.copyFileSync(licenseSrc, path.join(tempDir, "LICENSE"));
+    }
+
+    const thirdPartyLicensesSrc = path.join(rootDir, "dist", "THIRD_PARTY_LICENSES.txt");
+    if (fs.existsSync(thirdPartyLicensesSrc)) {
+      fs.copyFileSync(thirdPartyLicensesSrc, path.join(tempDir, "THIRD_PARTY_LICENSES.txt"));
+    }
+
+    const outputDir = path.dirname(archivePath);
+    if (!fs.existsSync(outputDir)) {
+      fs.mkdirSync(outputDir, { recursive: true });
+    }
+
+    console.log(pc.cyan(`🗜️ Creating archive: ${archivePath}...`));
+
+    const archiveFiles = fs.readdirSync(tempDir);
+
+    if (archivePath.endsWith(".zip")) {
+      if (process.platform === "win32") {
+        await execa("tar", ["-a", "-cf", archivePath, ...archiveFiles], {
+          cwd: tempDir,
+        });
+      } else {
+        try {
+          await execa("zip", ["-j", archivePath, ...archiveFiles], {
+            cwd: tempDir,
+          });
+        } catch {
+          await execa("tar", ["-a", "-cf", archivePath, ...archiveFiles], {
+            cwd: tempDir,
+          });
+        }
+      }
+    } else {
+      await execa("tar", ["-czf", archivePath, ...archiveFiles], {
+        cwd: tempDir,
+      });
+    }
+
+    const stats = fs.statSync(archivePath);
+    const sizeMb = (stats.size / (1024 * 1024)).toFixed(2);
+    console.log(pc.green(`✔ Archive created successfully: ${archivePath} (${sizeMb} MB)`));
+
+    return archivePath;
+  } finally {
+    fs.rmSync(tempDir, { recursive: true, force: true });
+  }
+}
+
+/**
  * Generates sea-config.json and builds single executable using node --build-sea.
  */
 export async function buildStandaloneBinary(
   options: BuildBinaryOptions = {},
-): Promise<{ binaryPath: string; checksumPath?: string }> {
+): Promise<{ binaryPath: string; archivePath?: string; checksumPath?: string }> {
   const rootDir = options.rootDir || ROOT_DIR;
   const distDir = path.join(rootDir, "dist");
   const outputDir = options.outputDir ? path.resolve(rootDir, options.outputDir) : distDir;
@@ -181,16 +270,26 @@ export async function buildStandaloneBinary(
   const binarySizeMb = (binaryStats.size / (1024 * 1024)).toFixed(2);
   console.log(pc.bold(pc.green(`🎉 Binary generated: ${finalBinaryPath} (${binarySizeMb} MB)`)));
 
-  // 6. Compute checksum if requested
+  // 6. Create archive if requested
+  let archivePath: string | undefined;
+  if (options.archive) {
+    const archiveName =
+      options.archiveName || getDefaultArchiveName(process.platform, process.arch);
+    const targetArchivePath = path.join(outputDir, archiveName);
+    archivePath = await createBinaryArchive(finalBinaryPath, targetArchivePath, rootDir);
+  }
+
+  // 7. Compute checksum if requested
   let checksumPath: string | undefined;
   if (options.checksum) {
-    const hash = computeFileSha256(finalBinaryPath);
-    checksumPath = `${finalBinaryPath}.sha256`;
-    fs.writeFileSync(checksumPath, `${hash}  ${path.basename(finalBinaryPath)}\n`, "utf-8");
+    const targetForChecksum = archivePath || finalBinaryPath;
+    const hash = computeFileSha256(targetForChecksum);
+    checksumPath = `${targetForChecksum}.sha256`;
+    fs.writeFileSync(checksumPath, `${hash}  ${path.basename(targetForChecksum)}\n`, "utf-8");
     console.log(pc.cyan(`🔑 SHA-256: ${hash}`));
   }
 
-  // 7. Verify binary by running --version and licenses
+  // 8. Verify binary by running --version and licenses
   if (!options.skipTest) {
     console.log(pc.cyan("🧪 Verifying standalone binary execution..."));
     try {
@@ -212,7 +311,7 @@ export async function buildStandaloneBinary(
     }
   }
 
-  return { binaryPath: finalBinaryPath, checksumPath };
+  return { binaryPath: finalBinaryPath, archivePath, checksumPath };
 }
 
 // Run CLI when invoked directly
