@@ -62,6 +62,8 @@ export interface SummaryData {
   glossaryTermsCount?: number | undefined;
   bilingual?: boolean | { order?: string | undefined } | undefined;
   backedUpFiles?: string[] | undefined;
+  groqModel?: string | undefined;
+  geminiModel?: string | undefined;
   cacheStatus?:
     | {
         transcriptionHit?: boolean | undefined;
@@ -111,9 +113,16 @@ export function formatSummaryBox(data: SummaryData): string {
   addRow(mediaLabel, pc.bold(fileName));
   addRow("所要時間", pc.green(formatDuration(data.durationMs)));
 
-  if (data.cacheStatus?.transcriptionHit) {
+  if (data.groqModel && !isSubtitle) {
+    const cacheNote = data.cacheStatus?.transcriptionHit
+      ? ` ${pc.green("[キャッシュ利用 ⚡]")}`
+      : "";
+    addRow("文字起こし", `Groq (${pc.cyan(data.groqModel)})${cacheNote}`);
+  } else if (data.cacheStatus?.transcriptionHit) {
     addRow("文字起こし", `${pc.green("キャッシュ利用")} ⚡`);
-  } else if (data.audioSegmentsCount !== undefined && data.audioSegmentsCount > 0) {
+  }
+
+  if (data.audioSegmentsCount !== undefined && data.audioSegmentsCount > 0) {
     const sizeStr = data.audioTotalBytes ? ` (${formatFileSize(data.audioTotalBytes)})` : "";
     addRow(audioActionLabel, `${data.audioSegmentsCount} セグメント${sizeStr}`);
   }
@@ -147,6 +156,10 @@ export function formatSummaryBox(data: SummaryData): string {
       return `${pc.cyan(lang.toUpperCase())}${pc.dim(transStatus)}`;
     });
     addRow("出力言語", langDisplays.join(", "));
+  }
+
+  if (data.geminiModel && !data.skippedTranslation) {
+    addRow("翻訳モデル", `Gemini (${pc.cyan(data.geminiModel)})`);
   }
 
   if (data.bilingual) {

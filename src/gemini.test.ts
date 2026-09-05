@@ -1,5 +1,10 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { asyncPool, translateSrtEntries } from "./gemini.js";
+import {
+  asyncPool,
+  formatModelNotFoundError,
+  isModelNotFoundError,
+  translateSrtEntries,
+} from "./gemini.js";
 import type { SrtEntry } from "./srt.js";
 
 // Mock @google/genai
@@ -283,6 +288,97 @@ describe("gemini.ts", () => {
       expect(mockGenerateContent).toHaveBeenCalledTimes(1);
       const callArgs = mockGenerateContent.mock.calls[0]?.[0];
       expect(callArgs.model).toBe("gemini-3.8-flash");
+    });
+
+    it("should fail fast without retrying when model not found error (404) occurs with default model", async () => {
+      const entries: SrtEntry[] = [
+        {
+          id: 1,
+          startTime: "00:00:01,000",
+          endTime: "00:00:02,000",
+          text: "Hello",
+        },
+      ];
+
+      const notFoundError = new Error(
+        "models/gemini-3.8-flash is not found for API version v1beta",
+      );
+      (notFoundError as { status?: number }).status = 404;
+      mockGenerateContent.mockRejectedValue(notFoundError);
+
+      await expect(translateSrtEntries(entries, "ja", "fake-key")).rejects.toThrow(
+        /デフォルトの Gemini モデル 'gemini-3.8-flash' が見つからないか、Google により提供終了（退役）した可能性があります/,
+      );
+
+      // Crucial: Must only call once without retrying 4 times!
+      expect(mockGenerateContent).toHaveBeenCalledTimes(1);
+    });
+
+    it("should fail fast without retrying when custom model is not found", async () => {
+      const entries: SrtEntry[] = [
+        {
+          id: 1,
+          startTime: "00:00:01,000",
+          endTime: "00:00:02,000",
+          text: "Hello",
+        },
+      ];
+
+      const notFoundError = new Error("Publisher Model gemini-nonexistent was not found");
+      mockGenerateContent.mockRejectedValue(notFoundError);
+
+      await expect(
+        translateSrtEntries(entries, "ja", "fake-key", false, undefined, {
+          model: "gemini-nonexistent",
+        }),
+      ).rejects.toThrow(/指定された Gemini モデル 'gemini-nonexistent' が見つかりませんでした/);
+
+      expect(mockGenerateContent).toHaveBeenCalledTimes(1);
+    });
+  });
+
+  describe("isModelNotFoundError", () => {
+    it("should identify 404 status", () => {
+      const err = new Error("Resource not found");
+      (err as { status?: number }).status = 404;
+      expect(isModelNotFoundError(err)).toBe(true);
+    });
+
+    it("should identify NOT_FOUND in message", () => {
+      expect(isModelNotFoundError(new Error("NOT_FOUND: model does not exist"))).toBe(true);
+    });
+
+    it("should identify model not found phrases", () => {
+      expect(
+        isModelNotFoundError(new Error("models/gemini-old is not found for API version")),
+      ).toBe(true);
+      expect(isModelNotFoundError(new Error("The model is not supported"))).toBe(true);
+    });
+
+    it("should return false for transient or other errors", () => {
+      expect(isModelNotFoundError(new Error("Network Timeout"))).toBe(false);
+      expect(isModelNotFoundError(new Error("Rate limit exceeded 429"))).toBe(false);
+      expect(isModelNotFoundError(null)).toBe(false);
+      expect(isModelNotFoundError(undefined)).toBe(false);
+    });
+  });
+
+  describe("formatModelNotFoundError", () => {
+    it("should return actionable update instructions for default model", () => {
+      const message = formatModelNotFoundError("gemini-3.8-flash");
+      expect(message).toContain("デフォルトの Gemini モデル 'gemini-3.8-flash'");
+      expect(message).toContain("npm install -g vsub-cli");
+      expect(message).toContain("--gemini-model");
+      expect(message).toContain("https://ai.google.dev/gemini-api/docs/models");
+    });
+
+    it("should return clear message for custom model", () => {
+      const message = formatModelNotFoundError("custom-test-model");
+      expect(message).toContain(
+        "指定された Gemini モデル 'custom-test-model' が見つかりませんでした",
+      );
+      expect(message).toContain("https://ai.google.dev/gemini-api/docs/models");
+      expect(message).not.toContain("npm install -g vsub-cli");
     });
   });
 });

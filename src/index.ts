@@ -13,7 +13,13 @@ import {
   loadMediaCache,
   saveTranslationCache,
 } from "./cache.js";
-import { ensureApiKeys, getConfig, getGlobalConfigPath, saveGlobalConfig } from "./config.js";
+import {
+  DEFAULT_GEMINI_MODEL,
+  ensureApiKeys,
+  getConfig,
+  getGlobalConfigPath,
+  saveGlobalConfig,
+} from "./config.js";
 import { burnSubtitlesToVideo, checkFfmpeg, isVideoFile } from "./ffmpeg.js";
 import { formatEntries, type OutputFormat, parseOutputFormats } from "./formatter.js";
 import { translateSrtEntries } from "./gemini.js";
@@ -472,9 +478,10 @@ program
           continue;
         }
 
+        const effectiveGeminiModel = geminiModel || DEFAULT_GEMINI_MODEL;
         const initialText = isMultiLang
-          ? `🌐 [2/3] Gemini API で翻訳中 (${i + 1}/${targetLanguages.length} 言語: ${lang.toUpperCase()} [1/${totalChunks} チャンク])...`
-          : `🌐 [2/3] Gemini API で ${lang} に翻訳中 [1/${totalChunks} チャンク]...`;
+          ? `🌐 [2/3] Gemini (${effectiveGeminiModel}) で翻訳中 (${i + 1}/${targetLanguages.length} 言語: ${lang.toUpperCase()} [1/${totalChunks} チャンク])...`
+          : `🌐 [2/3] Gemini (${effectiveGeminiModel}) で ${lang} に翻訳中 [1/${totalChunks} チャンク]...`;
 
         spinner.start(initialText);
 
@@ -486,11 +493,11 @@ program
           (currentChunk, chunksCount) => {
             if (isMultiLang) {
               spinner.updateText(
-                `🌐 [2/3] Gemini API で翻訳中 (${i + 1}/${targetLanguages.length} 言語: ${lang.toUpperCase()} [${currentChunk}/${chunksCount} チャンク])...`,
+                `🌐 [2/3] Gemini (${effectiveGeminiModel}) で翻訳中 (${i + 1}/${targetLanguages.length} 言語: ${lang.toUpperCase()} [${currentChunk}/${chunksCount} チャンク])...`,
               );
             } else {
               spinner.updateText(
-                `🌐 [2/3] Gemini API で ${lang} に翻訳中 [${currentChunk}/${chunksCount} チャンク]...`,
+                `🌐 [2/3] Gemini (${effectiveGeminiModel}) で ${lang} に翻訳中 [${currentChunk}/${chunksCount} チャンク]...`,
               );
             }
           },
@@ -574,6 +581,7 @@ program
             skippedTranslation: false,
             prompt: translationPrompt,
             glossaryTermsCount: totalGlossaryTerms > 0 ? totalGlossaryTerms : undefined,
+            geminiModel: geminiModel || DEFAULT_GEMINI_MODEL,
             cacheStatus: cachedLanguages.length > 0 ? { cachedLanguages } : undefined,
           }) +
           "\n",

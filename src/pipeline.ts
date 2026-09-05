@@ -9,7 +9,7 @@ import {
   saveTranscriptionCache,
   saveTranslationCache,
 } from "./cache.js";
-import { ensureApiKeys, getConfig } from "./config.js";
+import { DEFAULT_GEMINI_MODEL, DEFAULT_GROQ_MODEL, ensureApiKeys, getConfig } from "./config.js";
 import { burnSubtitlesToVideo, checkFfmpeg, extractAudio, isAudioFile } from "./ffmpeg.js";
 import { formatEntries, type OutputFormat, parseOutputFormats } from "./formatter.js";
 import { translateSrtEntries } from "./gemini.js";
@@ -122,6 +122,8 @@ export interface ProcessMediaResult {
   glossaryTermsCount?: number | undefined;
   bilingual?: boolean | { order?: string | undefined } | undefined;
   backedUpFiles?: string[] | undefined;
+  groqModel?: string | undefined;
+  geminiModel?: string | undefined;
   cacheStatus?:
     | {
         transcriptionHit?: boolean | undefined;
@@ -301,10 +303,11 @@ export async function processMediaPipeline(
     );
 
     // 2. Transcription with Groq
+    const effectiveGroqModel = groqModel || DEFAULT_GROQ_MODEL;
     const initialGroqText =
       audioPaths.length > 1
-        ? `${prefix}🎙️ [2/4] Groq Whisper API で文字起こし中 [1/${audioPaths.length}]...`
-        : `${prefix}🎙️ [2/4] Groq Whisper API で文字起こし中...`;
+        ? `${prefix}🎙️ [2/4] Groq (${effectiveGroqModel}) で文字起こし中 [1/${audioPaths.length}]...`
+        : `${prefix}🎙️ [2/4] Groq (${effectiveGroqModel}) で文字起こし中...`;
     spinner.start(initialGroqText);
 
     const transcriptResult = await transcribeAudioSegments(
@@ -314,7 +317,7 @@ export async function processMediaPipeline(
       (current, total) => {
         if (total > 1) {
           spinner.updateText(
-            `${prefix}🎙️ [2/4] Groq Whisper API で文字起こし中 [${current}/${total}]...`,
+            `${prefix}🎙️ [2/4] Groq (${effectiveGroqModel}) で文字起こし中 [${current}/${total}]...`,
           );
         }
       },
@@ -456,9 +459,10 @@ export async function processMediaPipeline(
           ? Math.floor(concurrencyVal)
           : undefined;
 
+      const effectiveGeminiModel = geminiModel || DEFAULT_GEMINI_MODEL;
       const initialText = isMultiLang
-        ? `${prefix}🌐 [3/4] Gemini API で翻訳中 (${i + 1}/${targetLanguages.length} 言語: ${lang.toUpperCase()} [1/${totalChunks} チャンク])...`
-        : `${prefix}🌐 [3/4] Gemini API で ${lang} に翻訳中 [1/${totalChunks} チャンク]...`;
+        ? `${prefix}🌐 [3/4] Gemini (${effectiveGeminiModel}) で翻訳中 (${i + 1}/${targetLanguages.length} 言語: ${lang.toUpperCase()} [1/${totalChunks} チャンク])...`
+        : `${prefix}🌐 [3/4] Gemini (${effectiveGeminiModel}) で ${lang} に翻訳中 [1/${totalChunks} チャンク]...`;
 
       spinner.start(initialText);
 
@@ -470,11 +474,11 @@ export async function processMediaPipeline(
         (currentChunk, chunksCount) => {
           if (isMultiLang) {
             spinner.updateText(
-              `${prefix}🌐 [3/4] Gemini API で翻訳中 (${i + 1}/${targetLanguages.length} 言語: ${lang.toUpperCase()} [${currentChunk}/${chunksCount} チャンク])...`,
+              `${prefix}🌐 [3/4] Gemini (${effectiveGeminiModel}) で翻訳中 (${i + 1}/${targetLanguages.length} 言語: ${lang.toUpperCase()} [${currentChunk}/${chunksCount} チャンク])...`,
             );
           } else {
             spinner.updateText(
-              `${prefix}🌐 [3/4] Gemini API で ${lang} に翻訳中 [${currentChunk}/${chunksCount} チャンク]...`,
+              `${prefix}🌐 [3/4] Gemini (${effectiveGeminiModel}) で ${lang} に翻訳中 [${currentChunk}/${chunksCount} チャンク]...`,
             );
           }
         },
@@ -648,6 +652,8 @@ export async function processMediaPipeline(
       whisperPrompt,
       prompt: translationPrompt,
       glossaryTermsCount: totalGlossaryTerms > 0 ? totalGlossaryTerms : undefined,
+      groqModel: groqModel || DEFAULT_GROQ_MODEL,
+      geminiModel: geminiModel || DEFAULT_GEMINI_MODEL,
       cacheStatus:
         transcriptionCacheHit || cachedLanguages.length > 0
           ? {

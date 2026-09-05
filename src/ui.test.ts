@@ -231,6 +231,81 @@ describe("ui module", () => {
       expect(summaryTargetFirst).toContain("バイリンガル併記");
       expect(summaryTargetFirst).toContain("訳語 ➔ 原語");
     });
+
+    it("should display groq and gemini models in summary box when provided", () => {
+      const summary = formatSummaryBox({
+        mediaFile: "speech.mp4",
+        mediaType: "video",
+        durationMs: 5000,
+        entriesCount: 25,
+        targetLanguage: "ja",
+        groqModel: "whisper-large-v3-turbo",
+        geminiModel: "gemini-3.8-flash",
+        outputFiles: ["/path/to/speech.ja.srt"],
+      });
+
+      expect(summary).toContain("文字起こし");
+      expect(summary).toContain("Groq");
+      expect(summary).toContain("whisper-large-v3-turbo");
+      expect(summary).toContain("翻訳モデル");
+      expect(summary).toContain("Gemini");
+      expect(summary).toContain("gemini-3.8-flash");
+    });
+
+    it("should not display groq model for subtitle input", () => {
+      const summary = formatSummaryBox({
+        mediaFile: "captions.srt",
+        mediaType: "subtitle",
+        durationMs: 2000,
+        entriesCount: 15,
+        targetLanguage: "en",
+        groqModel: "whisper-large-v3-turbo",
+        geminiModel: "gemini-3.8-flash",
+        outputFiles: ["/path/to/captions.en.srt"],
+      });
+
+      expect(summary).not.toContain("文字起こし");
+      expect(summary).toContain("翻訳モデル");
+      expect(summary).toContain("Gemini");
+      expect(summary).toContain("gemini-3.8-flash");
+    });
+
+    it("should not display gemini model when translation is skipped", () => {
+      const summary = formatSummaryBox({
+        mediaFile: "speech.mp4",
+        mediaType: "video",
+        durationMs: 3000,
+        entriesCount: 10,
+        detectedLanguage: "ja",
+        targetLanguage: "ja",
+        skippedTranslation: true,
+        groqModel: "whisper-large-v3-turbo",
+        geminiModel: "gemini-3.8-flash",
+        outputFiles: ["/path/to/speech.ja.srt"],
+      });
+
+      expect(summary).toContain("Groq");
+      expect(summary).toContain("whisper-large-v3-turbo");
+      expect(summary).not.toContain("翻訳モデル");
+    });
+
+    it("should display cache tag when transcription was hit from cache", () => {
+      const summary = formatSummaryBox({
+        mediaFile: "cached.mp4",
+        mediaType: "video",
+        durationMs: 1000,
+        entriesCount: 10,
+        targetLanguage: "ja",
+        groqModel: "whisper-large-v3-turbo",
+        geminiModel: "gemini-3.8-flash",
+        cacheStatus: { transcriptionHit: true },
+        outputFiles: ["/path/to/cached.ja.srt"],
+      });
+
+      expect(summary).toContain("Groq");
+      expect(summary).toContain("whisper-large-v3-turbo");
+      expect(summary).toContain("[キャッシュ利用 ⚡]");
+    });
   });
 
   describe("formatBatchSummaryBox", () => {

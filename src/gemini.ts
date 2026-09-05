@@ -75,6 +75,44 @@ STRICT RULES:
 }
 
 /**
+ * Determines whether an error indicates that the requested Gemini model is not found,
+ * unsupported, or has been retired/discontinued.
+ */
+export function isModelNotFoundError(err: unknown): boolean {
+  if (!err) return false;
+  const status =
+    (err as { status?: number; statusCode?: number })?.status ??
+    (err as { statusCode?: number })?.statusCode;
+  if (status === 404) return true;
+
+  const message = err instanceof Error ? err.message : String(err);
+  return (
+    /\b404\b/i.test(message) ||
+    /NOT_FOUND/i.test(message) ||
+    /model.*(?:not found|does not exist|is not supported)/i.test(message) ||
+    /is not found for API version/i.test(message)
+  );
+}
+
+/**
+ * Formats a clear, actionable error message when a Gemini model is not found or retired.
+ */
+export function formatModelNotFoundError(modelName: string): string {
+  const isDefault = modelName === DEFAULT_GEMINI_MODEL;
+  if (isDefault) {
+    return (
+      `デフォルトの Gemini モデル '${modelName}' が見つからないか、Google により提供終了（退役）した可能性があります。\n` +
+      `  • vsub-cli を最新版に更新してください: npm install -g vsub-cli\n` +
+      `  • または代替モデルを --gemini-model で指定してください (モデル一覧: https://ai.google.dev/gemini-api/docs/models)`
+    );
+  }
+  return (
+    `指定された Gemini モデル '${modelName}' が見つかりませんでした。モデル名または API の利用権限を確認してください。\n` +
+    `  • 利用可能なモデル一覧: https://ai.google.dev/gemini-api/docs/models`
+  );
+}
+
+/**
  * Translates an array of text strings using Google Gemini API.
  */
 async function translateChunkWithRetry(
@@ -125,6 +163,9 @@ async function translateChunkWithRetry(
       );
     } catch (err) {
       lastError = err instanceof Error ? err : new Error(String(err));
+      if (isModelNotFoundError(lastError)) {
+        throw new Error(formatModelNotFoundError(modelName));
+      }
       if (attempt === MAX_RETRIES) break;
 
       const isRateLimit =
