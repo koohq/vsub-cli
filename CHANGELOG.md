@@ -2,6 +2,14 @@
 
 All notable changes to this project will be documented in this file. See [standard-version](https://github.com/conventional-changelog/standard-version) for commit guidelines.
 
+## [1.3.0](https://github.com/koohq/vsub-cli/compare/vsub-cli-v1.2.0...vsub-cli-v1.3.0) (2026-09-05)
+
+
+### Features
+
+* add i18n support with english default and japanese option ([1f72470](https://github.com/koohq/vsub-cli/commit/1f72470e561e06ca92ef1c298e9f10fc38f8dd9c))
+* add model not found fail-fast error handling and display active models in cli ([dec7453](https://github.com/koohq/vsub-cli/commit/dec74533377ab4e66ec120cdbf50f0d86a181785))
+
 ## [1.2.0](https://github.com/koohq/vsub-cli/compare/vsub-cli-v1.1.2...vsub-cli-v1.2.0) (2026-09-03)
 
 
