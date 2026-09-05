@@ -15,12 +15,12 @@ import { formatEntries, type OutputFormat, parseOutputFormats } from "./formatte
 import { translateSrtEntries } from "./gemini.js";
 import { computeGlossaryHash, extractWhisperPromptHints, parseGlossary } from "./glossary.js";
 import { transcribeAudioSegments } from "./groq.js";
+import { getI18n, type SupportedLanguage } from "./i18n/index.js";
 import { parseTargetLanguages } from "./languages.js";
 import { ensureWritableTargets } from "./safety.js";
 import type { BilingualOrder, SrtEntry } from "./srt.js";
 import { mergeBilingualEntries } from "./srt.js";
 import { createSpinner, formatFileSize, formatSummaryBox } from "./ui.js";
-import { type SupportedLanguage, getI18n } from "./i18n/index.js";
 
 /**
  * Validates and normalizes bilingual order option.
@@ -318,9 +318,7 @@ export async function processMediaPipeline(
       verbose,
       (current, total) => {
         if (total > 1) {
-          spinner.updateText(
-            `${prefix}${m.step2Transcribing(effectiveGroqModel, current, total)}`,
-          );
+          spinner.updateText(`${prefix}${m.step2Transcribing(effectiveGroqModel, current, total)}`);
         }
       },
       {
@@ -337,9 +335,7 @@ export async function processMediaPipeline(
       spinner.warn(`${prefix}${m.step2NoEntries}`);
     } else {
       const langDisplay = detectedLanguage ? ` (${detectedLanguage.toUpperCase()})` : "";
-      spinner.succeed(
-        `${prefix}${m.step2Done(langDisplay, srtEntries.length)}`,
-      );
+      spinner.succeed(`${prefix}${m.step2Done(langDisplay, srtEntries.length)}`);
 
       if (!options.noCache) {
         saveTranscriptionCache(
@@ -411,9 +407,7 @@ export async function processMediaPipeline(
         resultsByLang.set(targetL, srtEntries);
 
         if (options.noTranslate) {
-          spinner.info(
-            `${prefix}ℹ️ [3/4] [--no-translate] ${targetL.toUpperCase()}`,
-          );
+          spinner.info(`${prefix}ℹ️ [3/4] [--no-translate] ${targetL.toUpperCase()}`);
         } else if (isSameLanguage) {
           spinner.info(
             `${prefix}ℹ️ [3/4] ${m.step3SkippedSameLang(detectedLanguage?.toUpperCase() ?? "", targetL.toUpperCase())}`,
@@ -521,9 +515,7 @@ export async function processMediaPipeline(
 
     if (translatedLanguages.length > 0) {
       const langListDisplay = translatedLanguages.map((l) => l.toUpperCase()).join(", ");
-      spinner.succeed(
-        `${prefix}${m.step3AllDone(langListDisplay, srtEntries.length)}`,
-      );
+      spinner.succeed(`${prefix}${m.step3AllDone(langListDisplay, srtEntries.length)}`);
     }
 
     // 4. Save output subtitle files

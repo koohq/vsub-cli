@@ -29,8 +29,8 @@ import { runInitWizard } from "./init.js";
 import { parseTargetLanguages } from "./languages.js";
 import { printLicenses } from "./licenses.js";
 import {
-  parseBilingualOrder,
   type ProcessMediaOptions,
+  parseBilingualOrder,
   processMediaPipeline,
   resolveOutputFilePaths,
 } from "./pipeline.js";
@@ -38,7 +38,6 @@ import { ensureWritableTargets } from "./safety.js";
 import type { SrtEntry } from "./srt.js";
 import { mergeBilingualEntries, parseSrt } from "./srt.js";
 import { createSpinner, formatFileSize, formatSummaryBox } from "./ui.js";
-
 
 const program = new Command();
 
@@ -442,7 +441,9 @@ program
           resultsByLang.set(tLang, cachedTranslation.entries);
           cachedLanguages.push(tLang);
           if (isMultiLang) {
-            spinner.info(i18n.pipeline.step3Cached(tLang.toUpperCase(), cachedTranslation.entries.length));
+            spinner.info(
+              i18n.pipeline.step3Cached(tLang.toUpperCase(), cachedTranslation.entries.length),
+            );
           }
           continue;
         }

@@ -1,7 +1,7 @@
 import fs from "node:fs";
 import readline from "node:readline/promises";
 import pc from "picocolors";
-import { type SupportedLanguage, getI18n } from "./i18n/index.js";
+import { getI18n, type SupportedLanguage } from "./i18n/index.js";
 
 export interface EnsureWritableOptions {
   overwrite?: boolean | undefined;

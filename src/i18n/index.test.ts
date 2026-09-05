@@ -2,10 +2,10 @@ import { describe, expect, it } from "vitest";
 import { en } from "./en.js";
 import {
   DEFAULT_LANGUAGE,
-  SUPPORTED_LANGUAGES,
   getI18n,
   normalizeLanguage,
   resolveLanguage,
+  SUPPORTED_LANGUAGES,
 } from "./index.js";
 import { ja } from "./ja.js";
 

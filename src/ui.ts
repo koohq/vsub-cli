@@ -1,6 +1,6 @@
 import ora, { type Ora } from "ora";
 import pc from "picocolors";
-import { type SupportedLanguage, getI18n } from "./i18n/index.js";
+import { getI18n, type SupportedLanguage } from "./i18n/index.js";
 
 /**
  * Formats duration in milliseconds into a human-readable string.
@@ -118,9 +118,7 @@ export function formatSummaryBox(data: SummaryData, lang?: SupportedLanguage | s
   addRow(m.duration, pc.green(formatDuration(data.durationMs)));
 
   if (data.groqModel && !isSubtitle) {
-    const cacheNote = data.cacheStatus?.transcriptionHit
-      ? ` ${pc.green(m.cacheHitBadge)}`
-      : "";
+    const cacheNote = data.cacheStatus?.transcriptionHit ? ` ${pc.green(m.cacheHitBadge)}` : "";
     addRow(m.transcription, `Groq (${pc.cyan(data.groqModel)})${cacheNote}`);
   } else if (data.cacheStatus?.transcriptionHit) {
     addRow(m.transcription, `${pc.green(m.cachedBadge)}`);
@@ -275,7 +273,8 @@ export function formatBatchSummaryBox(
       const durationStr =
         item.durationMs !== undefined ? ` (${formatDuration(item.durationMs)})` : "";
       if (item.status === "success") {
-        const entriesStr = item.entriesCount !== undefined ? m.lineCountBadge(item.entriesCount) : "";
+        const entriesStr =
+          item.entriesCount !== undefined ? m.lineCountBadge(item.entriesCount) : "";
         lines.push(
           `    ${pc.green("✔")} ${pc.white(pc.bold(fileName))}${pc.dim(durationStr)}${pc.magenta(entriesStr)}`,
         );

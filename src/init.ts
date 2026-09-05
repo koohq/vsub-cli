@@ -11,7 +11,7 @@ import {
   getGlobalConfigPath,
   saveGlobalConfig,
 } from "./config.js";
-import { type SupportedLanguage, getI18n, normalizeLanguage } from "./i18n/index.js";
+import { getI18n, normalizeLanguage, type SupportedLanguage } from "./i18n/index.js";
 
 /**
  * Masks an API key for safe terminal display (e.g. "gsk_...3a4b" or "AIza...9z1x").
@@ -113,8 +113,11 @@ export async function runInitWizard(options: InitWizardOptions = {}): Promise<vo
   let i18n = getI18n(effectiveLang);
   const m = () => i18n.init;
 
-  const groqVerifier = options.groqVerifier || ((k: string) => verifyGroqApiKey(k, { lang: effectiveLang }));
-  const geminiVerifier = options.geminiVerifier || ((k: string, mod?: string) => verifyGeminiApiKey(k, mod, { lang: effectiveLang }));
+  const groqVerifier =
+    options.groqVerifier || ((k: string) => verifyGroqApiKey(k, { lang: effectiveLang }));
+  const geminiVerifier =
+    options.geminiVerifier ||
+    ((k: string, mod?: string) => verifyGeminiApiKey(k, mod, { lang: effectiveLang }));
   const ffmpegVerifier = options.ffmpegVerifier || verifyFfmpeg;
 
   const out = (text = "") => output.write(`${text}\n`);
@@ -273,7 +276,11 @@ export async function runInitWizard(options: InitWizardOptions = {}): Promise<vo
     out(pc.bold(pc.green(m().step4Title)));
 
     const currentDisplayLang = currentConfig.lang || "en";
-    const displayLangAnswer = (await ask(`  CLI Display Language [${currentDisplayLang}] (en/ja): `)).trim().toLowerCase();
+    const displayLangAnswer = (
+      await ask(`  CLI Display Language [${currentDisplayLang}] (en/ja): `)
+    )
+      .trim()
+      .toLowerCase();
     const resolvedDisplayLang = normalizeLanguage(displayLangAnswer) || currentDisplayLang;
     updatedConfig.lang = resolvedDisplayLang;
     effectiveLang = resolvedDisplayLang;

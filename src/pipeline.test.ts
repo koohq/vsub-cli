@@ -36,7 +36,9 @@ describe("pipeline.ts", () => {
 
     it("should throw for invalid order values", () => {
       expect(() => parseBilingualOrder("invalid")).toThrow(/Unsupported bilingual order/);
-      expect(() => parseBilingualOrder("invalid", "ja")).toThrow(/サポートされていないバイリンガル順序/);
+      expect(() => parseBilingualOrder("invalid", "ja")).toThrow(
+        /サポートされていないバイリンガル順序/,
+      );
     });
   });
 

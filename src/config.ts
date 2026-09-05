@@ -3,7 +3,7 @@ import os from "node:os";
 import path from "node:path";
 import readline from "node:readline/promises";
 import dotenv from "dotenv";
-import { type SupportedLanguage, resolveLanguage } from "./i18n/index.js";
+import { resolveLanguage, type SupportedLanguage } from "./i18n/index.js";
 
 // Load environment variables from .env file if present in current or parent directories
 function loadEnv(): void {
