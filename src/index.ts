@@ -21,68 +21,24 @@ import {
   saveGlobalConfig,
 } from "./config.js";
 import { burnSubtitlesToVideo, checkFfmpeg, isVideoFile } from "./ffmpeg.js";
-import { formatEntries, type OutputFormat, parseOutputFormats } from "./formatter.js";
+import { formatEntries, parseOutputFormats } from "./formatter.js";
 import { translateSrtEntries } from "./gemini.js";
 import { computeGlossaryHash, parseGlossary } from "./glossary.js";
+import { getI18n, normalizeLanguage } from "./i18n/index.js";
 import { runInitWizard } from "./init.js";
 import { parseTargetLanguages } from "./languages.js";
 import { printLicenses } from "./licenses.js";
-import { type ProcessMediaOptions, processMediaPipeline } from "./pipeline.js";
+import {
+  parseBilingualOrder,
+  type ProcessMediaOptions,
+  processMediaPipeline,
+  resolveOutputFilePaths,
+} from "./pipeline.js";
 import { ensureWritableTargets } from "./safety.js";
-import type { BilingualOrder, SrtEntry } from "./srt.js";
+import type { SrtEntry } from "./srt.js";
 import { mergeBilingualEntries, parseSrt } from "./srt.js";
 import { createSpinner, formatFileSize, formatSummaryBox } from "./ui.js";
 
-/**
- * Validates and normalizes bilingual order option.
- */
-function parseBilingualOrder(input?: string): BilingualOrder {
-  if (!input) return "original-first";
-  const normalized = input.trim().toLowerCase();
-  if (normalized === "original-first" || normalized === "target-first") {
-    return normalized;
-  }
-  throw new Error(
-    `サポートされていないバイリンガル順序です: "${input}". 利用可能な順序: "original-first", "target-first"`,
-  );
-}
-
-/**
- * Resolves destination file paths for output formats, handling single-language and multi-language naming.
- */
-function resolveOutputFilePaths(
-  baseDir: string,
-  baseName: string,
-  lang: string,
-  formats: OutputFormat[],
-  outputOption?: string,
-  isSingleLanguage = true,
-  isBilingual = false,
-): { format: OutputFormat; filePath: string }[] {
-  const langTag = isBilingual ? `${lang}.bilingual` : lang;
-  if (outputOption) {
-    const resolvedOut = path.resolve(process.cwd(), outputOption);
-    const parsedOut = path.parse(resolvedOut);
-    if (isSingleLanguage) {
-      if (formats.length === 1) {
-        return [{ format: formats[0] ?? "srt", filePath: resolvedOut }];
-      }
-      return formats.map((fmt) => ({
-        format: fmt,
-        filePath: path.join(parsedOut.dir, `${parsedOut.name}.${fmt}`),
-      }));
-    }
-    return formats.map((fmt) => ({
-      format: fmt,
-      filePath: path.join(parsedOut.dir, `${parsedOut.name}.${langTag}.${fmt}`),
-    }));
-  }
-
-  return formats.map((fmt) => ({
-    format: fmt,
-    filePath: path.join(baseDir, `${baseName}.${langTag}.${fmt}`),
-  }));
-}
 
 const program = new Command();
 
@@ -91,7 +47,8 @@ program
   .version("1.0.0")
   .description(
     "CLI tool to extract audio from video/audio files, transcribe speech via Groq API, and generate multilingual subtitles (.srt, .vtt, .txt, .json) via Gemini API.",
-  );
+  )
+  .option("-l, --lang <lang>", "UI display language (en, ja)");
 
 // Subcommand: licenses
 program
@@ -121,27 +78,28 @@ configCmd
 
     console.log(`\n📁 Config File: ${configPath}`);
     console.log("----------------------------------------");
+    console.log(`Display Language: ${resolvedConfig.lang || "en"}`);
     console.log(
-      `Groq API Key   : ${resolvedConfig.groqApiKey ? `${resolvedConfig.groqApiKey.slice(0, 4)}...${resolvedConfig.groqApiKey.slice(-4)}` : "(Not configured)"}`,
+      `Groq API Key    : ${resolvedConfig.groqApiKey ? `${resolvedConfig.groqApiKey.slice(0, 4)}...${resolvedConfig.groqApiKey.slice(-4)}` : "(Not configured)"}`,
     );
     console.log(
-      `Gemini API Key : ${resolvedConfig.geminiApiKey ? `${resolvedConfig.geminiApiKey.slice(0, 4)}...${resolvedConfig.geminiApiKey.slice(-4)}` : "(Not configured)"}`,
+      `Gemini API Key  : ${resolvedConfig.geminiApiKey ? `${resolvedConfig.geminiApiKey.slice(0, 4)}...${resolvedConfig.geminiApiKey.slice(-4)}` : "(Not configured)"}`,
     );
-    console.log(`FFmpeg Path    : ${resolvedConfig.ffmpegPath}`);
+    console.log(`FFmpeg Path     : ${resolvedConfig.ffmpegPath}`);
     if (resolvedConfig.whisperPrompt) {
-      console.log(`Whisper Prompt : "${resolvedConfig.whisperPrompt}"`);
+      console.log(`Whisper Prompt  : "${resolvedConfig.whisperPrompt}"`);
     }
     if (resolvedConfig.prompt) {
-      console.log(`Translate Prompt: "${resolvedConfig.prompt}"`);
+      console.log(`Translate Prompt : "${resolvedConfig.prompt}"`);
     }
     if (resolvedConfig.glossary) {
-      console.log(`Glossary       : "${resolvedConfig.glossary}"`);
+      console.log(`Glossary        : "${resolvedConfig.glossary}"`);
     }
     if (resolvedConfig.geminiModel) {
-      console.log(`Gemini Model   : ${resolvedConfig.geminiModel}`);
+      console.log(`Gemini Model    : ${resolvedConfig.geminiModel}`);
     }
     if (resolvedConfig.groqModel) {
-      console.log(`Groq Model     : ${resolvedConfig.groqModel}`);
+      console.log(`Groq Model      : ${resolvedConfig.groqModel}`);
     }
     console.log("----------------------------------------\n");
   });
@@ -149,8 +107,9 @@ configCmd
 configCmd
   .command("set")
   .description(
-    "Save API Keys, models, prompts, glossary, concurrency, or FFmpeg path to global config",
+    "Save API Keys, models, prompts, glossary, concurrency, language, or FFmpeg path to global config",
   )
+  .option("-l, --lang <lang>", "UI display language (en, ja)")
   .option("--groq-key <key>", "Groq API Key")
   .option("--gemini-key <key>", "Gemini API Key")
   .option("--ffmpeg-path <path>", "Path to ffmpeg executable")
@@ -168,6 +127,7 @@ configCmd
   )
   .action(
     (options: {
+      lang?: string;
       groqKey?: string;
       geminiKey?: string;
       ffmpegPath?: string;
@@ -186,7 +146,18 @@ configCmd
         }
       }
 
+      const normalizedLang = options.lang ? normalizeLanguage(options.lang) : undefined;
+      if (options.lang && !normalizedLang) {
+        console.error(
+          pc.red(
+            `\n✖ Invalid display language: "${options.lang}". Supported languages: "en", "ja"\n`,
+          ),
+        );
+        process.exit(1);
+      }
+
       if (
+        !options.lang &&
         !options.groqKey &&
         !options.geminiKey &&
         !options.ffmpegPath &&
@@ -204,6 +175,7 @@ configCmd
       }
 
       saveGlobalConfig({
+        ...(normalizedLang ? { lang: normalizedLang } : {}),
         ...(options.groqKey ? { groqApiKey: options.groqKey.trim() } : {}),
         ...(options.geminiKey ? { geminiApiKey: options.geminiKey.trim() } : {}),
         ...(options.ffmpegPath ? { ffmpegPath: options.ffmpegPath.trim() } : {}),
@@ -339,9 +311,15 @@ program
       cacheDir?: string;
       geminiKey?: string;
       verbose?: boolean;
+      lang?: string;
     }>();
     const startTime = Date.now();
     const verbose = Boolean(options.verbose);
+    const rawConfig = getConfig(undefined, options.lang);
+    const lang = options.lang ?? rawConfig.lang ?? "en";
+    const i18n = getI18n(lang);
+    const tm = i18n.translate;
+
     const spinner = createSpinner("", { isSilent: verbose });
     const outputFiles: string[] = [];
 
@@ -350,11 +328,11 @@ program
       const targetLanguages = parseTargetLanguages(options.targetLang);
       const isMultiLang = targetLanguages.length > 1;
       const isBilingual = Boolean(options.bilingual);
-      const bilingualOrder = parseBilingualOrder(options.bilingualOrder);
+      const bilingualOrder = parseBilingualOrder(options.bilingualOrder, lang);
       const resolvedSubtitlePath = path.resolve(process.cwd(), subtitleFile);
 
       if (!fs.existsSync(resolvedSubtitlePath)) {
-        throw new Error(`字幕ファイルが見つかりません: ${resolvedSubtitlePath}`);
+        throw new Error(tm.subtitleNotFound(resolvedSubtitlePath));
       }
 
       const subDir = path.dirname(resolvedSubtitlePath);
@@ -369,11 +347,11 @@ program
 
       // Pre-check output file safety before performing API calls
       const predictedTargets: string[] = [];
-      for (const lang of targetLanguages) {
+      for (const tLang of targetLanguages) {
         const targets = resolveOutputFilePaths(
           subDir,
           subBaseName,
-          lang,
+          tLang,
           outputFormats,
           options.output,
           !isMultiLang,
@@ -387,24 +365,22 @@ program
       const safetyCheck = await ensureWritableTargets(predictedTargets, {
         overwrite: options.overwrite,
         backup: options.backup,
+        lang: normalizeLanguage(lang),
       });
 
       if (!safetyCheck.proceed) {
-        console.log(
-          "⚠️  処理を中止しました。(--overwrite または --backup を指定して再実行できます)",
-        );
+        console.log(i18n.safety.aborted);
         return;
       }
 
       if (safetyCheck.backedUp.length > 0) {
         for (const { original, backup } of safetyCheck.backedUp) {
           console.log(
-            `📦 バックアップを作成しました: ${pc.cyan(path.basename(original))} -> ${pc.yellow(path.basename(backup))}`,
+            `📦 ${i18n.pipeline.backupCreated(pc.cyan(path.basename(original)), pc.yellow(path.basename(backup)))}`,
           );
         }
       }
 
-      const rawConfig = getConfig();
       if (options.geminiKey) {
         rawConfig.geminiApiKey = options.geminiKey.trim();
       }
@@ -413,28 +389,23 @@ program
       const config = await ensureApiKeys(rawConfig, {
         requireGroq: false,
         requireGemini: true,
+        lang: normalizeLanguage(lang),
       });
 
       const geminiModel = options.geminiModel?.trim() || config.geminiModel;
 
-      console.log(
-        `\n🌐 ${pc.bold("vsub-cli translate")} - 字幕翻訳開始: ${pc.cyan(path.basename(resolvedSubtitlePath))}`,
-      );
+      console.log(`\n🌐 ${pc.bold(tm.started(pc.cyan(path.basename(resolvedSubtitlePath))))}`);
 
       // 1. Read and parse subtitle file
-      spinner.start("📖 [1/3] 字幕ファイルを読み込み・パース中...");
+      spinner.start(tm.step1Parsing);
       const fileContent = fs.readFileSync(resolvedSubtitlePath, "utf-8");
       const srtEntries = parseSrt(fileContent);
 
       if (srtEntries.length === 0) {
-        throw new Error(
-          `字幕ファイルからエントリを読み取れませんでした（SRT 形式であることを確認してください）: ${path.basename(resolvedSubtitlePath)}`,
-        );
+        throw new Error(tm.step1NoEntries(path.basename(resolvedSubtitlePath)));
       }
 
-      spinner.succeed(
-        `📖 [1/3] 字幕ファイル読み込み完了 - ${srtEntries.length} 行のエントリを検出`,
-      );
+      spinner.succeed(tm.step1Parsed(srtEntries.length));
 
       // 2. Gemini Translation for each target language (with cache support)
       const useCache = !options.noCache && !options.fresh;
@@ -455,49 +426,61 @@ program
       let totalGlossaryTerms = 0;
 
       for (let i = 0; i < targetLanguages.length; i++) {
-        const lang = targetLanguages[i] ?? "ja";
-        const glossaryMap = glossaryInput ? parseGlossary(glossaryInput, lang) : undefined;
+        const tLang = targetLanguages[i] ?? "ja";
+        const glossaryMap = glossaryInput ? parseGlossary(glossaryInput, tLang) : undefined;
         const glossaryHash = glossaryMap ? computeGlossaryHash(glossaryMap) : undefined;
         if (glossaryMap) {
           totalGlossaryTerms = Math.max(totalGlossaryTerms, Object.keys(glossaryMap).length);
         }
 
-        const cachedTranslation = subtitleCache?.translations?.[lang.toLowerCase()];
+        const cachedTranslation = subtitleCache?.translations?.[tLang.toLowerCase()];
         const isCacheValid =
           useCache &&
           isTranslationCacheValid(cachedTranslation, translationPrompt, glossaryHash, geminiModel);
 
         if (isCacheValid && cachedTranslation && cachedTranslation.entries.length > 0) {
-          resultsByLang.set(lang, cachedTranslation.entries);
-          cachedLanguages.push(lang);
+          resultsByLang.set(tLang, cachedTranslation.entries);
+          cachedLanguages.push(tLang);
           if (isMultiLang) {
-            spinner.info(
-              `  ✔ ${lang.toUpperCase()} 翻訳 (キャッシュ利用: ${cachedTranslation.entries.length} 行)`,
-            );
+            spinner.info(i18n.pipeline.step3Cached(tLang.toUpperCase(), cachedTranslation.entries.length));
           }
           continue;
         }
 
         const effectiveGeminiModel = geminiModel || DEFAULT_GEMINI_MODEL;
         const initialText = isMultiLang
-          ? `🌐 [2/3] Gemini (${effectiveGeminiModel}) で翻訳中 (${i + 1}/${targetLanguages.length} 言語: ${lang.toUpperCase()} [1/${totalChunks} チャンク])...`
-          : `🌐 [2/3] Gemini (${effectiveGeminiModel}) で ${lang} に翻訳中 [1/${totalChunks} チャンク]...`;
+          ? tm.step2TranslatingMulti(
+              effectiveGeminiModel,
+              i + 1,
+              targetLanguages.length,
+              tLang.toUpperCase(),
+              1,
+              totalChunks,
+            )
+          : tm.step2TranslatingSingle(effectiveGeminiModel, tLang, 1, totalChunks);
 
         spinner.start(initialText);
 
         const translatedEntries = await translateSrtEntries(
           srtEntries,
-          lang,
+          tLang,
           config.geminiApiKey,
           verbose,
           (currentChunk, chunksCount) => {
             if (isMultiLang) {
               spinner.updateText(
-                `🌐 [2/3] Gemini (${effectiveGeminiModel}) で翻訳中 (${i + 1}/${targetLanguages.length} 言語: ${lang.toUpperCase()} [${currentChunk}/${chunksCount} チャンク])...`,
+                tm.step2TranslatingMulti(
+                  effectiveGeminiModel,
+                  i + 1,
+                  targetLanguages.length,
+                  tLang.toUpperCase(),
+                  currentChunk,
+                  chunksCount,
+                ),
               );
             } else {
               spinner.updateText(
-                `🌐 [2/3] Gemini (${effectiveGeminiModel}) で ${lang} に翻訳中 [${currentChunk}/${chunksCount} チャンク]...`,
+                tm.step2TranslatingSingle(effectiveGeminiModel, tLang, currentChunk, chunksCount),
               );
             }
           },
@@ -506,18 +489,19 @@ program
             glossary: glossaryMap,
             concurrency: resolvedConcurrency,
             model: geminiModel,
+            lang: normalizeLanguage(lang),
           },
         );
 
-        resultsByLang.set(lang, translatedEntries);
+        resultsByLang.set(tLang, translatedEntries);
 
         // Save translation result to cache
         if (!options.noCache) {
           saveTranslationCache(
             resolvedSubtitlePath,
-            lang,
+            tLang,
             {
-              targetLang: lang,
+              targetLang: tLang,
               model: geminiModel,
               prompt: translationPrompt,
               glossaryHash,
@@ -529,25 +513,25 @@ program
         }
 
         if (isMultiLang) {
-          spinner.info(`  ✔ ${lang.toUpperCase()} 翻訳完了 (${translatedEntries.length} 行)`);
+          spinner.info(i18n.pipeline.step3LangDone(tLang.toUpperCase(), translatedEntries.length));
         }
       }
 
       const langListDisplay = targetLanguages.map((l) => l.toUpperCase()).join(", ");
-      spinner.succeed(`🌐 [2/3] Gemini 翻訳完了 (${langListDisplay}) - ${srtEntries.length} 行`);
+      spinner.succeed(tm.step2Done(langListDisplay, srtEntries.length));
 
       // 3. Save output subtitle files
-      spinner.start("💾 [3/3] 字幕ファイルを保存中...");
+      spinner.start(tm.step3Saving);
 
-      for (const lang of targetLanguages) {
-        let entries = resultsByLang.get(lang) ?? srtEntries;
+      for (const tLang of targetLanguages) {
+        let entries = resultsByLang.get(tLang) ?? srtEntries;
         if (isBilingual) {
           entries = mergeBilingualEntries(srtEntries, entries, { order: bilingualOrder });
         }
         const targets = resolveOutputFilePaths(
           subDir,
           subBaseName,
-          lang,
+          tLang,
           outputFormats,
           options.output,
           !isMultiLang,
@@ -560,35 +544,39 @@ program
       }
 
       const formatListStr = outputFormats.map((f) => f.toUpperCase()).join(", ");
-      spinner.succeed(`💾 [3/3] 字幕ファイルを保存完了 (${formatListStr})`);
+      spinner.succeed(tm.step3Saved(formatListStr));
 
       // 4. Output Summary Box
       const durationMs = Date.now() - startTime;
       console.log(
         "\n" +
-          formatSummaryBox({
-            mediaFile: path.basename(resolvedSubtitlePath),
-            mediaType: "subtitle",
-            durationMs,
-            targetLanguages,
-            entriesCount: srtEntries.length,
-            bilingual: isBilingual ? { order: bilingualOrder } : undefined,
-            backedUpFiles:
-              safetyCheck.backedUp.length > 0
-                ? safetyCheck.backedUp.map((b) => b.backup)
-                : undefined,
-            outputFiles,
-            skippedTranslation: false,
-            prompt: translationPrompt,
-            glossaryTermsCount: totalGlossaryTerms > 0 ? totalGlossaryTerms : undefined,
-            geminiModel: geminiModel || DEFAULT_GEMINI_MODEL,
-            cacheStatus: cachedLanguages.length > 0 ? { cachedLanguages } : undefined,
-          }) +
+          formatSummaryBox(
+            {
+              mediaFile: path.basename(resolvedSubtitlePath),
+              mediaType: "subtitle",
+              durationMs,
+              targetLanguages,
+              entriesCount: srtEntries.length,
+              bilingual: isBilingual ? { order: bilingualOrder } : undefined,
+              backedUpFiles:
+                safetyCheck.backedUp.length > 0
+                  ? safetyCheck.backedUp.map((b) => b.backup)
+                  : undefined,
+              outputFiles,
+              skippedTranslation: false,
+              prompt: translationPrompt,
+              glossaryTermsCount: totalGlossaryTerms > 0 ? totalGlossaryTerms : undefined,
+              geminiModel: geminiModel || DEFAULT_GEMINI_MODEL,
+              cacheStatus: cachedLanguages.length > 0 ? { cachedLanguages } : undefined,
+              lang: normalizeLanguage(lang),
+            },
+            lang,
+          ) +
           "\n",
       );
     } catch (error) {
       spinner.fail(
-        `処理中にエラーが発生しました: ${error instanceof Error ? error.message : String(error)}`,
+        i18n.pipeline.errorOccurred(error instanceof Error ? error.message : String(error)),
       );
       if (verbose && error instanceof Error && error.stack) {
         console.error(error.stack);
@@ -626,9 +614,15 @@ program
         backup?: boolean;
         ffmpegPath?: string;
         verbose?: boolean;
+        lang?: string;
       }>();
       const startTime = Date.now();
       const verbose = Boolean(options.verbose);
+      const rawConfig = getConfig(options.ffmpegPath, options.lang);
+      const lang = options.lang ?? rawConfig.lang ?? "en";
+      const i18n = getI18n(lang);
+      const bm = i18n.burn;
+
       const spinner = createSpinner("", { isSilent: verbose });
 
       try {
@@ -636,18 +630,15 @@ program
         const resolvedSubtitlePath = path.resolve(process.cwd(), subtitleFile);
 
         if (!fs.existsSync(resolvedVideoPath)) {
-          throw new Error(`動画ファイルが見つかりません: ${resolvedVideoPath}`);
+          throw new Error(bm.videoNotFound(resolvedVideoPath));
         }
         if (!isVideoFile(resolvedVideoPath)) {
-          throw new Error(
-            `動画ファイル以外の形式には字幕を焼き込めません: ${path.basename(resolvedVideoPath)}`,
-          );
+          throw new Error(bm.notVideoFile(path.basename(resolvedVideoPath)));
         }
         if (!fs.existsSync(resolvedSubtitlePath)) {
-          throw new Error(`字幕ファイルが見つかりません: ${resolvedSubtitlePath}`);
+          throw new Error(bm.subtitleNotFound(resolvedSubtitlePath));
         }
 
-        const rawConfig = getConfig(options.ffmpegPath);
         await checkFfmpeg(rawConfig.ffmpegPath);
 
         let resolvedOutputPath: string;
@@ -664,33 +655,32 @@ program
         const safetyCheck = await ensureWritableTargets([resolvedOutputPath], {
           overwrite: options.overwrite,
           backup: options.backup,
+          lang: normalizeLanguage(lang),
         });
 
         if (!safetyCheck.proceed) {
-          console.log(
-            "⚠️  処理を中止しました。(--overwrite または --backup を指定して再実行できます)",
-          );
+          console.log(i18n.safety.aborted);
           return;
         }
 
         if (safetyCheck.backedUp.length > 0) {
           for (const { original, backup } of safetyCheck.backedUp) {
             console.log(
-              `📦 バックアップを作成しました: ${pc.cyan(path.basename(original))} -> ${pc.yellow(path.basename(backup))}`,
+              `📦 ${i18n.pipeline.backupCreated(pc.cyan(path.basename(original)), pc.yellow(path.basename(backup)))}`,
             );
           }
         }
 
         console.log(
-          `\n🎬 ${pc.bold("vsub-cli burn")} - 字幕焼き込み開始: ${pc.cyan(path.basename(resolvedVideoPath))} + ${pc.cyan(path.basename(resolvedSubtitlePath))}`,
+          `\n🎬 ${pc.bold(bm.started(pc.cyan(path.basename(resolvedVideoPath)), pc.cyan(path.basename(resolvedSubtitlePath))))}`,
         );
 
-        spinner.start("🎬 FFmpeg で字幕を動画に焼き込み中 (libx264)...");
+        spinner.start(i18n.pipeline.burnStarting);
         await burnSubtitlesToVideo(resolvedVideoPath, resolvedSubtitlePath, resolvedOutputPath, {
           ffmpegPath: rawConfig.ffmpegPath,
           verbose,
         });
-        spinner.succeed("🎬 字幕の動画焼き込みが完了しました");
+        spinner.succeed(i18n.pipeline.burnDone);
 
         const durationMs = Date.now() - startTime;
         let outStats: fs.Stats | undefined;
@@ -711,26 +701,30 @@ program
 
         console.log(
           "\n" +
-            formatSummaryBox({
-              mediaFile: path.basename(resolvedVideoPath),
-              mediaType: "video",
-              durationMs,
-              entriesCount,
-              backedUpFiles:
-                safetyCheck.backedUp.length > 0
-                  ? safetyCheck.backedUp.map((b) => b.backup)
-                  : undefined,
-              outputFiles: [
-                outStats
-                  ? `${resolvedOutputPath} (${formatFileSize(outStats.size)})`
-                  : resolvedOutputPath,
-              ],
-            }) +
+            formatSummaryBox(
+              {
+                mediaFile: path.basename(resolvedVideoPath),
+                mediaType: "video",
+                durationMs,
+                entriesCount,
+                backedUpFiles:
+                  safetyCheck.backedUp.length > 0
+                    ? safetyCheck.backedUp.map((b) => b.backup)
+                    : undefined,
+                outputFiles: [
+                  outStats
+                    ? `${resolvedOutputPath} (${formatFileSize(outStats.size)})`
+                    : resolvedOutputPath,
+                ],
+                lang: normalizeLanguage(lang),
+              },
+              lang,
+            ) +
             "\n",
         );
       } catch (error) {
         spinner.fail(
-          `処理中にエラーが発生しました: ${error instanceof Error ? error.message : String(error)}`,
+          i18n.pipeline.errorOccurred(error instanceof Error ? error.message : String(error)),
         );
         if (verbose && error instanceof Error && error.stack) {
           console.error(error.stack);
@@ -809,11 +803,16 @@ program
   .option("--verbose", "Output detailed log messages", false)
   .action(async (targets: string[], _actionOptions: Record<string, unknown>, cmd: Command) => {
     const options = cmd.optsWithGlobals<
-      BatchPipelineOptions & { format: string; targetLang: string }
+      BatchPipelineOptions & { format: string; targetLang: string; lang?: string }
     >();
+    const rawConfig = getConfig(options.ffmpegPath, options.lang);
+    const lang = options.lang ?? rawConfig.lang ?? "en";
+    const i18n = getI18n(lang);
+
     try {
       const summary = await runBatchPipeline({
         ...options,
+        lang: normalizeLanguage(lang),
         targets,
       });
       if (summary.failedCount > 0) {
@@ -822,7 +821,7 @@ program
     } catch (error) {
       console.error(
         pc.red(
-          `\n✖ バッチ処理中に致命的なエラーが発生しました: ${error instanceof Error ? error.message : String(error)}`,
+          `\n✖ ${i18n.batch.fatalError(error instanceof Error ? error.message : String(error))}`,
         ),
       );
       process.exit(1);
@@ -895,7 +894,11 @@ program
       _actionOptions: Record<string, unknown>,
       cmd: Command,
     ) => {
-      const options = cmd.optsWithGlobals<ProcessMediaOptions>();
+      const options = cmd.optsWithGlobals<ProcessMediaOptions & { lang?: string }>();
+      const rawConfig = getConfig(options.ffmpegPath, options.lang);
+      const lang = options.lang ?? rawConfig.lang ?? "en";
+      const i18n = getI18n(lang);
+
       if (!mediaFile) {
         program.help();
         return;
@@ -904,12 +907,13 @@ program
       try {
         await processMediaPipeline({
           ...options,
+          lang: normalizeLanguage(lang),
           mediaFile,
         });
       } catch (error) {
         console.error(
           pc.red(
-            `\n✖ 処理中にエラーが発生しました: ${error instanceof Error ? error.message : String(error)}`,
+            `\n✖ ${i18n.pipeline.errorOccurred(error instanceof Error ? error.message : String(error))}`,
           ),
         );
         if (options.verbose && error instanceof Error && error.stack) {

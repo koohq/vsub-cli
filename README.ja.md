@@ -132,6 +132,7 @@ Arguments:
   media-file                    処理対象の動画または音声ファイルパス (.mp4, .mp3, .wav, .m4a, .mov 等)
 
 Options:
+  -l, --lang <lang>             CLI表示言語 (en: 英語 [既定], ja: 日本語)
   -t, --target-lang <langs>     翻訳先の言語コード (カンマ区切りで複数指定可: ja,en,zh) (デフォルト: "ja")
   -f, --format <formats>        出力フォーマット: srt, vtt, txt, json をカンマ区切りで指定 (デフォルト: "srt")
   -o, --output <path>           出力する字幕ファイルの個別パス指定
@@ -279,8 +280,8 @@ pnpm dev video.mp4 -t ja --concurrency 5
 # 現在の設定内容（API Key はマスク表示）を確認
 pnpm dev config show
 
-# デフォルトの翻訳プロンプト・用語集・並行数をグローバルに保存
-pnpm dev config set --prompt "丁寧な敬体で翻訳" --glossary "./glossary.json" --concurrency 4
+# デフォルトのCLI表示言語・翻訳プロンプト・用語集・並行数をグローバルに保存
+pnpm dev config set --lang ja --prompt "丁寧な敬体で翻訳" --glossary "./glossary.json" --concurrency 4
 
 # 設定ファイルの物理パスを表示
 pnpm dev config path

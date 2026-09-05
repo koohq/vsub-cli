@@ -91,8 +91,14 @@ describe("init.ts", () => {
   });
 
   describe("verifyGroqApiKey", () => {
-    it("should return error when key is empty", async () => {
+    it("should return error in English by default when key is empty", async () => {
       const result = await verifyGroqApiKey("");
+      expect(result.success).toBe(false);
+      expect(result.error).toContain("API key not provided");
+    });
+
+    it("should return error in Japanese when lang is ja and key is empty", async () => {
+      const result = await verifyGroqApiKey("", { lang: "ja" });
       expect(result.success).toBe(false);
       expect(result.error).toContain("APIキーが指定されていません");
     });
@@ -111,8 +117,14 @@ describe("init.ts", () => {
   });
 
   describe("verifyGeminiApiKey", () => {
-    it("should return error when key is empty", async () => {
+    it("should return error in English by default when key is empty", async () => {
       const result = await verifyGeminiApiKey("");
+      expect(result.success).toBe(false);
+      expect(result.error).toContain("API key not provided");
+    });
+
+    it("should return error in Japanese when lang is ja and key is empty", async () => {
+      const result = await verifyGeminiApiKey("", undefined, { lang: "ja" });
       expect(result.success).toBe(false);
       expect(result.error).toContain("APIキーが指定されていません");
     });
@@ -154,7 +166,7 @@ describe("init.ts", () => {
       vi.restoreAllMocks();
     });
 
-    it("should complete wizard with provided inputs and save config", async () => {
+    it("should complete wizard with provided inputs and save config in Japanese when lang is ja", async () => {
       const output = new PassThrough();
       let outputData = "";
       output.on("data", (chunk) => {
@@ -165,7 +177,51 @@ describe("init.ts", () => {
         .fn()
         .mockResolvedValueOnce("gsk_new_groq_key")
         .mockResolvedValueOnce("AIza_new_gemini_key")
-        .mockResolvedValueOnce("ja,en")
+        .mockResolvedValueOnce("ja") // Display lang
+        .mockResolvedValueOnce("ja,en") // Target lang
+        .mockResolvedValueOnce("gemini-3.8-flash")
+        .mockResolvedValueOnce("whisper-large-v3-turbo");
+
+      await runInitWizard({
+        output,
+        ask,
+        lang: "ja",
+        groqVerifier: async () => ({ success: true, modelCount: 5 }),
+        geminiVerifier: async () => ({ success: true }),
+        ffmpegVerifier: async () => ({
+          success: true,
+          version: "ffmpeg version 7.0",
+        }),
+      });
+
+      expect(saveSpy).toHaveBeenCalledWith(
+        expect.objectContaining({
+          groqApiKey: "gsk_new_groq_key",
+          geminiApiKey: "AIza_new_gemini_key",
+          ffmpegPath: "ffmpeg",
+          lang: "ja",
+          targetLang: "ja,en",
+          geminiModel: "gemini-3.8-flash",
+          groqModel: "whisper-large-v3-turbo",
+        }),
+      );
+
+      expect(outputData).toContain("初期セットアップが正常に完了しました");
+    });
+
+    it("should complete wizard with English by default", async () => {
+      const output = new PassThrough();
+      let outputData = "";
+      output.on("data", (chunk) => {
+        outputData += chunk.toString();
+      });
+
+      const ask = vi
+        .fn()
+        .mockResolvedValueOnce("gsk_new_groq_key")
+        .mockResolvedValueOnce("AIza_new_gemini_key")
+        .mockResolvedValueOnce("en") // Display lang
+        .mockResolvedValueOnce("en") // Target lang
         .mockResolvedValueOnce("gemini-3.8-flash")
         .mockResolvedValueOnce("whisper-large-v3-turbo");
 
@@ -185,13 +241,14 @@ describe("init.ts", () => {
           groqApiKey: "gsk_new_groq_key",
           geminiApiKey: "AIza_new_gemini_key",
           ffmpegPath: "ffmpeg",
-          targetLang: "ja,en",
+          lang: "en",
+          targetLang: "en",
           geminiModel: "gemini-3.8-flash",
           groqModel: "whisper-large-v3-turbo",
         }),
       );
 
-      expect(outputData).toContain("初期セットアップが正常に完了しました");
+      expect(outputData).toContain("Setup completed successfully");
     });
 
     it("should handle invalid key retry and skip gracefully", async () => {
@@ -204,6 +261,7 @@ describe("init.ts", () => {
         .mockResolvedValueOnce("y") // Retry choice -> yes
         .mockResolvedValueOnce("good-key") // Good key
         .mockResolvedValueOnce("gemini-key") // Gemini key
+        .mockResolvedValueOnce("") // Display lang
         .mockResolvedValueOnce("") // Default lang
         .mockResolvedValueOnce("") // Default gemini model
         .mockResolvedValueOnce(""); // Default groq model
@@ -242,6 +300,7 @@ describe("init.ts", () => {
         .mockResolvedValueOnce("groq-key")
         .mockResolvedValueOnce("gemini-key")
         .mockResolvedValueOnce("custom/bin/ffmpeg") // Custom ffmpeg path
+        .mockResolvedValueOnce("") // Display lang
         .mockResolvedValueOnce("")
         .mockResolvedValueOnce("")
         .mockResolvedValueOnce("");

@@ -46,7 +46,7 @@ describe("ui module", () => {
   });
 
   describe("formatSummaryBox", () => {
-    it("should include video title, duration, languages and output files", () => {
+    it("should format summary box in English by default", () => {
       const summary = formatSummaryBox({
         videoFile: "test-video.mp4",
         durationMs: 12500,
@@ -59,6 +59,31 @@ describe("ui module", () => {
         skippedTranslation: false,
       });
 
+      expect(summary).toContain("vsub-cli Processing Summary");
+      expect(summary).toContain("test-video.mp4");
+      expect(summary).toContain("12.5s");
+      expect(summary).toContain("JA");
+      expect(summary).toContain("EN");
+      expect(summary).toContain("50 lines");
+      expect(summary).toContain("/path/to/test-video.en.srt");
+    });
+
+    it("should include video title, duration, languages and output files in Japanese when lang is ja", () => {
+      const summary = formatSummaryBox(
+        {
+          videoFile: "test-video.mp4",
+          durationMs: 12500,
+          audioSegmentsCount: 1,
+          audioTotalBytes: 3.5 * 1024 * 1024,
+          detectedLanguage: "ja",
+          targetLanguage: "en",
+          entriesCount: 50,
+          outputFiles: ["/path/to/test-video.en.srt"],
+          skippedTranslation: false,
+        },
+        "ja",
+      );
+
       expect(summary).toContain("vsub-cli 処理サマリー");
       expect(summary).toContain("test-video.mp4");
       expect(summary).toContain("12.5s");
@@ -68,18 +93,21 @@ describe("ui module", () => {
       expect(summary).toContain("/path/to/test-video.en.srt");
     });
 
-    it("should format summary box correctly for audio input", () => {
-      const summary = formatSummaryBox({
-        mediaFile: "podcast.mp3",
-        mediaType: "audio",
-        durationMs: 8200,
-        audioSegmentsCount: 1,
-        audioTotalBytes: 1.2 * 1024 * 1024,
-        detectedLanguage: "en",
-        targetLanguage: "ja",
-        entriesCount: 30,
-        outputFiles: ["/path/to/podcast.ja.srt"],
-      });
+    it("should format summary box correctly for audio input in Japanese", () => {
+      const summary = formatSummaryBox(
+        {
+          mediaFile: "podcast.mp3",
+          mediaType: "audio",
+          durationMs: 8200,
+          audioSegmentsCount: 1,
+          audioTotalBytes: 1.2 * 1024 * 1024,
+          detectedLanguage: "en",
+          targetLanguage: "ja",
+          entriesCount: 30,
+          outputFiles: ["/path/to/podcast.ja.srt"],
+        },
+        "ja",
+      );
 
       expect(summary).toContain("対象音声");
       expect(summary).toContain("podcast.mp3");
@@ -91,15 +119,18 @@ describe("ui module", () => {
       expect(summary).toContain("/path/to/podcast.ja.srt");
     });
 
-    it("should format summary box correctly for subtitle input", () => {
-      const summary = formatSummaryBox({
-        mediaFile: "captions.srt",
-        mediaType: "subtitle",
-        durationMs: 3400,
-        targetLanguage: "en",
-        entriesCount: 45,
-        outputFiles: ["/path/to/captions.en.srt"],
-      });
+    it("should format summary box correctly for subtitle input in Japanese", () => {
+      const summary = formatSummaryBox(
+        {
+          mediaFile: "captions.srt",
+          mediaType: "subtitle",
+          durationMs: 3400,
+          targetLanguage: "en",
+          entriesCount: 45,
+          outputFiles: ["/path/to/captions.en.srt"],
+        },
+        "ja",
+      );
 
       expect(summary).toContain("対象字幕");
       expect(summary).toContain("captions.srt");
@@ -110,33 +141,39 @@ describe("ui module", () => {
     });
 
     it("should indicate when translation was skipped", () => {
-      const summary = formatSummaryBox({
-        videoFile: "speech.mp4",
-        durationMs: 4000,
-        detectedLanguage: "ja",
-        targetLanguage: "ja",
-        entriesCount: 20,
-        outputFiles: ["/path/to/speech.ja.srt"],
-        skippedTranslation: true,
-      });
+      const summary = formatSummaryBox(
+        {
+          videoFile: "speech.mp4",
+          durationMs: 4000,
+          detectedLanguage: "ja",
+          targetLanguage: "ja",
+          entriesCount: 20,
+          outputFiles: ["/path/to/speech.ja.srt"],
+          skippedTranslation: true,
+        },
+        "ja",
+      );
 
       expect(summary).toContain("スキップ");
     });
 
     it("should format multiple target languages with partial skip", () => {
-      const summary = formatSummaryBox({
-        videoFile: "presentation.mp4",
-        durationMs: 9000,
-        detectedLanguage: "ja",
-        targetLanguages: ["ja", "en", "zh"],
-        skippedLanguages: ["ja"],
-        entriesCount: 100,
-        outputFiles: [
-          "/path/to/presentation.ja.srt",
-          "/path/to/presentation.en.srt",
-          "/path/to/presentation.zh.srt",
-        ],
-      });
+      const summary = formatSummaryBox(
+        {
+          videoFile: "presentation.mp4",
+          durationMs: 9000,
+          detectedLanguage: "ja",
+          targetLanguages: ["ja", "en", "zh"],
+          skippedLanguages: ["ja"],
+          entriesCount: 100,
+          outputFiles: [
+            "/path/to/presentation.ja.srt",
+            "/path/to/presentation.en.srt",
+            "/path/to/presentation.zh.srt",
+          ],
+        },
+        "ja",
+      );
 
       expect(summary).toContain("JA");
       expect(summary).toContain("EN");
@@ -148,18 +185,21 @@ describe("ui module", () => {
     });
 
     it("should display cache hits for transcription and specific languages", () => {
-      const summary = formatSummaryBox({
-        videoFile: "cached-video.mp4",
-        durationMs: 1200,
-        detectedLanguage: "en",
-        targetLanguages: ["ja", "zh"],
-        entriesCount: 80,
-        outputFiles: ["/path/to/cached-video.ja.srt", "/path/to/cached-video.zh.srt"],
-        cacheStatus: {
-          transcriptionHit: true,
-          cachedLanguages: ["ja"],
+      const summary = formatSummaryBox(
+        {
+          videoFile: "cached-video.mp4",
+          durationMs: 1200,
+          detectedLanguage: "en",
+          targetLanguages: ["ja", "zh"],
+          entriesCount: 80,
+          outputFiles: ["/path/to/cached-video.ja.srt", "/path/to/cached-video.zh.srt"],
+          cacheStatus: {
+            transcriptionHit: true,
+            cachedLanguages: ["ja"],
+          },
         },
-      });
+        "ja",
+      );
 
       expect(summary).toContain("文字起こし");
       expect(summary).toContain("キャッシュ利用");
@@ -169,17 +209,20 @@ describe("ui module", () => {
     });
 
     it("should display whisperPrompt, prompt, and glossary in summary box when present", () => {
-      const summary = formatSummaryBox({
-        videoFile: "glossary-video.mp4",
-        durationMs: 5000,
-        detectedLanguage: "en",
-        targetLanguage: "ja",
-        entriesCount: 20,
-        whisperPrompt: "Antigravity, vsub",
-        prompt: "Translate in polite tone",
-        glossaryTermsCount: 5,
-        outputFiles: ["/path/to/glossary-video.ja.srt"],
-      });
+      const summary = formatSummaryBox(
+        {
+          videoFile: "glossary-video.mp4",
+          durationMs: 5000,
+          detectedLanguage: "en",
+          targetLanguage: "ja",
+          entriesCount: 20,
+          whisperPrompt: "Antigravity, vsub",
+          prompt: "Translate in polite tone",
+          glossaryTermsCount: 5,
+          outputFiles: ["/path/to/glossary-video.ja.srt"],
+        },
+        "ja",
+      );
 
       expect(summary).toContain("認識ヒント");
       expect(summary).toContain("Antigravity, vsub");
@@ -190,13 +233,16 @@ describe("ui module", () => {
     });
 
     it("should display backedUpFiles in summary box when present", () => {
-      const summary = formatSummaryBox({
-        mediaFile: "sample.mp4",
-        durationMs: 3000,
-        entriesCount: 15,
-        backedUpFiles: ["/path/to/sample.ja.srt.bak"],
-        outputFiles: ["/path/to/sample.ja.srt"],
-      });
+      const summary = formatSummaryBox(
+        {
+          mediaFile: "sample.mp4",
+          durationMs: 3000,
+          entriesCount: 15,
+          backedUpFiles: ["/path/to/sample.ja.srt.bak"],
+          outputFiles: ["/path/to/sample.ja.srt"],
+        },
+        "ja",
+      );
 
       expect(summary).toContain("バックアップ");
       expect(summary).toContain("/path/to/sample.ja.srt.bak");
@@ -205,27 +251,33 @@ describe("ui module", () => {
     });
 
     it("should display bilingual mode in summary box when present", () => {
-      const summaryOriginalFirst = formatSummaryBox({
-        mediaFile: "bilingual.mp4",
-        durationMs: 3000,
-        entriesCount: 15,
-        targetLanguage: "ja",
-        bilingual: true,
-        outputFiles: ["/path/to/bilingual.ja.bilingual.srt"],
-      });
+      const summaryOriginalFirst = formatSummaryBox(
+        {
+          mediaFile: "bilingual.mp4",
+          durationMs: 3000,
+          entriesCount: 15,
+          targetLanguage: "ja",
+          bilingual: true,
+          outputFiles: ["/path/to/bilingual.ja.bilingual.srt"],
+        },
+        "ja",
+      );
 
       expect(summaryOriginalFirst).toContain("字幕モード");
       expect(summaryOriginalFirst).toContain("バイリンガル併記");
       expect(summaryOriginalFirst).toContain("原語 ➔ 訳語");
 
-      const summaryTargetFirst = formatSummaryBox({
-        mediaFile: "bilingual.mp4",
-        durationMs: 3000,
-        entriesCount: 15,
-        targetLanguage: "ja",
-        bilingual: { order: "target-first" },
-        outputFiles: ["/path/to/bilingual.ja.bilingual.srt"],
-      });
+      const summaryTargetFirst = formatSummaryBox(
+        {
+          mediaFile: "bilingual.mp4",
+          durationMs: 3000,
+          entriesCount: 15,
+          targetLanguage: "ja",
+          bilingual: { order: "target-first" },
+          outputFiles: ["/path/to/bilingual.ja.bilingual.srt"],
+        },
+        "ja",
+      );
 
       expect(summaryTargetFirst).toContain("字幕モード");
       expect(summaryTargetFirst).toContain("バイリンガル併記");
@@ -233,16 +285,19 @@ describe("ui module", () => {
     });
 
     it("should display groq and gemini models in summary box when provided", () => {
-      const summary = formatSummaryBox({
-        mediaFile: "speech.mp4",
-        mediaType: "video",
-        durationMs: 5000,
-        entriesCount: 25,
-        targetLanguage: "ja",
-        groqModel: "whisper-large-v3-turbo",
-        geminiModel: "gemini-3.8-flash",
-        outputFiles: ["/path/to/speech.ja.srt"],
-      });
+      const summary = formatSummaryBox(
+        {
+          mediaFile: "speech.mp4",
+          mediaType: "video",
+          durationMs: 5000,
+          entriesCount: 25,
+          targetLanguage: "ja",
+          groqModel: "whisper-large-v3-turbo",
+          geminiModel: "gemini-3.8-flash",
+          outputFiles: ["/path/to/speech.ja.srt"],
+        },
+        "ja",
+      );
 
       expect(summary).toContain("文字起こし");
       expect(summary).toContain("Groq");
@@ -253,16 +308,19 @@ describe("ui module", () => {
     });
 
     it("should not display groq model for subtitle input", () => {
-      const summary = formatSummaryBox({
-        mediaFile: "captions.srt",
-        mediaType: "subtitle",
-        durationMs: 2000,
-        entriesCount: 15,
-        targetLanguage: "en",
-        groqModel: "whisper-large-v3-turbo",
-        geminiModel: "gemini-3.8-flash",
-        outputFiles: ["/path/to/captions.en.srt"],
-      });
+      const summary = formatSummaryBox(
+        {
+          mediaFile: "captions.srt",
+          mediaType: "subtitle",
+          durationMs: 2000,
+          entriesCount: 15,
+          targetLanguage: "en",
+          groqModel: "whisper-large-v3-turbo",
+          geminiModel: "gemini-3.8-flash",
+          outputFiles: ["/path/to/captions.en.srt"],
+        },
+        "ja",
+      );
 
       expect(summary).not.toContain("文字起こし");
       expect(summary).toContain("翻訳モデル");
@@ -271,18 +329,21 @@ describe("ui module", () => {
     });
 
     it("should not display gemini model when translation is skipped", () => {
-      const summary = formatSummaryBox({
-        mediaFile: "speech.mp4",
-        mediaType: "video",
-        durationMs: 3000,
-        entriesCount: 10,
-        detectedLanguage: "ja",
-        targetLanguage: "ja",
-        skippedTranslation: true,
-        groqModel: "whisper-large-v3-turbo",
-        geminiModel: "gemini-3.8-flash",
-        outputFiles: ["/path/to/speech.ja.srt"],
-      });
+      const summary = formatSummaryBox(
+        {
+          mediaFile: "speech.mp4",
+          mediaType: "video",
+          durationMs: 3000,
+          entriesCount: 10,
+          detectedLanguage: "ja",
+          targetLanguage: "ja",
+          skippedTranslation: true,
+          groqModel: "whisper-large-v3-turbo",
+          geminiModel: "gemini-3.8-flash",
+          outputFiles: ["/path/to/speech.ja.srt"],
+        },
+        "ja",
+      );
 
       expect(summary).toContain("Groq");
       expect(summary).toContain("whisper-large-v3-turbo");
@@ -290,17 +351,20 @@ describe("ui module", () => {
     });
 
     it("should display cache tag when transcription was hit from cache", () => {
-      const summary = formatSummaryBox({
-        mediaFile: "cached.mp4",
-        mediaType: "video",
-        durationMs: 1000,
-        entriesCount: 10,
-        targetLanguage: "ja",
-        groqModel: "whisper-large-v3-turbo",
-        geminiModel: "gemini-3.8-flash",
-        cacheStatus: { transcriptionHit: true },
-        outputFiles: ["/path/to/cached.ja.srt"],
-      });
+      const summary = formatSummaryBox(
+        {
+          mediaFile: "cached.mp4",
+          mediaType: "video",
+          durationMs: 1000,
+          entriesCount: 10,
+          targetLanguage: "ja",
+          groqModel: "whisper-large-v3-turbo",
+          geminiModel: "gemini-3.8-flash",
+          cacheStatus: { transcriptionHit: true },
+          outputFiles: ["/path/to/cached.ja.srt"],
+        },
+        "ja",
+      );
 
       expect(summary).toContain("Groq");
       expect(summary).toContain("whisper-large-v3-turbo");
@@ -309,7 +373,7 @@ describe("ui module", () => {
   });
 
   describe("formatBatchSummaryBox", () => {
-    it("should format batch summary box with success, fail, and skipped items", () => {
+    it("should format batch summary box in English by default", () => {
       const summary = formatBatchSummaryBox({
         totalFiles: 3,
         succeededCount: 1,
@@ -322,7 +386,7 @@ describe("ui module", () => {
             status: "success",
             durationMs: 5000,
             entriesCount: 30,
-            outputFiles: ["video1.ja.srt", "video1.ja.vtt"],
+            outputFiles: ["video1.ja.srt"],
           },
           {
             file: "video2.mp4",
@@ -336,6 +400,50 @@ describe("ui module", () => {
           },
         ],
       });
+
+      expect(summary).toContain("Batch Processing Summary");
+      expect(summary).toContain("3 files");
+      expect(summary).toContain("Success: 1");
+      expect(summary).toContain("Failed: 1");
+      expect(summary).toContain("Skipped: 1");
+      expect(summary).toContain("12.5s");
+      expect(summary).toContain("video1.mp4");
+      expect(summary).toContain("30 lines");
+      expect(summary).toContain("video2.mp4");
+      expect(summary).toContain("Error:");
+      expect(summary).toContain("FFmpeg codec error");
+    });
+
+    it("should format batch summary box with success, fail, and skipped items in Japanese", () => {
+      const summary = formatBatchSummaryBox(
+        {
+          totalFiles: 3,
+          succeededCount: 1,
+          failedCount: 1,
+          skippedCount: 1,
+          totalDurationMs: 12500,
+          items: [
+            {
+              file: "video1.mp4",
+              status: "success",
+              durationMs: 5000,
+              entriesCount: 30,
+              outputFiles: ["video1.ja.srt", "video1.ja.vtt"],
+            },
+            {
+              file: "video2.mp4",
+              status: "failed",
+              durationMs: 2000,
+              error: "FFmpeg codec error",
+            },
+            {
+              file: "video3.mp4",
+              status: "skipped",
+            },
+          ],
+        },
+        "ja",
+      );
 
       expect(summary).toContain("バッチ処理総合サマリー");
       expect(summary).toContain("3 ファイル");

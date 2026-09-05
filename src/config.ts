@@ -3,6 +3,7 @@ import os from "node:os";
 import path from "node:path";
 import readline from "node:readline/promises";
 import dotenv from "dotenv";
+import { type SupportedLanguage, resolveLanguage } from "./i18n/index.js";
 
 // Load environment variables from .env file if present in current or parent directories
 function loadEnv(): void {
@@ -35,6 +36,7 @@ export interface AppConfig {
   geminiModel?: string | undefined;
   groqModel?: string | undefined;
   targetLang?: string | undefined;
+  lang?: SupportedLanguage | undefined;
 }
 
 export function getGlobalConfigPath(): string {
@@ -71,7 +73,7 @@ export function saveGlobalConfig(config: Partial<AppConfig>): void {
   fs.writeFileSync(configPath, JSON.stringify(updated, null, 2), "utf-8");
 }
 
-export function getConfig(cliFfmpegPath?: string): AppConfig {
+export function getConfig(cliFfmpegPath?: string, cliLang?: string): AppConfig {
   const globalConfig = loadGlobalConfig();
 
   const groqApiKey =
@@ -142,6 +144,8 @@ export function getConfig(cliFfmpegPath?: string): AppConfig {
     globalConfig.targetLang?.trim() ||
     undefined;
 
+  const lang = resolveLanguage(cliLang, process.env["VSUB_LANG"], globalConfig.lang);
+
   return {
     groqApiKey,
     geminiApiKey,
@@ -153,12 +157,17 @@ export function getConfig(cliFfmpegPath?: string): AppConfig {
     geminiModel,
     groqModel,
     targetLang,
+    lang,
   };
 }
 
 export async function ensureApiKeys(
   config: AppConfig,
-  options: { requireGroq?: boolean; requireGemini?: boolean } = {},
+  options: {
+    requireGroq?: boolean;
+    requireGemini?: boolean;
+    lang?: SupportedLanguage | undefined;
+  } = {},
 ): Promise<AppConfig> {
   const requireGroq = options.requireGroq ?? true;
   const requireGemini = options.requireGemini ?? true;

@@ -248,4 +248,23 @@ describe("config.ts", () => {
       }).toThrow(/VSUB_GEMINI_API_KEY \/ GEMINI_API_KEY/);
     });
   });
+
+  describe("getConfig with lang", () => {
+    it("should default lang to en when not specified", () => {
+      const config = getConfig();
+      expect(config.lang).toBe("en");
+    });
+
+    it("should prioritize CLI lang argument", () => {
+      process.env["VSUB_LANG"] = "en";
+      const config = getConfig(undefined, "ja");
+      expect(config.lang).toBe("ja");
+    });
+
+    it("should use VSUB_LANG environment variable when CLI lang is not specified", () => {
+      process.env["VSUB_LANG"] = "ja";
+      const config = getConfig();
+      expect(config.lang).toBe("ja");
+    });
+  });
 });

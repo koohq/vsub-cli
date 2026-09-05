@@ -1,5 +1,6 @@
 import ora, { type Ora } from "ora";
 import pc from "picocolors";
+import { type SupportedLanguage, getI18n } from "./i18n/index.js";
 
 /**
  * Formats duration in milliseconds into a human-readable string.
@@ -70,18 +71,21 @@ export interface SummaryData {
         cachedLanguages?: string[] | undefined;
       }
     | undefined;
+  lang?: SupportedLanguage | undefined;
 }
 
 /**
  * Formats a clean summary box with processing results.
  */
-export function formatSummaryBox(data: SummaryData): string {
+export function formatSummaryBox(data: SummaryData, lang?: SupportedLanguage | string): string {
+  const i18n = getI18n(lang ?? data.lang);
+  const m = i18n.summary;
   const lines: string[] = [];
-  const width = 56;
+  const width = 58;
   const hr = "─".repeat(width);
 
   lines.push(pc.cyan(`┌${hr}┐`));
-  const title = "  vsub-cli 処理サマリー  ";
+  const title = m.title;
   const titlePadding = Math.max(0, Math.floor((width - title.length) / 2));
   const titleRightPadding = Math.max(0, width - title.length - titlePadding);
   lines.push(
@@ -94,7 +98,7 @@ export function formatSummaryBox(data: SummaryData): string {
   lines.push(pc.cyan(`├${hr}┤`));
 
   const addRow = (label: string, value: string) => {
-    const paddedLabel = label.padEnd(12, " ");
+    const paddedLabel = label.padEnd(15, " ");
     lines.push(`  ${pc.gray(paddedLabel)}: ${value}`);
   };
 
@@ -102,39 +106,39 @@ export function formatSummaryBox(data: SummaryData): string {
   const isAudio = data.mediaType === "audio";
   const isSubtitle = data.mediaType === "subtitle";
   const mediaLabel = isAudio
-    ? "対象音声"
+    ? m.targetAudio
     : isSubtitle
-      ? "対象字幕"
+      ? m.targetSubtitle
       : data.mediaType === "video"
-        ? "対象動画"
-        : "対象ファイル";
-  const audioActionLabel = isAudio ? "音声最適化" : "音声抽出";
+        ? m.targetVideo
+        : m.targetFile;
+  const audioActionLabel = isAudio ? m.audioActionOptimize : m.audioActionExtract;
 
   addRow(mediaLabel, pc.bold(fileName));
-  addRow("所要時間", pc.green(formatDuration(data.durationMs)));
+  addRow(m.duration, pc.green(formatDuration(data.durationMs)));
 
   if (data.groqModel && !isSubtitle) {
     const cacheNote = data.cacheStatus?.transcriptionHit
-      ? ` ${pc.green("[キャッシュ利用 ⚡]")}`
+      ? ` ${pc.green(m.cacheHitBadge)}`
       : "";
-    addRow("文字起こし", `Groq (${pc.cyan(data.groqModel)})${cacheNote}`);
+    addRow(m.transcription, `Groq (${pc.cyan(data.groqModel)})${cacheNote}`);
   } else if (data.cacheStatus?.transcriptionHit) {
-    addRow("文字起こし", `${pc.green("キャッシュ利用")} ⚡`);
+    addRow(m.transcription, `${pc.green(m.cachedBadge)}`);
   }
 
   if (data.audioSegmentsCount !== undefined && data.audioSegmentsCount > 0) {
     const sizeStr = data.audioTotalBytes ? ` (${formatFileSize(data.audioTotalBytes)})` : "";
-    addRow(audioActionLabel, `${data.audioSegmentsCount} セグメント${sizeStr}`);
+    addRow(audioActionLabel, m.segmentsValue(data.audioSegmentsCount, sizeStr));
   }
 
   if (data.whisperPrompt) {
     const truncatedPrompt =
       data.whisperPrompt.length > 25 ? `${data.whisperPrompt.slice(0, 25)}...` : data.whisperPrompt;
-    addRow("認識ヒント", pc.dim(`"${truncatedPrompt}"`));
+    addRow(m.whisperPrompt, pc.dim(`"${truncatedPrompt}"`));
   }
 
   if (data.detectedLanguage) {
-    addRow("検出言語", pc.yellow(data.detectedLanguage.toUpperCase()));
+    addRow(m.detectedLanguage, pc.yellow(data.detectedLanguage.toUpperCase()));
   }
 
   const rawLangs =
@@ -145,46 +149,46 @@ export function formatSummaryBox(data: SummaryData): string {
         : [];
 
   if (rawLangs.length > 0) {
-    const langDisplays = rawLangs.map((lang) => {
+    const langDisplays = rawLangs.map((l) => {
       const isSkipped =
         data.skippedTranslation ||
-        Boolean(data.skippedLanguages?.some((s) => s.toLowerCase() === lang.toLowerCase()));
+        Boolean(data.skippedLanguages?.some((s) => s.toLowerCase() === l.toLowerCase()));
       const isCached = Boolean(
-        data.cacheStatus?.cachedLanguages?.some((c) => c.toLowerCase() === lang.toLowerCase()),
+        data.cacheStatus?.cachedLanguages?.some((c) => c.toLowerCase() === l.toLowerCase()),
       );
-      const transStatus = isSkipped ? " (スキップ)" : isCached ? " (キャッシュ)" : "";
-      return `${pc.cyan(lang.toUpperCase())}${pc.dim(transStatus)}`;
+      const transStatus = isSkipped ? m.skippedBadge : isCached ? m.cachedLangBadge : "";
+      return `${pc.cyan(l.toUpperCase())}${pc.dim(transStatus)}`;
     });
-    addRow("出力言語", langDisplays.join(", "));
+    addRow(m.outputLanguages, langDisplays.join(", "));
   }
 
   if (data.geminiModel && !data.skippedTranslation) {
-    addRow("翻訳モデル", `Gemini (${pc.cyan(data.geminiModel)})`);
+    addRow(m.translationModel, `Gemini (${pc.cyan(data.geminiModel)})`);
   }
 
   if (data.bilingual) {
     const orderStr =
       typeof data.bilingual === "object" && data.bilingual.order === "target-first"
-        ? " (訳語 ➔ 原語)"
-        : " (原語 ➔ 訳語)";
-    addRow("字幕モード", `${pc.yellow("バイリンガル併記")}${pc.dim(orderStr)}`);
+        ? m.bilingualTargetFirst
+        : m.bilingualOriginalFirst;
+    addRow(m.subtitleMode, `${pc.yellow(m.bilingual)}${pc.dim(orderStr)}`);
   }
 
   if (data.glossaryTermsCount !== undefined && data.glossaryTermsCount > 0) {
-    addRow("用語集", pc.cyan(`${data.glossaryTermsCount} 語適用`));
+    addRow(m.glossary, pc.cyan(m.glossaryApplied(data.glossaryTermsCount)));
   }
 
   if (data.prompt) {
     const truncatedPrompt =
       data.prompt.length > 25 ? `${data.prompt.slice(0, 25)}...` : data.prompt;
-    addRow("翻訳指示", pc.dim(`"${truncatedPrompt}"`));
+    addRow(m.prompt, pc.dim(`"${truncatedPrompt}"`));
   }
 
-  addRow("字幕行数", pc.magenta(`${data.entriesCount} 行`));
+  addRow(m.subtitleLines, pc.magenta(m.linesValue(data.entriesCount)));
 
   if (data.backedUpFiles && data.backedUpFiles.length > 0) {
     lines.push("");
-    lines.push(`  ${pc.bold("バックアップ:")}`);
+    lines.push(`  ${pc.bold(m.backupsHeader)}`);
     for (const file of data.backedUpFiles) {
       lines.push(`    ${pc.yellow("📦")} ${pc.dim(file)}`);
     }
@@ -192,7 +196,7 @@ export function formatSummaryBox(data: SummaryData): string {
 
   if (data.outputFiles.length > 0) {
     lines.push("");
-    lines.push(`  ${pc.bold("出力ファイル:")}`);
+    lines.push(`  ${pc.bold(m.outputFilesHeader)}`);
     for (const file of data.outputFiles) {
       lines.push(`    ${pc.green("✔")} ${pc.white(file)}`);
     }
@@ -218,18 +222,24 @@ export interface BatchSummaryData {
   skippedCount?: number | undefined;
   totalDurationMs: number;
   items: BatchSummaryItem[];
+  lang?: SupportedLanguage | undefined;
 }
 
 /**
  * Formats a clean summary box with batch processing results across multiple files.
  */
-export function formatBatchSummaryBox(data: BatchSummaryData): string {
+export function formatBatchSummaryBox(
+  data: BatchSummaryData,
+  lang?: SupportedLanguage | string,
+): string {
+  const i18n = getI18n(lang ?? data.lang);
+  const m = i18n.batchSummary;
   const lines: string[] = [];
   const width = 64;
   const hr = "─".repeat(width);
 
   lines.push(pc.cyan(`┌${hr}┐`));
-  const title = "  vsub-cli バッチ処理総合サマリー  ";
+  const title = m.title;
   const titlePadding = Math.max(0, Math.floor((width - title.length) / 2));
   const titleRightPadding = Math.max(0, width - title.length - titlePadding);
   lines.push(
@@ -242,30 +252,30 @@ export function formatBatchSummaryBox(data: BatchSummaryData): string {
   lines.push(pc.cyan(`├${hr}┤`));
 
   const addRow = (label: string, value: string) => {
-    const paddedLabel = label.padEnd(12, " ");
+    const paddedLabel = label.padEnd(15, " ");
     lines.push(`  ${pc.gray(paddedLabel)}: ${value}`);
   };
 
-  addRow("対象ファイル", pc.bold(`${data.totalFiles} ファイル`));
+  addRow(m.targetFiles, pc.bold(m.targetFilesValue(data.totalFiles)));
   const successColor = data.succeededCount > 0 ? pc.green : pc.gray;
   const failColor = data.failedCount > 0 ? pc.red : pc.gray;
   addRow(
-    "処理結果",
-    `${successColor(`成功: ${data.succeededCount}`)} / ${failColor(`失敗: ${data.failedCount}`)}${
-      data.skippedCount ? ` / ${pc.yellow(`スキップ: ${data.skippedCount}`)}` : ""
+    m.results,
+    `${successColor(m.successCount(data.succeededCount))} / ${failColor(m.failedCount(data.failedCount))}${
+      data.skippedCount ? ` / ${pc.yellow(m.skippedCount(data.skippedCount))}` : ""
     }`,
   );
-  addRow("合計所要時間", pc.green(formatDuration(data.totalDurationMs)));
+  addRow(m.totalDuration, pc.green(formatDuration(data.totalDurationMs)));
 
   if (data.items.length > 0) {
     lines.push("");
-    lines.push(`  ${pc.bold("ファイル別詳細:")}`);
+    lines.push(`  ${pc.bold(m.fileDetailsHeader)}`);
     for (const item of data.items) {
       const fileName = item.file;
       const durationStr =
         item.durationMs !== undefined ? ` (${formatDuration(item.durationMs)})` : "";
       if (item.status === "success") {
-        const entriesStr = item.entriesCount !== undefined ? ` [${item.entriesCount}行]` : "";
+        const entriesStr = item.entriesCount !== undefined ? m.lineCountBadge(item.entriesCount) : "";
         lines.push(
           `    ${pc.green("✔")} ${pc.white(pc.bold(fileName))}${pc.dim(durationStr)}${pc.magenta(entriesStr)}`,
         );
@@ -277,10 +287,10 @@ export function formatBatchSummaryBox(data: BatchSummaryData): string {
       } else if (item.status === "failed") {
         lines.push(`    ${pc.red("✖")} ${pc.red(pc.bold(fileName))}${pc.dim(durationStr)}`);
         if (item.error) {
-          lines.push(`       ${pc.red("└─ エラー:")} ${pc.gray(item.error)}`);
+          lines.push(`       ${pc.red(m.errorPrefix)} ${pc.gray(item.error)}`);
         }
       } else {
-        lines.push(`    ${pc.yellow("↷")} ${pc.dim(fileName)} (スキップ)`);
+        lines.push(`    ${pc.yellow("↷")} ${pc.dim(fileName)} ${m.skippedBadge}`);
       }
     }
   }

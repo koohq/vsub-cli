@@ -201,7 +201,7 @@ describe("safety.ts", () => {
       expect(res.backedUp).toEqual([]);
     });
 
-    it("should throw an error in non-interactive mode without overwrite/backup", async () => {
+    it("should throw an error in non-interactive mode in English by default", async () => {
       const file1 = path.join(tempDir, "out1.srt");
       fs.writeFileSync(file1, "existing srt content");
 
@@ -209,7 +209,19 @@ describe("safety.ts", () => {
         ensureWritableTargets([file1], {
           isInteractive: false,
         }),
-      ).rejects.toThrow(/出力先ファイルが既に存在します/);
+      ).rejects.toThrow(/Existing target file\(s\) detected/);
+    });
+
+    it("should throw an error in non-interactive mode in Japanese when lang is ja", async () => {
+      const file1 = path.join(tempDir, "out1.srt");
+      fs.writeFileSync(file1, "existing srt content");
+
+      await expect(
+        ensureWritableTargets([file1], {
+          isInteractive: false,
+          lang: "ja",
+        }),
+      ).rejects.toThrow(/出力ファイルが既に存在します/);
     });
   });
 });

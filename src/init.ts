@@ -11,6 +11,7 @@ import {
   getGlobalConfigPath,
   saveGlobalConfig,
 } from "./config.js";
+import { type SupportedLanguage, getI18n, normalizeLanguage } from "./i18n/index.js";
 
 /**
  * Masks an API key for safe terminal display (e.g. "gsk_...3a4b" or "AIza...9z1x").
@@ -31,9 +32,11 @@ export function maskApiKey(key?: string): string {
  */
 export async function verifyGroqApiKey(
   apiKey: string,
+  options?: { lang?: SupportedLanguage | string | undefined },
 ): Promise<{ success: boolean; modelCount?: number; error?: string }> {
+  const i18n = getI18n(options?.lang);
   if (!apiKey?.trim()) {
-    return { success: false, error: "APIキーが指定されていません" };
+    return { success: false, error: i18n.init.noApiKeyProvided };
   }
   try {
     const groq = new Groq({ apiKey: apiKey.trim() });
@@ -51,9 +54,11 @@ export async function verifyGroqApiKey(
 export async function verifyGeminiApiKey(
   apiKey: string,
   model = DEFAULT_GEMINI_MODEL,
+  options?: { lang?: SupportedLanguage | string | undefined },
 ): Promise<{ success: boolean; error?: string }> {
+  const i18n = getI18n(options?.lang);
   if (!apiKey?.trim()) {
-    return { success: false, error: "APIキーが指定されていません" };
+    return { success: false, error: i18n.init.noApiKeyProvided };
   }
   try {
     const ai = new GoogleGenAI({ apiKey: apiKey.trim() });
@@ -92,6 +97,7 @@ export interface InitWizardOptions {
   ffmpegVerifier?: (
     path?: string,
   ) => Promise<{ success: boolean; version?: string; error?: string }>;
+  lang?: SupportedLanguage | undefined;
 }
 
 /**
@@ -100,23 +106,30 @@ export interface InitWizardOptions {
 export async function runInitWizard(options: InitWizardOptions = {}): Promise<void> {
   const input = options.input || process.stdin;
   const output = options.output || process.stdout;
-  const groqVerifier = options.groqVerifier || verifyGroqApiKey;
-  const geminiVerifier = options.geminiVerifier || verifyGeminiApiKey;
-  const ffmpegVerifier = options.ffmpegVerifier || verifyFfmpeg;
-
   const currentConfig = getConfig();
   const configPath = getGlobalConfigPath();
+
+  let effectiveLang = options.lang ?? currentConfig.lang ?? "en";
+  let i18n = getI18n(effectiveLang);
+  const m = () => i18n.init;
+
+  const groqVerifier = options.groqVerifier || ((k: string) => verifyGroqApiKey(k, { lang: effectiveLang }));
+  const geminiVerifier = options.geminiVerifier || ((k: string, mod?: string) => verifyGeminiApiKey(k, mod, { lang: effectiveLang }));
+  const ffmpegVerifier = options.ffmpegVerifier || verifyFfmpeg;
 
   const out = (text = "") => output.write(`${text}\n`);
 
   out("");
   out(pc.bold(pc.cyan("╔════════════════════════════════════════════════════════════════╗")));
-  out(pc.bold(pc.cyan("║           🎬 vsub-cli 初期セットアップ & 導通確認ウィザード          ║")));
+  const banner = m().bannerTitle;
+  const bannerPad = Math.max(0, Math.floor((62 - banner.length) / 2));
+  const bannerRightPad = Math.max(0, 62 - banner.length - bannerPad);
+  out(pc.bold(pc.cyan(`║${" ".repeat(bannerPad)}${banner}${" ".repeat(bannerRightPad)}║`)));
   out(pc.bold(pc.cyan("╚════════════════════════════════════════════════════════════════╝")));
   out("");
-  out(`設定ファイルの保存先: ${pc.yellow(configPath)}`);
-  out("このウィザードでは API キー・FFmpeg の導通確認と初期設定を行います。");
-  out("各項目で Enter キーを押すと、角括弧内の値または現在の設定を維持します。");
+  out(`${m().configLocation(pc.yellow(configPath))}`);
+  out(m().description1);
+  out(m().description2);
   out("");
 
   const rl = options.ask ? null : readline.createInterface({ input, output });
@@ -128,50 +141,44 @@ export async function runInitWizard(options: InitWizardOptions = {}): Promise<vo
     // ---------------------------------------------------------
     // Step 1: Groq API Key
     // ---------------------------------------------------------
-    out(pc.bold(pc.green("▶ [1/4] Groq API キーの設定 (音声文字起こし用)")));
-    out(`  API キー取得先: ${pc.cyan("https://console.groq.com/keys")}`);
+    out(pc.bold(pc.green(m().step1Title)));
+    out(m().step1Url(pc.cyan("https://console.groq.com/keys")));
 
     let groqKey = currentConfig.groqApiKey;
     if (groqKey) {
-      out(`  現在の設定: ${pc.yellow(maskApiKey(groqKey))}`);
+      out(m().currentSetting(pc.yellow(maskApiKey(groqKey))));
     }
 
     while (true) {
-      const promptText = groqKey
-        ? "  Groq API Key を入力 (Enter で現在の設定を維持): "
-        : "  Groq API Key を入力 (Enter でスキップ): ";
+      const promptText = groqKey ? m().promptGroqCurrent : m().promptGroqNew;
       const answer = (await ask(promptText)).trim();
       const candidateKey = answer || groqKey;
 
       if (!candidateKey) {
-        out(pc.yellow("  ⚠️  Groq API キーをスキップしました (後から設定可能です)。\n"));
+        out(pc.yellow(m().skippedGroq));
         break;
       }
 
-      output.write("  ⏳ Groq API 接続テスト中...");
+      output.write(m().testingGroq);
       const result = await groqVerifier(candidateKey);
       if (result.success) {
         output.write(`\r${" ".repeat(40)}\r`);
-        out(
-          pc.green(`  ✔ Groq API 接続成功 (${result.modelCount ?? "複数"} 個のモデルを確認可能)`),
-        );
+        out(pc.green(m().groqSuccess(result.modelCount ?? "multiple")));
         updatedConfig.groqApiKey = candidateKey;
         groqKey = candidateKey;
         out("");
         break;
       } else {
         output.write(`\r${" ".repeat(40)}\r`);
-        out(pc.red(`  ✖ Groq API 接続失敗: ${result.error}`));
-        const retry = (await ask("  再入力しますか？ [Y/n/s (s=このまま保存)]: "))
-          .trim()
-          .toLowerCase();
+        out(pc.red(m().groqFailed(result.error ?? "")));
+        const retry = (await ask(m().retryPrompt)).trim().toLowerCase();
         if (retry === "s") {
           updatedConfig.groqApiKey = candidateKey;
-          out(pc.yellow("  ⚠️  未検証のままキーを設定対象に含めました。\n"));
+          out(pc.yellow(m().savedUnverified));
           break;
         }
         if (retry === "n") {
-          out(pc.yellow("  ⚠️  Groq API キーの設定をスキップしました。\n"));
+          out(pc.yellow(m().skippedGroq));
           break;
         }
       }
@@ -180,48 +187,44 @@ export async function runInitWizard(options: InitWizardOptions = {}): Promise<vo
     // ---------------------------------------------------------
     // Step 2: Gemini API Key
     // ---------------------------------------------------------
-    out(pc.bold(pc.green("▶ [2/4] Google Gemini API キーの設定 (字幕翻訳用)")));
-    out(`  API キー取得先: ${pc.cyan("https://aistudio.google.com/apikey")}`);
+    out(pc.bold(pc.green(m().step2Title)));
+    out(m().step2Url(pc.cyan("https://aistudio.google.com/apikey")));
 
     let geminiKey = currentConfig.geminiApiKey;
     if (geminiKey) {
-      out(`  現在の設定: ${pc.yellow(maskApiKey(geminiKey))}`);
+      out(m().currentSetting(pc.yellow(maskApiKey(geminiKey))));
     }
 
     while (true) {
-      const promptText = geminiKey
-        ? "  Gemini API Key を入力 (Enter で現在の設定を維持): "
-        : "  Gemini API Key を入力 (Enter でスキップ): ";
+      const promptText = geminiKey ? m().promptGeminiCurrent : m().promptGeminiNew;
       const answer = (await ask(promptText)).trim();
       const candidateKey = answer || geminiKey;
 
       if (!candidateKey) {
-        out(pc.yellow("  ⚠️  Gemini API キーをスキップしました (後から設定可能です)。\n"));
+        out(pc.yellow(m().skippedGemini));
         break;
       }
 
-      output.write("  ⏳ Gemini API 接続テスト中...");
+      output.write(m().testingGemini);
       const result = await geminiVerifier(candidateKey, currentConfig.geminiModel);
       if (result.success) {
         output.write(`\r${" ".repeat(40)}\r`);
-        out(pc.green("  ✔ Gemini API 接続成功 (モデル疎通確認完了)"));
+        out(pc.green(m().geminiSuccess(currentConfig.geminiModel || DEFAULT_GEMINI_MODEL)));
         updatedConfig.geminiApiKey = candidateKey;
         geminiKey = candidateKey;
         out("");
         break;
       } else {
         output.write(`\r${" ".repeat(40)}\r`);
-        out(pc.red(`  ✖ Gemini API 接続失敗: ${result.error}`));
-        const retry = (await ask("  再入力しますか？ [Y/n/s (s=このまま保存)]: "))
-          .trim()
-          .toLowerCase();
+        out(pc.red(m().geminiFailed(result.error ?? "")));
+        const retry = (await ask(m().retryPrompt)).trim().toLowerCase();
         if (retry === "s") {
           updatedConfig.geminiApiKey = candidateKey;
-          out(pc.yellow("  ⚠️  未検証のままキーを設定対象に含めました。\n"));
+          out(pc.yellow(m().savedUnverified));
           break;
         }
         if (retry === "n") {
-          out(pc.yellow("  ⚠️  Gemini API キーの設定をスキップしました。\n"));
+          out(pc.yellow(m().skippedGemini));
           break;
         }
       }
@@ -230,36 +233,34 @@ export async function runInitWizard(options: InitWizardOptions = {}): Promise<vo
     // ---------------------------------------------------------
     // Step 3: FFmpeg / FFprobe Environment Check
     // ---------------------------------------------------------
-    out(pc.bold(pc.green("▶ [3/4] FFmpeg / FFprobe 動作環境確認 (音声抽出・動画処理用)")));
+    out(pc.bold(pc.green(m().step3Title)));
     const ffmpegPath = currentConfig.ffmpegPath || "ffmpeg";
-    output.write(`  ⏳ FFmpeg 検出テスト中 (${ffmpegPath})...`);
+    output.write(`  ⏳ Checking FFmpeg (${ffmpegPath})...`);
     const ffmpegResult = await ffmpegVerifier(ffmpegPath);
 
     if (ffmpegResult.success) {
       output.write(`\r${" ".repeat(40)}\r`);
-      out(pc.green(`  ✔ FFmpeg 検出成功: ${ffmpegResult.version}`));
+      out(pc.green(m().ffmpegSuccess(ffmpegResult.version || "ffmpeg")));
       updatedConfig.ffmpegPath = ffmpegPath;
       out("");
     } else {
       output.write(`\r${" ".repeat(40)}\r`);
-      out(pc.red(`  ✖ FFmpeg が見つかりませんでした (指定パス: "${ffmpegPath}")`));
-      out("  ※ FFmpeg のインストールコマンド例:");
+      out(pc.red(m().ffmpegFailed(`"${ffmpegPath}"`)));
+      out("  ※ FFmpeg installation commands:");
       out(
-        `     Windows : ${pc.cyan("winget install Gyan.FFmpeg")} または ${pc.cyan("choco install ffmpeg")}`,
+        `     Windows : ${pc.cyan("winget install Gyan.FFmpeg")} or ${pc.cyan("choco install ffmpeg")}`,
       );
       out(`     macOS   : ${pc.cyan("brew install ffmpeg")}`);
       out(`     Linux   : ${pc.cyan("sudo apt install ffmpeg")}`);
 
-      const customPath = (
-        await ask("  カスタム FFmpeg 実行パスを入力 (Enter でスキップ): ")
-      ).trim();
+      const customPath = (await ask(m().promptFfmpegPath)).trim();
       if (customPath) {
         const recheck = await ffmpegVerifier(customPath);
         if (recheck.success) {
-          out(pc.green(`  ✔ FFmpeg 検出成功: ${recheck.version}`));
+          out(pc.green(m().ffmpegSuccess(recheck.version || customPath)));
           updatedConfig.ffmpegPath = customPath;
         } else {
-          out(pc.yellow(`  ⚠️  指定されたパスでも検出できませんでした (${recheck.error})。`));
+          out(pc.yellow(m().ffmpegFailed(recheck.error ?? customPath)));
           updatedConfig.ffmpegPath = customPath;
         }
       }
@@ -267,23 +268,30 @@ export async function runInitWizard(options: InitWizardOptions = {}): Promise<vo
     }
 
     // ---------------------------------------------------------
-    // Step 4: Default Preferences (Target Language & Models)
+    // Step 4: Default Preferences (Language & Models)
     // ---------------------------------------------------------
-    out(pc.bold(pc.green("▶ [4/4] デフォルト動作設定")));
+    out(pc.bold(pc.green(m().step4Title)));
 
-    const currentLang = currentConfig.targetLang || "ja";
-    const langAnswer = (await ask(`  デフォルト翻訳言語 [${currentLang}]: `)).trim();
-    updatedConfig.targetLang = langAnswer || currentLang;
+    const currentDisplayLang = currentConfig.lang || "en";
+    const displayLangAnswer = (await ask(`  CLI Display Language [${currentDisplayLang}] (en/ja): `)).trim().toLowerCase();
+    const resolvedDisplayLang = normalizeLanguage(displayLangAnswer) || currentDisplayLang;
+    updatedConfig.lang = resolvedDisplayLang;
+    effectiveLang = resolvedDisplayLang;
+    i18n = getI18n(resolvedDisplayLang);
+
+    const currentTargetLang = currentConfig.targetLang || "ja";
+    const langAnswer = (await ask(`  ${m().promptTargetLang}[${currentTargetLang}]: `)).trim();
+    updatedConfig.targetLang = langAnswer || currentTargetLang;
 
     const currentGeminiModel = currentConfig.geminiModel || DEFAULT_GEMINI_MODEL;
     const geminiModelAnswer = (
-      await ask(`  デフォルト Gemini モデル [${currentGeminiModel}]: `)
+      await ask(`  Default Gemini Model [${currentGeminiModel}]: `)
     ).trim();
     updatedConfig.geminiModel = geminiModelAnswer || currentGeminiModel;
 
     const currentGroqModel = currentConfig.groqModel || DEFAULT_GROQ_MODEL;
     const groqModelAnswer = (
-      await ask(`  デフォルト Groq Whisper モデル [${currentGroqModel}]: `)
+      await ask(`  Default Groq Whisper Model [${currentGroqModel}]: `)
     ).trim();
     updatedConfig.groqModel = groqModelAnswer || currentGroqModel;
 
@@ -294,16 +302,14 @@ export async function runInitWizard(options: InitWizardOptions = {}): Promise<vo
     // ---------------------------------------------------------
     saveGlobalConfig(updatedConfig);
 
-    out(pc.bold(pc.green("🎉 初期セットアップが正常に完了しました！")));
-    out(`設定を保存しました: ${pc.yellow(configPath)}`);
-    out("");
-    out(pc.bold("🚀 クイックスタート例:"));
-    out(`   ${pc.cyan("vsub video.mp4")}                 # 動画の文字起こしと日本語字幕生成`);
-    out(`   ${pc.cyan("vsub video.mp4 -t en,ja")}          # 英語・日本語の複数言語一括字幕`);
-    out(`   ${pc.cyan("vsub video.mp4 --bilingual")}       # 原語と訳語の2言語併記字幕`);
-    out(`   ${pc.cyan("vsub video.mp4 --burn")}            # 字幕を動画に直接焼き込み`);
-    out(`   ${pc.cyan("vsub batch ./videos")}              # フォルダ内のメディアを一括自動処理`);
-    out(`   ${pc.cyan("vsub --help")}                      # すべてのオプション一覧を表示`);
+    out(pc.bold(pc.green(m().configSaved(configPath))));
+    out(pc.bold("🚀 Quick Start:"));
+    out(`   ${pc.cyan("vsub video.mp4")}                 # Transcribe & generate subtitles`);
+    out(`   ${pc.cyan("vsub video.mp4 -t en,ja")}          # Multi-language subtitle output`);
+    out(`   ${pc.cyan("vsub video.mp4 --bilingual")}       # Bilingual subtitles`);
+    out(`   ${pc.cyan("vsub video.mp4 --burn")}            # Burn subtitles into video (hardsub)`);
+    out(`   ${pc.cyan("vsub batch ./videos")}              # Batch process directory`);
+    out(`   ${pc.cyan("vsub --help")}                      # Display all options`);
     out("");
   } finally {
     if (rl) {

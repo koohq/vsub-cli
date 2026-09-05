@@ -307,10 +307,34 @@ describe("gemini.ts", () => {
       mockGenerateContent.mockRejectedValue(notFoundError);
 
       await expect(translateSrtEntries(entries, "ja", "fake-key")).rejects.toThrow(
-        /デフォルトの Gemini モデル 'gemini-3.8-flash' が見つからないか、Google により提供終了（退役）した可能性があります/,
+        /Default Gemini model 'gemini-3.8-flash' not found or may be retired by Google/,
       );
 
       // Crucial: Must only call once without retrying 4 times!
+      expect(mockGenerateContent).toHaveBeenCalledTimes(1);
+    });
+
+    it("should return Japanese error when lang is ja", async () => {
+      const entries: SrtEntry[] = [
+        {
+          id: 1,
+          startTime: "00:00:01,000",
+          endTime: "00:00:02,000",
+          text: "Hello",
+        },
+      ];
+
+      const notFoundError = new Error(
+        "models/gemini-3.8-flash is not found for API version v1beta",
+      );
+      (notFoundError as { status?: number }).status = 404;
+      mockGenerateContent.mockRejectedValue(notFoundError);
+
+      await expect(
+        translateSrtEntries(entries, "ja", "fake-key", false, undefined, { lang: "ja" }),
+      ).rejects.toThrow(
+        /デフォルトの Gemini モデル 'gemini-3.8-flash' が見つからないか、Google により提供終了（退役）した可能性があります/,
+      );
       expect(mockGenerateContent).toHaveBeenCalledTimes(1);
     });
 
@@ -331,7 +355,7 @@ describe("gemini.ts", () => {
         translateSrtEntries(entries, "ja", "fake-key", false, undefined, {
           model: "gemini-nonexistent",
         }),
-      ).rejects.toThrow(/指定された Gemini モデル 'gemini-nonexistent' が見つかりませんでした/);
+      ).rejects.toThrow(/Specified Gemini model 'gemini-nonexistent' was not found/);
 
       expect(mockGenerateContent).toHaveBeenCalledTimes(1);
     });
@@ -364,16 +388,31 @@ describe("gemini.ts", () => {
   });
 
   describe("formatModelNotFoundError", () => {
-    it("should return actionable update instructions for default model", () => {
+    it("should return actionable update instructions in English by default", () => {
       const message = formatModelNotFoundError("gemini-3.8-flash");
+      expect(message).toContain("Default Gemini model 'gemini-3.8-flash'");
+      expect(message).toContain("npm install -g vsub-cli");
+      expect(message).toContain("--gemini-model");
+      expect(message).toContain("https://ai.google.dev/gemini-api/docs/models");
+    });
+
+    it("should return actionable update instructions in Japanese when lang is ja", () => {
+      const message = formatModelNotFoundError("gemini-3.8-flash", "ja");
       expect(message).toContain("デフォルトの Gemini モデル 'gemini-3.8-flash'");
       expect(message).toContain("npm install -g vsub-cli");
       expect(message).toContain("--gemini-model");
       expect(message).toContain("https://ai.google.dev/gemini-api/docs/models");
     });
 
-    it("should return clear message for custom model", () => {
+    it("should return clear message for custom model in English by default", () => {
       const message = formatModelNotFoundError("custom-test-model");
+      expect(message).toContain("Specified Gemini model 'custom-test-model' was not found");
+      expect(message).toContain("https://ai.google.dev/gemini-api/docs/models");
+      expect(message).not.toContain("npm install -g vsub-cli");
+    });
+
+    it("should return clear message for custom model in Japanese when lang is ja", () => {
+      const message = formatModelNotFoundError("custom-test-model", "ja");
       expect(message).toContain(
         "指定された Gemini モデル 'custom-test-model' が見つかりませんでした",
       );

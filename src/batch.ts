@@ -3,6 +3,7 @@ import path from "node:path";
 import pc from "picocolors";
 import { ensureApiKeys, getConfig } from "./config.js";
 import { checkFfmpeg, isAudioFile, isVideoFile } from "./ffmpeg.js";
+import { getI18n } from "./i18n/index.js";
 import { type ProcessMediaOptions, processMediaPipeline } from "./pipeline.js";
 import { type BatchSummaryData, type BatchSummaryItem, formatBatchSummaryBox } from "./ui.js";
 
@@ -121,35 +122,34 @@ export interface BatchPipelineOptions extends Omit<ProcessMediaOptions, "mediaFi
  */
 export async function runBatchPipeline(options: BatchPipelineOptions): Promise<BatchSummaryData> {
   const startTime = Date.now();
+  const i18n = getI18n(options.lang);
   const mediaFiles = findMediaFiles(options.targets, { recursive: options.recursive });
 
   if (mediaFiles.length === 0) {
-    console.log(
-      `\n⚠️  対象となる動画・音声メディアファイルが見つかりませんでした。\n   指定パス: ${options.targets.join(", ")}\n`,
-    );
+    console.log(i18n.batch.noMediaFiles(options.targets.join(", ")));
     return {
       totalFiles: 0,
       succeededCount: 0,
       failedCount: 0,
       totalDurationMs: 0,
       items: [],
+      lang: options.lang,
     };
   }
 
   // Pre-validate API keys and FFmpeg once before starting batch operations
-  const rawConfig = getConfig(options.ffmpegPath);
+  const rawConfig = getConfig(options.ffmpegPath, options.lang);
   const requiresGroq = !options.noTranslate;
   const requiresGemini = !options.noTranslate;
 
   const config = await ensureApiKeys(rawConfig, {
     requireGroq: requiresGroq,
     requireGemini: requiresGemini,
+    lang: options.lang,
   });
   await checkFfmpeg(config.ffmpegPath);
 
-  console.log(
-    `\n🎬 ${pc.bold("vsub-cli batch")} - バッチ処理開始 (${pc.cyan(`${mediaFiles.length} ファイル`)})\n`,
-  );
+  console.log(`\n🎬 ${pc.bold(i18n.batch.started(mediaFiles.length))}\n`);
 
   const items: BatchSummaryItem[] = [];
   let succeededCount = 0;
@@ -163,7 +163,10 @@ export async function runBatchPipeline(options: BatchPipelineOptions): Promise<B
     const itemStartTime = Date.now();
 
     console.log(
-      `${pc.cyan(fileIndexStr)} 📁 処理中: ${pc.bold(path.basename(file))} ${pc.dim(`(${path.dirname(file)})`)}`,
+      `${pc.cyan(fileIndexStr)} ${i18n.batch.processingItem(
+        pc.bold(path.basename(file)),
+        pc.dim(`(${path.dirname(file)})`),
+      )}`,
     );
 
     try {
@@ -183,7 +186,7 @@ export async function runBatchPipeline(options: BatchPipelineOptions): Promise<B
         entriesCount: result.entriesCount,
         outputFiles: result.outputFiles.map((p) => path.basename(p)),
       });
-      console.log(`${pc.green(fileIndexStr)} ✔ 完了 (${path.basename(file)})\n`);
+      console.log(`${pc.green(fileIndexStr)} ${i18n.batch.completedItem(path.basename(file))}\n`);
     } catch (error) {
       const itemDuration = Date.now() - itemStartTime;
       const errorMessage = error instanceof Error ? error.message : String(error);
@@ -194,10 +197,10 @@ export async function runBatchPipeline(options: BatchPipelineOptions): Promise<B
         durationMs: itemDuration,
         error: errorMessage,
       });
-      console.error(`${pc.red(fileIndexStr)} ✖ 失敗: ${errorMessage}\n`);
+      console.error(`${pc.red(fileIndexStr)} ${i18n.batch.failedItem(errorMessage)}\n`);
 
       if (options.failFast) {
-        console.warn(`⚠️  [--fail-fast] エラーが発生したため残りのバッチ処理を中断します。\n`);
+        console.warn(i18n.batch.failFastAbort);
         const remaining = mediaFiles.slice(i + 1);
         for (const rem of remaining) {
           skippedCount++;
@@ -219,6 +222,7 @@ export async function runBatchPipeline(options: BatchPipelineOptions): Promise<B
     skippedCount: skippedCount > 0 ? skippedCount : undefined,
     totalDurationMs,
     items,
+    lang: options.lang,
   };
 
   console.log(`${formatBatchSummaryBox(summary)}\n`);

@@ -1,12 +1,14 @@
 import fs from "node:fs";
 import readline from "node:readline/promises";
 import pc from "picocolors";
+import { type SupportedLanguage, getI18n } from "./i18n/index.js";
 
 export interface EnsureWritableOptions {
   overwrite?: boolean | undefined;
   backup?: boolean | undefined;
   isInteractive?: boolean | undefined;
   promptFn?: ((question: string) => Promise<string>) | undefined;
+  lang?: SupportedLanguage | undefined;
 }
 
 export interface BackupResult {
@@ -62,15 +64,21 @@ export function createBackup(filePath: string): string | null {
  */
 export async function promptOverwriteConfirmation(
   existingFiles: string[],
-  options?: { promptFn?: ((question: string) => Promise<string>) | undefined },
+  options?: {
+    promptFn?: ((question: string) => Promise<string>) | undefined;
+    lang?: SupportedLanguage | string | undefined;
+  },
 ): Promise<boolean> {
-  console.log(`\n⚠️  ${pc.yellow("以下の出力ファイルが既に存在します:")}`);
+  const i18n = getI18n(options?.lang);
+  const m = i18n.safety;
+
+  console.log(`\n⚠️  ${pc.yellow(m.existingFilesWarning)}`);
   for (const f of existingFiles) {
     console.log(`   - ${pc.cyan(f)}`);
   }
 
   if (options?.promptFn) {
-    const answer = await options.promptFn("上書きして処理を続行しますか？ (y/N): ");
+    const answer = await options.promptFn(m.promptOverwrite);
     const normalized = answer.trim().toLowerCase();
     return normalized === "y" || normalized === "yes";
   }
@@ -81,7 +89,7 @@ export async function promptOverwriteConfirmation(
   });
 
   try {
-    const answer = await rl.question(pc.bold("上書きして処理を続行しますか？ (y/N): "));
+    const answer = await rl.question(pc.bold(m.promptOverwrite));
     const normalized = answer.trim().toLowerCase();
     return normalized === "y" || normalized === "yes";
   } finally {
@@ -142,6 +150,7 @@ export async function ensureWritableTargets(
   if (isInteractive) {
     const confirmed = await promptOverwriteConfirmation(existingFiles, {
       promptFn: options.promptFn,
+      lang: options.lang,
     });
     return {
       proceed: confirmed,
@@ -151,8 +160,7 @@ export async function ensureWritableTargets(
   }
 
   // Non-interactive without --overwrite or --backup
+  const i18n = getI18n(options.lang);
   const fileList = existingFiles.map((f) => `  - ${f}`).join("\n");
-  throw new Error(
-    `出力先ファイルが既に存在します:\n${fileList}\n上書きして続行する場合は --overwrite (-w) または --backup オプションを指定してください。`,
-  );
+  throw new Error(`${i18n.safety.nonInteractiveError}\n${fileList}`);
 }

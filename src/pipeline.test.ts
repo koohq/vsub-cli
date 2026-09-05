@@ -35,7 +35,8 @@ describe("pipeline.ts", () => {
     });
 
     it("should throw for invalid order values", () => {
-      expect(() => parseBilingualOrder("invalid")).toThrow(/サポートされていないバイリンガル順序/);
+      expect(() => parseBilingualOrder("invalid")).toThrow(/Unsupported bilingual order/);
+      expect(() => parseBilingualOrder("invalid", "ja")).toThrow(/サポートされていないバイリンガル順序/);
     });
   });
 
@@ -95,6 +96,12 @@ describe("pipeline.ts", () => {
         processMediaPipeline({
           mediaFile: nonExistent,
         }),
+      ).rejects.toThrow(/Media file not found/);
+      await expect(
+        processMediaPipeline({
+          mediaFile: nonExistent,
+          lang: "ja",
+        }),
       ).rejects.toThrow(/メディアファイルが見つかりません/);
     });
 
@@ -106,6 +113,13 @@ describe("pipeline.ts", () => {
         processMediaPipeline({
           mediaFile: audioFile,
           burn: true,
+        }),
+      ).rejects.toThrow(/Cannot burn subtitles into audio files/);
+      await expect(
+        processMediaPipeline({
+          mediaFile: audioFile,
+          burn: true,
+          lang: "ja",
         }),
       ).rejects.toThrow(/音声ファイルには字幕を焼き込めません/);
     });

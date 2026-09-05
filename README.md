@@ -132,6 +132,7 @@ Arguments:
   media-file                    Target video or audio file path (.mp4, .mp3, .wav, .m4a, .mov, etc.)
 
 Options:
+  -l, --lang <lang>             UI display language: en (default), ja
   -t, --target-lang <langs>     Target language code(s), comma-separated (e.g., ja,en,es) (default: "ja")
   -f, --format <formats>        Output formats: comma-separated list of srt, vtt, txt, json (default: "srt")
   -o, --output <path>           Output path for the generated subtitle file
@@ -279,8 +280,8 @@ pnpm dev video.mp4 -t ja --concurrency 5
 # Show current configuration (API keys masked)
 pnpm dev config show
 
-# Save persistent default prompts, glossary, or concurrency
-pnpm dev config set --prompt "Translate politely" --glossary "./glossary.json" --concurrency 4
+# Save persistent default prompts, glossary, language, or concurrency
+pnpm dev config set --lang ja --prompt "Translate politely" --glossary "./glossary.json" --concurrency 4
 
 # View configuration file path
 pnpm dev config path
