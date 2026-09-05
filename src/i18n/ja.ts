@@ -85,8 +85,7 @@ export const ja: typeof en = {
     step2NoEntries: "⚠️ [2/4] 文字起こし結果から有効な字幕エントリが検出されませんでした",
     step2Done: (lang: string, count: number) =>
       `🎙️ [2/4] 文字起こし完了${lang} - ${count} 行の字幕を生成`,
-    step3Cached: (lang: string, count: number) =>
-      `  ✔ ${lang} 翻訳 (キャッシュ利用: ${count} 行)`,
+    step3Cached: (lang: string, count: number) => `  ✔ ${lang} 翻訳 (キャッシュ利用: ${count} 行)`,
     step3TranslatingMulti: (
       model: string,
       currentLangIdx: number,
@@ -103,8 +102,7 @@ export const ja: typeof en = {
       totalChunks: number,
     ) =>
       `🌐 [3/4] Gemini (${model}) で ${lang} に翻訳中 [${currentChunk}/${totalChunks} チャンク]...`,
-    step3LangDone: (lang: string, count: number) =>
-      `  ✔ ${lang} 翻訳完了 (${count} 行)`,
+    step3LangDone: (lang: string, count: number) => `  ✔ ${lang} 翻訳完了 (${count} 行)`,
     step3AllDone: (langs: string, count: number) =>
       `🌐 [3/4] Gemini 翻訳完了 (${langs}) - ${count} 行`,
     step3SkippedSameLang: (detected: string, target: string) =>
@@ -118,7 +116,8 @@ export const ja: typeof en = {
   translate: {
     started: (name: string) => `vsub-cli translate - 字幕翻訳開始: ${name}`,
     step1Parsing: "📖 [1/3] 字幕ファイルを読み込み・パース中...",
-    step1Parsed: (count: number) => `📖 [1/3] 字幕ファイル読み込み完了 - ${count} 行のエントリを検出`,
+    step1Parsed: (count: number) =>
+      `📖 [1/3] 字幕ファイル読み込み完了 - ${count} 行のエントリを検出`,
     step1NoEntries: (name: string) =>
       `字幕ファイルからエントリを読み取れませんでした（SRT 形式であることを確認してください）: ${name}`,
     step2TranslatingMulti: (
@@ -144,8 +143,7 @@ export const ja: typeof en = {
     subtitleNotFound: (path: string) => `字幕ファイルが見つかりません: ${path}`,
   },
   burn: {
-    started: (video: string, sub: string) =>
-      `vsub-cli burn - 字幕焼き込み開始: ${video} + ${sub}`,
+    started: (video: string, sub: string) => `vsub-cli burn - 字幕焼き込み開始: ${video} + ${sub}`,
     videoNotFound: (path: string) => `動画ファイルが見つかりません: ${path}`,
     notVideoFile: (name: string) => `動画ファイル以外の形式には字幕を焼き込めません: ${name}`,
     subtitleNotFound: (path: string) => `字幕ファイルが見つかりません: ${path}`,

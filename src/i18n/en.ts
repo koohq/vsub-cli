@@ -60,8 +60,7 @@ export const en = {
     mediaNotFound: (path: string) => `Media file not found: ${path}`,
     conflictAbort:
       "Processing aborted due to existing file conflict. (Use --overwrite or --backup)",
-    backupCreated: (original: string, backup: string) =>
-      `Created backup: ${original} -> ${backup}`,
+    backupCreated: (original: string, backup: string) => `Created backup: ${original} -> ${backup}`,
     cannotBurnAudio:
       "Cannot burn subtitles into audio files. The --burn option is only available for video files (.mp4, .mkv, .mov, etc.).",
     invalidBilingualOrder: (input: string) =>

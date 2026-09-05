@@ -1,7 +1,7 @@
 import { GoogleGenAI } from "@google/genai";
 import { DEFAULT_GEMINI_MODEL } from "./config.js";
 import { type FlatGlossary, formatGlossaryPrompt } from "./glossary.js";
-import { type SupportedLanguage, getI18n } from "./i18n/index.js";
+import { getI18n, type SupportedLanguage } from "./i18n/index.js";
 import type { SrtEntry } from "./srt.js";
 
 const DEFAULT_CHUNK_SIZE = 50;
