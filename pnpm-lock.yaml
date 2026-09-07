@@ -10,7 +10,7 @@ importers:
     dependencies:
       '@google/genai':
         specifier: ^2.18.0
-        version: 2.19.0(supports-color@7.2.0)
+        version: 2.21.0(supports-color@7.2.0)
       commander:
         specifier: ^15.0.0
         version: 15.0.0
@@ -294,8 +294,8 @@ packages:
     cpu: [x64]
     os: [win32]
 
-  '@google/genai@2.19.0':
-    resolution: {integrity: sha512-IM3u1FjpOLyOPsPh0smGA6Ntj2olUWCPbTs/WQj7cA/2AKCGw/652W7IaySx0XtwuscFnMYBoraebQusSZ0zSQ==}
+  '@google/genai@2.21.0':
+    resolution: {integrity: sha512-+PDtco2/Z0ONdzCGekCoCT+O1VJS9xJQNN4XzQpXG/t3El/SWWMkCWlFRO1KmivOHPa4Q0VjUYu1HBKCZ/v33Q==}
     engines: {node: '>=20.0.0'}
     peerDependencies:
       '@modelcontextprotocol/sdk': ^1.25.2
@@ -463,6 +463,9 @@ packages:
 
   '@types/node@26.4.0':
     resolution: {integrity: sha512-faiGnoIrLH/V8cibOMEAZ8pMw6oXqSukl29ra4mN8GdaB2ZewzeaLj+INpV5N+Z1eKWzY+IzaIZH2EIR6YZRNQ==}
+
+  '@types/node@26.4.1':
+    resolution: {integrity: sha512-k97ENvZWtvA6yqz5/FS6a7duDgOPEeOQOc2iKS/nY6mX6qJUKtLnWzQS+Xj6tXweyj6ZcTAK2Qecetnvi9nCLA==}
 
   '@types/retry@0.12.0':
     resolution: {integrity: sha512-wWKOClTTiizcZhXnPY4wikVAwmdYHp8q6DmC+EJUzAMsycb7HB32Kh9RN4+0gExjmPmZSAQjgURXIGATPegAvA==}
@@ -1327,7 +1330,7 @@ snapshots:
   '@esbuild/win32-x64@0.28.2':
     optional: true
 
-  '@google/genai@2.19.0(supports-color@7.2.0)':
+  '@google/genai@2.21.0(supports-color@7.2.0)':
     dependencies:
       google-auth-library: 10.9.1(supports-color@7.2.0)
       p-retry: 4.6.2
@@ -1433,6 +1436,10 @@ snapshots:
   '@types/estree@1.0.9': {}
 
   '@types/node@26.4.0':
+    dependencies:
+      undici-types: 8.3.0
+
+  '@types/node@26.4.1':
     dependencies:
       undici-types: 8.3.0
 
@@ -1908,7 +1915,7 @@ snapshots:
       '@protobufjs/path': 1.1.2
       '@protobufjs/pool': 1.1.0
       '@protobufjs/utf8': 1.1.2
-      '@types/node': 26.4.0
+      '@types/node': 26.4.1
       long: 5.3.2
 
   restore-cursor@5.1.0:
