@@ -183,3 +183,19 @@ jobs:
           echo "Uploading release assets for tag: $TARGET_TAG"
           gh release view "$TARGET_TAG" || gh release create "$TARGET_TAG" --title "$TARGET_TAG" --generate-notes
           gh release upload "$TARGET_TAG" dist/release-assets/* --clobber
+
+          NODE_VERSION="$(node -v)"
+          CURRENT_NOTES="$(gh release view "$TARGET_TAG" --json body -q .body 2>/dev/null || true)"
+          if ! echo "$CURRENT_NOTES" | grep -q "Bundled Standalone Binary Environment"; then
+            echo "Annotating release notes with Node.js runtime version: $NODE_VERSION"
+            UPDATED_NOTES=$(cat <<EOF
+$CURRENT_NOTES
+
+### Bundled Standalone Binary Environment
+
+* **Node.js Runtime**: \`$NODE_VERSION\` (Single Executable Application)
+EOF
+)
+            gh release edit "$TARGET_TAG" --notes "$UPDATED_NOTES"
+          fi
+
