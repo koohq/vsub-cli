@@ -188,14 +188,10 @@ jobs:
           CURRENT_NOTES="$(gh release view "$TARGET_TAG" --json body -q .body 2>/dev/null || true)"
           if ! echo "$CURRENT_NOTES" | grep -q "Bundled Standalone Binary Environment"; then
             echo "Annotating release notes with Node.js runtime version: $NODE_VERSION"
-            UPDATED_NOTES=$(cat <<EOF
-$CURRENT_NOTES
-
-### Bundled Standalone Binary Environment
-
-* **Node.js Runtime**: \`$NODE_VERSION\` (Single Executable Application)
-EOF
-)
-            gh release edit "$TARGET_TAG" --notes "$UPDATED_NOTES"
+            NOTE_FILE="$(mktemp)"
+            printf "%s\n\n### Bundled Standalone Binary Environment\n\n* **Node.js Runtime**: \`%s\` (Single Executable Application)\n" "$CURRENT_NOTES" "$NODE_VERSION" > "$NOTE_FILE"
+            gh release edit "$TARGET_TAG" --notes-file "$NOTE_FILE"
+            rm -f "$NOTE_FILE"
           fi
+
 
