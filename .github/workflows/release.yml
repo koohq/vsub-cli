@@ -4,20 +4,22 @@ on:
   push:
     branches:
       - main
-    tags:
-      - "v*"
-  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}
+  cancel-in-progress: false
 
 permissions:
-  contents: write
-  pull-requests: write
-  id-token: write
+  contents: read
 
 jobs:
   release-please:
     name: Release Please
-    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: write
+      pull-requests: write
     outputs:
       releases_created: ${{ steps.release.outputs.releases_created }}
       tag_name: ${{ steps.release.outputs.tag_name }}
@@ -30,35 +32,21 @@ jobs:
           config-file: release-please-config.json
           manifest-file: .release-please-manifest.json
 
-  github-release:
-    name: Ensure GitHub Release
-    runs-on: ubuntu-latest
-    if: startsWith(github.ref, 'refs/tags/v')
-    steps:
-      - name: Checkout repository
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-
-      - name: Create Release
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          gh release view "${{ github.ref_name }}" || gh release create "${{ github.ref_name }}" \
-            --title "${{ github.ref_name }}" \
-            --notes-file CHANGELOG.md \
-            --verify-tag || gh release create "${{ github.ref_name }}" --title "${{ github.ref_name }}" --generate-notes
-
   publish-npm:
     name: Publish to npm
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     needs: [release-please]
-    if: |
-      always() &&
-      (needs.release-please.outputs.releases_created == 'true' || startsWith(github.ref, 'refs/tags/v'))
+    if: needs.release-please.outputs.releases_created == 'true'
+    permissions:
+      contents: read
+      id-token: write
     steps:
       - name: Checkout code
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          ref: ${{ needs.release-please.outputs.tag_name || github.ref }}
+          ref: ${{ needs.release-please.outputs.tag_name }}
+          persist-credentials: false
 
       - name: Setup pnpm
         uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
@@ -84,66 +72,30 @@ jobs:
           NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
 
   build-binaries:
-    name: Build Binary (${{ matrix.target }})
+    name: Build Binary
     needs: [release-please]
-    if: |
-      always() &&
-      (needs.release-please.outputs.releases_created == 'true' || startsWith(github.ref, 'refs/tags/v') || github.event_name == 'workflow_dispatch')
-    runs-on: ${{ matrix.os }}
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - os: windows-latest
-            target: vsub-windows-x64.exe
-          - os: windows-11-arm
-            target: vsub-windows-arm64.exe
-          - os: ubuntu-latest
-            target: vsub-linux-x64
-          - os: ubuntu-24.04-arm
-            target: vsub-linux-arm64
-          - os: macos-latest
-            target: vsub-macos-arm64
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          ref: ${{ needs.release-please.outputs.tag_name || github.ref }}
-
-      - name: Setup pnpm
-        uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
-
-      - name: Setup Node.js
-        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
-        with:
-          node-version-file: .node-version
-          cache: "pnpm"
-
-      - name: Install dependencies
-        run: pnpm install --frozen-lockfile
-
-      - name: Build standalone binary
-        run: pnpm build:binary --name ${{ matrix.target }} --output-dir dist/binaries --checksum
-
-      - name: Upload binary artifact
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
-        with:
-          name: binary-${{ matrix.target }}
-          path: dist/binaries/
-          if-no-files-found: error
+    if: needs.release-please.outputs.releases_created == 'true'
+    permissions:
+      contents: read
+    uses: ./.github/workflows/build-binaries.yml
+    with:
+      ref: ${{ needs.release-please.outputs.tag_name }}
+      upload: true
 
   upload-release-assets:
     name: Upload Release Assets
-    needs: [release-please, github-release, build-binaries]
-    if: |
-      always() &&
-      (needs.release-please.outputs.releases_created == 'true' || startsWith(github.ref, 'refs/tags/v') || github.event_name == 'workflow_dispatch')
     runs-on: ubuntu-latest
+    timeout-minutes: 10
+    needs: [release-please, build-binaries]
+    if: needs.release-please.outputs.releases_created == 'true'
+    permissions:
+      contents: write
     steps:
       - name: Checkout code
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          ref: ${{ needs.release-please.outputs.tag_name || github.ref }}
+          ref: ${{ needs.release-please.outputs.tag_name }}
+          persist-credentials: false
 
       - name: Setup pnpm
         uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
@@ -176,12 +128,8 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          TARGET_TAG="${{ needs.release-please.outputs.tag_name || github.ref_name }}"
-          if [ "$TARGET_TAG" = "main" ]; then
-            TARGET_TAG="latest"
-          fi
+          TARGET_TAG="${{ needs.release-please.outputs.tag_name }}"
           echo "Uploading release assets for tag: $TARGET_TAG"
-          gh release view "$TARGET_TAG" || gh release create "$TARGET_TAG" --title "$TARGET_TAG" --generate-notes
           gh release upload "$TARGET_TAG" dist/release-assets/* --clobber
 
           NODE_VERSION="$(node -v)"
@@ -193,5 +141,3 @@ jobs:
             gh release edit "$TARGET_TAG" --notes-file "$NOTE_FILE"
             rm -f "$NOTE_FILE"
           fi
-
-

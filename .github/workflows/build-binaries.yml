@@ -1,0 +1,60 @@
+name: Build Binaries
+
+on:
+  workflow_call:
+    inputs:
+      ref:
+        description: "Git reference to checkout (defaults to workflow trigger ref)"
+        type: string
+        required: false
+        default: ""
+      upload:
+        description: "Whether to build with checksums and upload binary artifacts"
+        type: boolean
+        required: false
+        default: false
+
+jobs:
+  binary:
+    name: ${{ matrix.target }}
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: windows-latest
+            target: vsub-windows-x64.exe
+          - os: windows-11-arm
+            target: vsub-windows-arm64.exe
+          - os: ubuntu-latest
+            target: vsub-linux-x64
+          - os: ubuntu-24.04-arm
+            target: vsub-linux-arm64
+          - os: macos-latest
+            target: vsub-macos-arm64
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ inputs.ref }}
+          persist-credentials: false
+
+      - name: Setup environment
+        uses: ./.github/actions/setup-env
+
+      - name: Build and verify standalone binary
+        if: ${{ !inputs.upload }}
+        run: pnpm build:binary --name ${{ matrix.target }}
+
+      - name: Build standalone binary for release
+        if: ${{ inputs.upload }}
+        run: pnpm build:binary --name ${{ matrix.target }} --output-dir dist/binaries --checksum
+
+      - name: Upload binary artifact
+        if: ${{ inputs.upload }}
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: binary-${{ matrix.target }}
+          path: dist/binaries/
+          if-no-files-found: error
