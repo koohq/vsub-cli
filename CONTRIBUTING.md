@@ -12,8 +12,8 @@ Thank you for your interest in contributing to `vsub-cli`!
    - `vsub-cli` aims to be a lightweight, resilient, and focused tool.
    - Large architectural changes or heavy new dependencies should be discussed in an issue first.
 
-3. **License & Disclaimer (The Unlicense)**:
-   - This project is released into the public domain under [The Unlicense](LICENSE).
+3. **License & Disclaimer (MIT License)**:
+   - This project is released under the [MIT License](LICENSE).
    - Contributions are provided voluntarily, and maintenance is strictly best-effort.
 
 ---

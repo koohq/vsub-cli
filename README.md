@@ -291,7 +291,7 @@ pnpm dev config path
 
 ## License
 
-The source code of `vsub-cli` is released under [The Unlicense](LICENSE) (Public Domain).
+The source code of `vsub-cli` is released under the [MIT License](LICENSE).
 
 ### Third-Party Licenses
 The standalone single executables bundle the following open-source libraries (MIT, Apache-2.0, BSD-2-Clause, ISC):

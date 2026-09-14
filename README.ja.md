@@ -291,7 +291,7 @@ pnpm dev config path
 
 ## ライセンス
 
-本ツールのソースコードは [The Unlicense](LICENSE)（パブリックドメイン）に基づき公開されています。
+本ツールのソースコードは [MIT License](LICENSE) に基づき公開されています。
 
 ### サードパーティライセンス表記
 スタンドアロンバイナリ（単体実行版）には、以下のオープンソースライブラリ（MIT, Apache-2.0, BSD-2-Clause, ISC 等）が同梱されています：

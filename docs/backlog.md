@@ -139,7 +139,7 @@
   * `PULL_REQUEST_TEMPLATE.md`: 変更概要および検証チェックリスト（`pnpm check`, `pnpm test`, `pnpm build`）。
 * **コントリビューション規約 (`CONTRIBUTING.md`)**:
   * トランクベース開発（`main` 直接マージ運用）の推奨。
-  * The Unlicense に基づく無償・無保証・ベストエフォート運用方針の明文化。
+  * MIT License に基づく無償・無保証・ベストエフォート運用方針の明文化。
 * **パッケージメタデータ整備 (`package.json`)**:
   * `repository`, `homepage`, `bugs`, `files` を設定し、OSS リポジトリとしての完全性を担保。
 ### 1.16 npm 公開 & Release Please 全自動リリースパイプライン

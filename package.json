@@ -46,7 +46,8 @@
     "translation",
     "transcription"
   ],
-  "license": "Unlicense",
+  "author": "koohq",
+  "license": "MIT",
   "repository": {
     "type": "git",
     "url": "https://github.com/koohq/vsub-cli.git"
