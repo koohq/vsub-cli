@@ -1,0 +1,105 @@
+name: "Update Node.js"
+
+on:
+  schedule:
+    # Run every Monday at 05:00 UTC (14:00 JST), 1 hour before Dependabot (06:00 UTC)
+    - cron: "0 5 * * 1"
+  workflow_dispatch:
+    inputs:
+      force:
+        description: "Bypass cooldown and force update if newer version exists"
+        type: boolean
+        required: false
+        default: false
+      dry_run:
+        description: "Check only without creating PR or updating files"
+        type: boolean
+        required: false
+        default: false
+
+concurrency:
+  group: ${{ github.workflow }}
+  cancel-in-progress: false
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  check-and-update:
+    name: Check & Update Node.js
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: true
+
+      - name: Setup base environment
+        uses: ./.github/actions/setup-env
+
+      - name: Check for stable Node.js release
+        id: check
+        shell: bash
+        run: |
+          ARGS=""
+          if [ "${{ inputs.force }}" = "true" ]; then ARGS="$ARGS --force"; fi
+          if [ "${{ inputs.dry_run }}" = "true" ]; then ARGS="$ARGS --dry-run"; fi
+          pnpm tsx scripts/check-node-update.ts $ARGS
+
+      - name: Setup new Node.js version
+        if: steps.check.outputs.needs_update == 'true' && inputs.dry_run != true
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: ${{ steps.check.outputs.new_version }}
+          cache: "pnpm"
+
+      - name: Install dependencies with new Node.js
+        if: steps.check.outputs.needs_update == 'true' && inputs.dry_run != true
+        shell: bash
+        run: pnpm install --frozen-lockfile
+
+      - name: Verify linter and formatter
+        if: steps.check.outputs.needs_update == 'true' && inputs.dry_run != true
+        shell: bash
+        run: pnpm check
+
+      - name: Verify tests
+        if: steps.check.outputs.needs_update == 'true' && inputs.dry_run != true
+        shell: bash
+        run: pnpm test
+
+      - name: Verify build and SEA binary
+        if: steps.check.outputs.needs_update == 'true' && inputs.dry_run != true
+        shell: bash
+        run: |
+          pnpm build
+          pnpm build:binary
+
+      - name: Create PR and auto-merge
+        if: steps.check.outputs.needs_update == 'true' && inputs.dry_run != true
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          NEW_VERSION: ${{ steps.check.outputs.new_version }}
+          RELEASE_DATE: ${{ steps.check.outputs.release_date }}
+          DAYS_AGO: ${{ steps.check.outputs.days_ago }}
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+          BRANCH_NAME="chore/node-v${NEW_VERSION}"
+          git checkout -b "$BRANCH_NAME"
+          git add .node-version mise.toml
+          git commit -m "chore(deps): update Node.js to ${NEW_VERSION}" -m "Released on ${RELEASE_DATE} (${DAYS_AGO} days ago). Verified with check, test, build, and binary build."
+          git push origin "$BRANCH_NAME" --force
+
+          PR_URL=$(gh pr create \
+            --title "chore(deps): update Node.js to ${NEW_VERSION}" \
+            --body "Automated update of Node.js to \`v${NEW_VERSION}\` (released on ${RELEASE_DATE}, cooldown satisfied). All verification checks (lint, test, SEA binary build) passed." \
+            --head "$BRANCH_NAME" \
+            --base main)
+
+          echo "Created PR: $PR_URL"
+          gh pr merge "$PR_URL" --squash --delete-branch || gh pr merge "$PR_URL" --auto --squash

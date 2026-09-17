@@ -28,6 +28,7 @@
     "deps:semver": "pnpm up -r",
     "deps:latest": "pnpm up -r --latest",
     "deps:interactive": "pnpm up -r -i --latest",
+    "update:node": "tsx scripts/check-node-update.ts",
     "prepublishOnly": "pnpm check && pnpm test && pnpm build"
   },
   "publishConfig": {
