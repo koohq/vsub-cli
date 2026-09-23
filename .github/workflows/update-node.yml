@@ -34,6 +34,7 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
+          token: ${{ secrets.GH_PAT || secrets.GITHUB_TOKEN }}
           persist-credentials: true
 
       - name: Setup base environment
@@ -81,7 +82,8 @@ jobs:
         if: steps.check.outputs.needs_update == 'true' && inputs.dry_run != true
         shell: bash
         env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_TOKEN: ${{ secrets.GH_PAT || secrets.GITHUB_TOKEN }}
+          OLD_VERSION: ${{ steps.check.outputs.old_version }}
           NEW_VERSION: ${{ steps.check.outputs.new_version }}
           RELEASE_DATE: ${{ steps.check.outputs.release_date }}
           DAYS_AGO: ${{ steps.check.outputs.days_ago }}
@@ -95,11 +97,32 @@ jobs:
           git commit -m "chore(deps): update Node.js to ${NEW_VERSION}" -m "Released on ${RELEASE_DATE} (${DAYS_AGO} days ago). Verified with check, test, build, and binary build."
           git push origin "$BRANCH_NAME" --force
 
+          PR_BODY=$(cat <<EOF
+## Summary
+
+Automated update of Node.js to \`v${NEW_VERSION}\` (released on ${RELEASE_DATE}, cooldown satisfied).
+- Cooldown status: Passed cooldown (${DAYS_AGO} days elapsed since release)
+- Official release notes: https://github.com/nodejs/node/releases/tag/v${NEW_VERSION}
+
+## Changes
+
+- Update \`.node-version\` from \`${OLD_VERSION}\` to \`${NEW_VERSION}\`
+- Update \`mise.toml\` from \`${OLD_VERSION}\` to \`${NEW_VERSION}\`
+
+## Verification
+
+- [x] \`pnpm check\` (Biome lint & format pass)
+- [x] \`pnpm test\` (All tests pass)
+- [x] \`pnpm build\` (TypeScript compilation succeeds)
+- [x] \`pnpm build:binary\` (Standalone SEA binary build succeeds)
+EOF
+)
+
           PR_URL=$(gh pr create \
             --title "chore(deps): update Node.js to ${NEW_VERSION}" \
-            --body "Automated update of Node.js to \`v${NEW_VERSION}\` (released on ${RELEASE_DATE}, cooldown satisfied). All verification checks (lint, test, SEA binary build) passed." \
+            --body "$PR_BODY" \
             --head "$BRANCH_NAME" \
             --base main)
 
           echo "Created PR: $PR_URL"
-          gh pr merge "$PR_URL" --squash --delete-branch || gh pr merge "$PR_URL" --auto --squash
+          gh pr merge "$PR_URL" --auto --squash
