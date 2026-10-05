@@ -97,26 +97,26 @@ jobs:
           git commit -m "chore(deps): update Node.js to ${NEW_VERSION}" -m "Released on ${RELEASE_DATE} (${DAYS_AGO} days ago). Verified with check, test, build, and binary build."
           git push origin "$BRANCH_NAME" --force
 
-          PR_BODY=$(cat <<EOF
-## Summary
+          PR_BODY=$(cat <<EOF | sed 's/^ *//'
+          ## Summary
 
-Automated update of Node.js to \`v${NEW_VERSION}\` (released on ${RELEASE_DATE}, cooldown satisfied).
-- Cooldown status: Passed cooldown (${DAYS_AGO} days elapsed since release)
-- Official release notes: https://github.com/nodejs/node/releases/tag/v${NEW_VERSION}
+          Automated update of Node.js to \`v${NEW_VERSION}\` (released on ${RELEASE_DATE}, cooldown satisfied).
+          - Cooldown status: Passed cooldown (${DAYS_AGO} days elapsed since release)
+          - Official release notes: https://github.com/nodejs/node/releases/tag/v${NEW_VERSION}
 
-## Changes
+          ## Changes
 
-- Update \`.node-version\` from \`${OLD_VERSION}\` to \`${NEW_VERSION}\`
-- Update \`mise.toml\` from \`${OLD_VERSION}\` to \`${NEW_VERSION}\`
+          - Update \`.node-version\` from \`${OLD_VERSION}\` to \`${NEW_VERSION}\`
+          - Update \`mise.toml\` from \`${OLD_VERSION}\` to \`${NEW_VERSION}\`
 
-## Verification
+          ## Verification
 
-- [x] \`pnpm check\` (Biome lint & format pass)
-- [x] \`pnpm test\` (All tests pass)
-- [x] \`pnpm build\` (TypeScript compilation succeeds)
-- [x] \`pnpm build:binary\` (Standalone SEA binary build succeeds)
-EOF
-)
+          - [x] \`pnpm check\` (Biome lint & format pass)
+          - [x] \`pnpm test\` (All tests pass)
+          - [x] \`pnpm build\` (TypeScript compilation succeeds)
+          - [x] \`pnpm build:binary\` (Standalone SEA binary build succeeds)
+          EOF
+          )
 
           PR_URL=$(gh pr create \
             --title "chore(deps): update Node.js to ${NEW_VERSION}" \
