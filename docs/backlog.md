@@ -227,78 +227,43 @@
   * `vsub config show` での更新チェック状態（Enabled / Disabled）表示。
 * **対応ファイル**: `src/version.ts`, `src/version.test.ts`, `src/updater.ts`, `src/updater.test.ts`, `src/config.ts`, `src/config.test.ts`, `src/index.ts`, `src/i18n/en.ts`, `src/i18n/ja.ts`, `scripts/build-binary.ts`
 
----
+### 1.23 スタンドアロンバイナリ自己更新 (`vsub update` / `vsub upgrade` - Phase 2)
+* **実行環境の自動判別 (`isStandaloneBinary`)**:
+  * Node.js / npm 環境下で実行された場合は `npm i -g vsub-cli@latest` を案内し、バイナリ破壊を防止。
+  * スタンドアロン SEA バイナリ環境でのみ直接自己更新パイプラインを実行。
+* **堅牢な更新パイプライン (`performSelfUpdate`)**:
+  1. **GitHub Releases API 連携 (`fetchReleaseDetails`)**: 最新リリースおよびプラットフォーム（Windows, macOS, Linux）・アーキテクチャ（x64, arm64）に応じたアセット URL（`.zip` / `.tar.gz`）を取得。
+  2. **一時ディレクトリ安全ダウンロード (`downloadFile`)**: `os.tmpdir()` 配下に一時領域を作成し、アーカイブおよび `SHA256SUMS.txt` を取得。
+  3. **SHA-256 チェックサム検証 (`computeSha256`, `parseChecksumFile`)**: ダウンロードしたアーカイブの完全性を検証し、破損・改ざんを防止。
+  4. **アーカイブ解凍 (`extractArchive`)**: `tar -xf`（Windows では PowerShell `Expand-Archive` へのフォールバック付き）で安全に展開。
+  5. **Windows オープンファイル安全置換 & ロールバック (`replaceBinarySafely`)**:
+     * Windows における実行中 `.exe` ファイルロックを回避するため、既存バイナリを `.old` にリネーム退避し、新バイナリを配置。
+     * コピー失敗時は即時に `.old` から元に戻すロールバック処理を実行。
+     * 過去更新の残存 `.old` ファイルは起動時（`cleanOldBinaries`）および更新直前に自動クリーンアップ。
+     * Unix / macOS ではアトミック置換（`fs.renameSync`）および実行権限（`chmod 0o755`）付与。
+     * 管理者権限不足（`EACCES` / `EPERM`）時の分かりやすいエラーハンドリング。
+  6. **キャッシュ更新 & サマリー表示 (`formatSelfUpdateSummary`)**: 更新成功時に `update-cache.json` を同期し、端末上に美しい完了枠を出力。
+* **CLI オプション**:
+  * `vsub update` / `vsub upgrade`
+  * `--check`: 更新を適用せず新バージョンの有無のみ確認
+  * `--force`: 最新版適用済みの場合でも強制再取得・上書き
+  * `--verbose`: 詳細ログ出力
+* **対応ファイル**: `src/updater.ts`, `src/updater.test.ts`, `src/index.ts`, `src/i18n/en.ts`, `src/i18n/ja.ts`, `src/ui.ts`, `README.md`, `README.ja.md`, `docs/backlog.md`
 
 ---
-
 ## 2. 次期イテレーション・未着手バックログ (Next Candidates)
 
-### 2.1 新バージョン検知・通知 & スタンドアロンバイナリ self-update 機構 (`vsub update`)
-
-#### 概要・背景 (Why)
-* **課題**:
-  * 現在の `vsub-cli` は、npm インストールおよび GitHub Releases 経由のスタンドアロンバイナリの双方が**完全手動更新**となっている。
-  * 新機能の追加、Gemini / Groq のモデル変更、バグ修正が行われた際にユーザーが最新版の存在に気付きにくい。
-  * 特にスタンドアロンバイナリ利用者は GitHub Releases ページから OS/Arch 別のアーカイブ（`.zip` / `.tar.gz`）を手動で再ダウンロードして既存ファイルを置き換える必要があり、更新の心理的・運用的ハードルが高い。
-* **目的**:
-  * コマンド利用時に新バージョンを非侵入的に通知する（Phase 1 で完了）。
-  * スタンドアロンバイナリ環境において、ワンコマンド（`vsub update`）で安全・確実に自己更新（self-update）を完結できるようにする（Phase 2）。
-
-#### 機能要件・フェーズ構成 (What)
-
-##### 【Phase 1】新バージョン検知 & 通知 (Update Notifier) 【完了】
-* **定期チェック & レートリミット対策**:
-  * コマンド実行完了後に GitHub Releases API (`/repos/koohq/vsub-cli/releases/latest`) をチェック。
-  * 未認証 GitHub API のレート制限を消費しないよう、最終チェック時刻と最新バージョンをローカル設定ディレクトリ（`~/.vsub/` 内）にキャッシュし、**最低 24 時間は再チェックを行わない**。
-* **非侵入的な更新案内**:
-  * 処理結果サマリーの直後に枠付きで通知を出力。
-    * **npm / pnpm 実行時**: `💡 新しいバージョン vX.Y.Z が利用可能です (現在: vA.B.C) -> 更新コマンド: npm i -g vsub-cli`
-    * **スタンドアロンバイナリ実行時**: `💡 新しいバージョン vX.Y.Z が利用可能です (現在: vA.B.C) -> 更新コマンド: vsub update`
-* **オプトアウト設定**:
-  * `--no-update-check` オプション、または `vsub config set --disable-update-check true` により通知機能を無効化可能。
-
-##### 【Phase 2】自己更新サブコマンド (`vsub update` / `vsub upgrade`)
-* **実行環境の自動判別**:
-  * `process.execPath` やバイナリ名、パッケージメタデータから「npm/Node.js 実行」か「Node SEA スタンドアロンバイナリ」かを自動判別。
-  * npm 環境の場合は、`npm install -g vsub-cli@latest`（または `pnpm add -g vsub-cli`）を実行確認の上で代行するか、案内を表示して終了。
-* **スタンドアロンバイナリ更新パイプライン**:
-  1. **対象アセットの特定**:
-     * GitHub Releases API の最新リリース情報から、現在のプラットフォーム（`process.platform`）およびアーキテクチャ（`process.arch`）に一致するアーカイブ（`vsub-windows-x64.zip`, `vsub-macos-arm64.tar.gz` 等）と `.sha256` ファイルのダウンロード URL を抽出。
-  2. **一時ディレクトリへのダウンロード**:
-     * `os.tmpdir()` 配下に一時ディレクトリを作成し、アーカイブと `.sha256` をダウンロード。
-  3. **SHA-256 チェックサム検証**:
-     * ダウンロードしたアーカイブの SHA-256 ハッシュを算出し、`.sha256` ファイルの内容と照合。不一致時は即座に中断して破損・改ざんを防止。
-  4. **アーカイブ解凍**:
-     * Windows は `.zip`、Linux/macOS は `.tar.gz` を一時領域に安全に展開。
-  5. **OS 別安全置換 & フェイルセーフ（最重要）**:
-     * **Windows (実行中ファイルロック対策)**:
-       * 実行中の `.exe` ファイルは OS のロックにより直接上書き・削除ができない（`EBUSY`）。
-       * ただしリネームは許可されているため、既存バイナリ（`vsub.exe`）を一時的に `vsub.exe.old`（または `vsub.exe.deleteme`）へリネーム退避。
-       * 新しい `vsub.exe` を元のパスへ配置。
-       * 配置途中でエラーが発生した場合は即座に `vsub.exe.old` を元に戻すロールバック処理を実行。
-       * 次回起動時（または処理終了直後）に古い `.old` ファイルを自動検出してクリーンアップ。
-     * **Linux / macOS**:
-       * 新バイナリに実行権限（`chmod 0o755`）を付与し、既存バイナリパスへアトミック置換（`fs.rename`）。
-       * macOS の場合は Gatekeeper 隔離属性（`com.apple.quarantine`）の解除、または ad-hoc 署名状態を担保。
-     * **パーミッション不足のハンドリング**:
-       * バイナリが `/usr/local/bin` 等の管理者権限領域に置かれており書き込み権限がない場合（`EACCES` / `EPERM`）、ユーザーに「管理者権限（例: `sudo vsub update`）で再実行してください」と分かりやすいガイダンスを表示。
-  6. **検証と完了報告**:
-     * 置換完了後、更新後のバイナリで `--version` を内部検証実行。
-     * 正常終了時に更新前後バージョン、更新された実行パス、CHANGELOG へのリンクを表示。
-
-#### アーキテクチャ設計・対応予定ファイル
-* `src/updater.ts` (新規): バージョン比較、GitHub Releases API 連携、24時間キャッシュ管理、アセットダウンロード、SHA-256 検証、OS 別バイナリ置換ロジック
-* `src/updater.test.ts` (新規): モックを用いた API 取得、レート制限キャッシュ、ハッシュ照合、Windows リネーム退避、ロールバック等の Vitest 単体テスト
-* `src/index.ts`: `vsub update` サブコマンド追加、CLI 終了フックへの更新通知組み込み
-* `src/config.ts`: アップデート通知の有効/無効設定、最終チェックキャッシュの永続化
-* `README.md`, `README.ja.md`, `docs/prd.md`: `vsub update` コマンドおよびアップデート仕様の記載
+現在、ロードマップとして計画されていた全項目（初期 23 タスク ＋ 新バージョン検知・通知 & self-update 機構）の設計・実装・テストが完了しています。
+今後の機能拡張候補は Issue / PR にて随時検討・追加予定です。
 
 ---
 
 ## 3. ロードマップ進捗状況 (Roadmap Status)
 
 * **初期ロードマップ (全 23 タスク)**: コア機能・UX 強化・DevOps/CI/CD・スタンドアロンバイナリ配布を含め、すべて完了。
-* **次期イテレーション (v1.4+)**: スタンドアロンバイナリ運用をさらに強固にする「新バージョン検知・通知 & self-update 機構 (`vsub update`)」をバックログとして起票。準備が整い次第、段階的（Phase 1: 通知 → Phase 2: 自動置換）に着手予定。
+* **新バージョン検知・通知 & self-update 機構 (ロードマップ 24)**:
+  * **Phase 1 (Update Notifier)**: 完了（コミット `1ed9b2d`）
+  * **Phase 2 (vsub update 自己更新)**: 完了（`src/updater.ts`, `src/updater.test.ts`, `src/index.ts`）
 
 
 

@@ -162,6 +162,7 @@ Options:
 Commands:
   burn <video-file> <sub-file>  Burn an existing subtitle file (.srt) directly into a video file via FFmpeg
   translate <subtitle-file>     Directly translate an existing subtitle file (.srt) into target language(s) via Gemini API
+  update [options]              Update vsub-cli standalone binary to the latest version (alias: upgrade)
   cache path                    Display cache directory path
   cache stats                   Display cache usage and entry counts
   cache clean                   Delete all intermediate cache files
@@ -169,6 +170,7 @@ Commands:
   config show                   Display current settings (API Keys are masked)
   config set                    Save API Keys, FFmpeg path, prompts, concurrency to global config
   config init                   Initialize API Keys interactively
+  licenses [options]            Display bundled third-party open-source software licenses
 ```
 
 ---
@@ -271,6 +273,20 @@ pnpm dev cache clean
 
 # Increase translation concurrency for high-bandwidth API tiers
 pnpm dev video.mp4 -t ja --concurrency 5
+```
+
+### 8. Standalone Binary Self-Update (`vsub update`)
+Keep your standalone executable up to date without manual downloads or reinstallations:
+```bash
+# Check if a newer version is available without applying update
+vsub update --check
+
+# Self-update binary to the latest GitHub Release
+# (Automatically detects OS/Arch, downloads archive, verifies SHA-256 checksum, and safely replaces binary)
+vsub update
+
+# Force reinstall or overwrite to latest even if already on the latest version
+vsub update --force
 ```
 
 ---

@@ -314,7 +314,7 @@ export interface ProgressSpinner {
  */
 export function createSpinner(
   initialText: string,
-  options?: { isSilent?: boolean },
+  options?: { isSilent?: boolean | undefined },
 ): ProgressSpinner {
   if (options?.isSilent) {
     const silentSpinner: ProgressSpinner = {

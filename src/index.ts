@@ -38,8 +38,19 @@ import { ensureWritableTargets } from "./safety.js";
 import type { SrtEntry } from "./srt.js";
 import { mergeBilingualEntries, parseSrt } from "./srt.js";
 import { createSpinner, formatFileSize, formatSummaryBox } from "./ui.js";
-import { notifyUpdateIfAvailable } from "./updater.js";
+import {
+  checkUpdate,
+  cleanOldBinaries,
+  formatSelfUpdateSummary,
+  formatUpdateNotification,
+  isStandaloneBinary,
+  notifyUpdateIfAvailable,
+  performSelfUpdate,
+} from "./updater.js";
 import { getCurrentVersion } from "./version.js";
+
+// Clean any leftover .old binaries from prior self-updates
+cleanOldBinaries(path.dirname(process.execPath));
 
 const program = new Command();
 
@@ -51,6 +62,67 @@ program
   )
   .option("-l, --lang <lang>", "UI display language (en, ja)")
   .option("--no-update-check", "Disable checking for new version updates", false);
+
+// Subcommand: update / upgrade
+program
+  .command("update")
+  .alias("upgrade")
+  .description("Update vsub-cli standalone binary to the latest release")
+  .option("-f, --force", "Force re-install even if already on the latest version", false)
+  .option("--check", "Check for updates without downloading or installing", false)
+  .option("--verbose", "Output detailed logs", false)
+  .action(
+    async (options: { force?: boolean; check?: boolean; verbose?: boolean }, cmd: Command) => {
+      const globals = cmd.optsWithGlobals<{ lang?: string }>();
+      const rawConfig = getConfig(undefined, globals.lang);
+      const lang = globals.lang ?? rawConfig.lang ?? "en";
+      const i18n = getI18n(lang);
+      const m = i18n.update;
+
+      // Check if running in npm/Node.js environment
+      if (!isStandaloneBinary()) {
+        console.log(`\n${pc.yellow(`💡 ${m.npmEnvNotice}`)}`);
+        console.log(pc.cyan(`   ${m.npmEnvUpdateHint("npm i -g vsub-cli@latest")}\n`));
+        return;
+      }
+
+      if (options.check) {
+        const spinner = createSpinner(m.checking, { isSilent: options.verbose });
+        spinner.start();
+        const checkResult = await checkUpdate({ force: true });
+        if (checkResult?.updateAvailable) {
+          spinner.info(
+            `v${checkResult.latestVersion} available (current: v${checkResult.currentVersion})`,
+          );
+          console.log(`\n${formatUpdateNotification(checkResult, lang)}\n`);
+        } else {
+          spinner.succeed(m.alreadyLatest(getCurrentVersion()));
+        }
+        return;
+      }
+
+      const spinner = createSpinner(m.checking, { isSilent: options.verbose });
+      spinner.start();
+
+      try {
+        const result = await performSelfUpdate({
+          force: options.force,
+          lang,
+        });
+
+        if (result.alreadyLatest) {
+          spinner.succeed(m.alreadyLatest(result.previousVersion));
+          return;
+        }
+
+        spinner.succeed(m.successTitle);
+        console.log(`\n${formatSelfUpdateSummary(result, lang)}\n`);
+      } catch (err: unknown) {
+        spinner.fail(err instanceof Error ? err.message : String(err));
+        process.exit(1);
+      }
+    },
+  );
 
 // Subcommand: licenses
 program

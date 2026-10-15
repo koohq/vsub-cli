@@ -222,5 +222,22 @@ export const en = {
     available: (current: string, latest: string) => `Update available: v${current} ➔ v${latest}`,
     commandHint: (cmd: string) => `Run: ${cmd}`,
     releaseNotes: (url: string) => `Release notes: ${url}`,
+    checking: "Checking for updates...",
+    alreadyLatest: (version: string) => `vsub-cli is already up to date (v${version}).`,
+    foundNewVersion: (latest: string) => `Found new version v${latest}. Starting self-update...`,
+    npmEnvNotice: "vsub-cli is running in an npm / Node.js environment.",
+    npmEnvUpdateHint: (cmd: string) => `To update to the latest version, run:\n   ${cmd}`,
+    downloading: (asset: string) => `Downloading ${asset}...`,
+    verifyingChecksum: "Verifying SHA-256 checksum...",
+    checksumMismatch: (expected: string, actual: string) =>
+      `Checksum mismatch! Expected: ${expected}, but got: ${actual}`,
+    extracting: "Extracting binary archive...",
+    replacing: (path: string) => `Installing binary to ${path}...`,
+    permissionDenied: (path: string) =>
+      `Permission denied to modify ${path}. Please re-run with administrator privileges (e.g. sudo vsub update).`,
+    successTitle: "vsub-cli updated successfully!",
+    previousVersion: "Previous Version",
+    updatedVersion: "Updated Version",
+    binaryLocation: "Binary Path",
   },
 };

@@ -222,5 +222,24 @@ export const ja: typeof en = {
       `新しいバージョンが利用可能です: v${current} ➔ v${latest}`,
     commandHint: (cmd: string) => `更新コマンド: ${cmd}`,
     releaseNotes: (url: string) => `リリースノート: ${url}`,
+    checking: "最新バージョンを確認中...",
+    alreadyLatest: (version: string) => `vsub-cli は既に最新バージョンです (v${version})。`,
+    foundNewVersion: (latest: string) =>
+      `最新バージョン v${latest} が見つかりました。自己更新を開始します...`,
+    npmEnvNotice: "vsub-cli は npm / Node.js 環境で実行されています。",
+    npmEnvUpdateHint: (cmd: string) =>
+      `最新版に更新するには、以下のコマンドを実行してください:\n   ${cmd}`,
+    downloading: (asset: string) => `${asset} をダウンロード中...`,
+    verifyingChecksum: "SHA-256 チェックサムを検証中...",
+    checksumMismatch: (expected: string, actual: string) =>
+      `チェックサムの不一致を検出しました。期待値: ${expected}, 実際値: ${actual}`,
+    extracting: "アーカイブを展開中...",
+    replacing: (path: string) => `${path} を新バージョンに置換中...`,
+    permissionDenied: (path: string) =>
+      `${path} の更新権限がありません。管理者権限（例: sudo vsub update）で再実行してください。`,
+    successTitle: "vsub-cli の更新が完了しました！",
+    previousVersion: "更新前バージョン",
+    updatedVersion: "更新後バージョン",
+    binaryLocation: "実行ファイルパス",
   },
 };

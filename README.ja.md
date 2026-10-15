@@ -162,6 +162,7 @@ Options:
 Commands:
   burn <video-file> <sub-file>  既存の字幕ファイル (.srt) を FFmpeg で動画に直接焼き込み (hardsub)
   translate <subtitle-file>     既存の字幕ファイル (.srt) を Gemini API で直接別言語に翻訳
+  update [options]              スタンドアロンバイナリを最新リリース版へ自己更新 (エイリアス: upgrade)
   cache path                    キャッシュディレクトリのパスを表示
   cache stats                   キャッシュファイル数と使用容量を表示
   cache clean                   全中間キャッシュファイルを削除
@@ -169,6 +170,7 @@ Commands:
   config show                   現在の設定内容を表示 (API Key はマスク表示)
   config set                    グローバル設定に API Key や FFmpeg パス、デフォルトプロンプト、並行数を保存
   config init                   対話形式で API Key を初期設定
+  licenses [options]            同梱サードパーティライセンス一覧・条文を表示
 ```
 
 ---
@@ -271,6 +273,20 @@ pnpm dev cache clean
 
 # 高速ネットワーク環境や上位APIプランでの並行リクエスト数引き上げ
 pnpm dev video.mp4 -t ja --concurrency 5
+```
+
+### 8. スタンドアロンバイナリの自己更新 (`vsub update`)
+手動でのダウンロードやファイル配置を行わずに、ワンコマンドで最新版へアップデートします：
+```bash
+# 更新を適用せずに新バージョンの有無のみ確認
+vsub update --check
+
+# 最新の GitHub Release へ自己更新
+# (OS/Archを自動判別し、アーカイブ取得・SHA-256検証・安全なバイナリ置換・旧バイナリ自動掃除を実行)
+vsub update
+
+# 既に最新版の場合でも強制的に再取得・上書き更新
+vsub update --force
 ```
 
 ---
