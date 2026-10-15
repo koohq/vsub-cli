@@ -54,10 +54,12 @@ describe("updater.ts", () => {
       expect(isStandaloneBinary("node")).toBe(false);
       expect(isStandaloneBinary("tsx.cmd")).toBe(false);
       expect(isStandaloneBinary("vitest")).toBe(false);
+      expect(isStandaloneBinary("")).toBe(false);
     });
 
     it("should return true for compiled vsub executables", () => {
       expect(isStandaloneBinary("C:\\tools\\vsub.exe")).toBe(true);
+      expect(isStandaloneBinary("C:/tools/vsub.exe")).toBe(true);
       expect(isStandaloneBinary("/usr/local/bin/vsub")).toBe(true);
       expect(isStandaloneBinary("vsub")).toBe(true);
       expect(isStandaloneBinary("vsub-windows-x64.exe")).toBe(true);

@@ -76,7 +76,7 @@ export interface SelfUpdateResult {
  */
 export function isStandaloneBinary(customExecPath?: string): boolean {
   const execPath = customExecPath || process.execPath;
-  const basename = path.basename(execPath).toLowerCase();
+  const basename = (execPath.split(/[/\\]/).pop() ?? "").toLowerCase();
 
   // If invoked via node runtime or common dev runners, it's not a standalone binary
   if (
