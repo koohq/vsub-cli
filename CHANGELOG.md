@@ -2,6 +2,19 @@
 
 All notable changes to this project will be documented in this file. See [standard-version](https://github.com/conventional-changelog/standard-version) for commit guidelines.
 
+## [1.4.0](https://github.com/koohq/vsub-cli/compare/vsub-cli-v1.3.0...vsub-cli-v1.4.0) (2026-10-15)
+
+
+### Features
+
+* add self-update subcommand (vsub update) ([84a1f96](https://github.com/koohq/vsub-cli/commit/84a1f96e180f3996047b16ce746c8f3895511746))
+* add version update check and notification mechanism ([1ed9b2d](https://github.com/koohq/vsub-cli/commit/1ed9b2dde3b8181163dc60d91eb4e92e054847b6))
+
+
+### Bug Fixes
+
+* **updater:** support cross-platform path separators in isStandaloneBinary ([2c1b71e](https://github.com/koohq/vsub-cli/commit/2c1b71ece5664eef60133343f28bd1706d7e81c8))
+
 ## [1.3.0](https://github.com/koohq/vsub-cli/compare/vsub-cli-v1.2.0...vsub-cli-v1.3.0) (2026-09-05)
 
 
