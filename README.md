@@ -155,6 +155,7 @@ Options:
   --no-translate                Skip translation and output raw transcribed subtitles
   --save-original               Save original transcription subtitle file alongside the result (default: false)
   --force-translate             Force Gemini translation even if detected language matches target language (default: false)
+  --no-update-check             Disable checking for new version updates (default: false)
   --verbose                     Output detailed log messages (API requests, etc.) (default: false)
   -h, --help                    Display help for command
 
@@ -282,6 +283,9 @@ pnpm dev config show
 
 # Save persistent default prompts, glossary, language, or concurrency
 pnpm dev config set --lang ja --prompt "Translate politely" --glossary "./glossary.json" --concurrency 4
+
+# Disable automatic version update checks
+pnpm dev config set --disable-update-check true
 
 # View configuration file path
 pnpm dev config path

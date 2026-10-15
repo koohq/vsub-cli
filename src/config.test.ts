@@ -267,4 +267,23 @@ describe("config.ts", () => {
       expect(config.lang).toBe("ja");
     });
   });
+
+  describe("disableUpdateCheck", () => {
+    it("should respect VSUB_DISABLE_UPDATE_CHECK=1", () => {
+      process.env["VSUB_DISABLE_UPDATE_CHECK"] = "1";
+      const config = getConfig();
+      expect(config.disableUpdateCheck).toBe(true);
+    });
+
+    it("should respect VSUB_NO_UPDATE_CHECK=true", () => {
+      process.env["VSUB_NO_UPDATE_CHECK"] = "true";
+      const config = getConfig();
+      expect(config.disableUpdateCheck).toBe(true);
+    });
+
+    it("should be undefined when not set in env or config", () => {
+      const config = getConfig();
+      expect(config.disableUpdateCheck).toBeUndefined();
+    });
+  });
 });

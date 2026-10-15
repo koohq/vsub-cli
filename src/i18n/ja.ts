@@ -217,4 +217,10 @@ export const ja: typeof en = {
     intro2: "各ライブラリの権利表示およびライセンス条文は以下の通りです。",
     repository: "リポジトリ:",
   },
+  update: {
+    available: (current: string, latest: string) =>
+      `新しいバージョンが利用可能です: v${current} ➔ v${latest}`,
+    commandHint: (cmd: string) => `更新コマンド: ${cmd}`,
+    releaseNotes: (url: string) => `リリースノート: ${url}`,
+  },
 };

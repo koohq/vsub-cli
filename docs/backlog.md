@@ -33,7 +33,7 @@
 | **Completed** | 21. ディレクトリ / バッチ一括処理モード (`vsub batch` / glob) | 機能拡張/UX | 中 | 複数メディアファイルの一括自動文字起こし・翻訳 | **完了** |
 | **Completed** | 22. 対話型初期セットアップ & 導通確認ウィザード (`vsub init`) | CLI UX | 低 | API キー・FFmpeg・デフォルト言語の対話的初期導入と導通保証 | **完了** |
 | **Completed** | 23. GitHub Releases & スタンドアロンバイナリ配布 (SEA) | DevOps/配布 | 中 | Node.js 未導入ユーザー向け単体バイナリ配布 & OSS ライセンス保護 | **完了** |
-| **High** | 24. 新バージョン検知・通知 & スタンドアロンバイナリ self-update 機構 (`vsub update`) | CLI UX / 配布 | 中 | 手動更新の手間解消、最新モデルや新機能への迅速な追従、バイナリ版のUX大幅向上 | **未着手** |
+| **High** | 24. 新バージョン検知・通知 & スタンドアロンバイナリ self-update 機構 (`vsub update`) | CLI UX / 配布 | 中 | 手動更新の手間解消、最新モデルや新機能への迅速な追従、バイナリ版のUX大幅向上 | **Phase 1完了 / Phase 2未着手** |
 
 ---
 
@@ -213,6 +213,20 @@
   * `vsub licenses`（および `--full`）サブコマンドにより、ターミナル上でいつでも法的告知と全文条文を確認可能。
 * **対応ファイル**: `scripts/build-binary.ts`, `scripts/build-binary.test.ts`, `scripts/generate-licenses.ts`, `src/licenses.ts`, `src/licenses.test.ts`, `src/licenses.data.ts`, `src/index.ts`, `.github/workflows/release.yml`, `package.json`, `docs/backlog.md`, `README.md`, `README.ja.md`
 
+### 1.22 新バージョン検知 & 通知 (Update Notifier - Phase 1)
+* **レートリミット対策 24 時間キャッシュ (`loadUpdateCache` / `saveUpdateCache`)**:
+  * GitHub Releases API (`/repos/koohq/vsub-cli/releases/latest`) の未認証アクセス制限（60 req/h）を保護するため、グローバル設定ディレクトリ（`~/.config/vsub/update-cache.json` または `%APPDATA%/vsub/update-cache.json`）に最終チェック時刻と最新バージョンをキャッシュ。
+  * 最低 24 時間は再チェックを行わず、ネットワーク通信・待機時間をゼロ化。
+* **非侵入的枠付き通知 (`formatUpdateNotification`)**:
+  * コマンド（`vsub <media>`, `vsub translate`, `vsub burn`, `vsub batch`）完了時に、最新版が利用可能な場合のみ端末末尾に通知枠を表示。
+  * 実行環境（`isStandaloneBinary`）を自動検出し、npm 環境では `npm i -g vsub-cli`、スタンドアロンバイナリでは `vsub update` を適切に案内。
+  * 多言語対応（英語・日本語）を組み込み。
+* **オプトアウト設定**:
+  * `--no-update-check` CLI オプションの追加。
+  * `vsub config set --disable-update-check true` および環境変数 `VSUB_NO_UPDATE_CHECK` / `VSUB_DISABLE_UPDATE_CHECK` による永続的な通知無効化をサポート。
+  * `vsub config show` での更新チェック状態（Enabled / Disabled）表示。
+* **対応ファイル**: `src/version.ts`, `src/version.test.ts`, `src/updater.ts`, `src/updater.test.ts`, `src/config.ts`, `src/config.test.ts`, `src/index.ts`, `src/i18n/en.ts`, `src/i18n/ja.ts`, `scripts/build-binary.ts`
+
 ---
 
 ---
@@ -227,21 +241,21 @@
   * 新機能の追加、Gemini / Groq のモデル変更、バグ修正が行われた際にユーザーが最新版の存在に気付きにくい。
   * 特にスタンドアロンバイナリ利用者は GitHub Releases ページから OS/Arch 別のアーカイブ（`.zip` / `.tar.gz`）を手動で再ダウンロードして既存ファイルを置き換える必要があり、更新の心理的・運用的ハードルが高い。
 * **目的**:
-  * コマンド利用時に新バージョンを非侵入的に通知する。
-  * スタンドアロンバイナリ環境において、ワンコマンド（`vsub update`）で安全・確実に自己更新（self-update）を完結できるようにする。
+  * コマンド利用時に新バージョンを非侵入的に通知する（Phase 1 で完了）。
+  * スタンドアロンバイナリ環境において、ワンコマンド（`vsub update`）で安全・確実に自己更新（self-update）を完結できるようにする（Phase 2）。
 
 #### 機能要件・フェーズ構成 (What)
 
-##### 【Phase 1】新バージョン検知 & 通知 (Update Notifier)
+##### 【Phase 1】新バージョン検知 & 通知 (Update Notifier) 【完了】
 * **定期チェック & レートリミット対策**:
-  * コマンド実行完了後（または非同期フック）に、GitHub Releases API (`/repos/koohq/vsub-cli/releases/latest`) または npm レジストリをチェック。
-  * 未認証 GitHub API のレート制限（60 requests/h）を消費しないよう、最終チェック時刻と最新バージョンをローカル設定ディレクトリ（`~/.vsub/` 内）にキャッシュし、**最低 24 時間は再チェックを行わない**。
+  * コマンド実行完了後に GitHub Releases API (`/repos/koohq/vsub-cli/releases/latest`) をチェック。
+  * 未認証 GitHub API のレート制限を消費しないよう、最終チェック時刻と最新バージョンをローカル設定ディレクトリ（`~/.vsub/` 内）にキャッシュし、**最低 24 時間は再チェックを行わない**。
 * **非侵入的な更新案内**:
-  * 処理結果サマリーの直後、またはコンソール末尾に枠付き（または目立つ色）で通知を出力。
+  * 処理結果サマリーの直後に枠付きで通知を出力。
     * **npm / pnpm 実行時**: `💡 新しいバージョン vX.Y.Z が利用可能です (現在: vA.B.C) -> 更新コマンド: npm i -g vsub-cli`
     * **スタンドアロンバイナリ実行時**: `💡 新しいバージョン vX.Y.Z が利用可能です (現在: vA.B.C) -> 更新コマンド: vsub update`
 * **オプトアウト設定**:
-  * `--no-update-check` オプション、または `vsub config set --disable-update-check true` により通知機能を無効化可能とする。
+  * `--no-update-check` オプション、または `vsub config set --disable-update-check true` により通知機能を無効化可能。
 
 ##### 【Phase 2】自己更新サブコマンド (`vsub update` / `vsub upgrade`)
 * **実行環境の自動判別**:

@@ -38,16 +38,19 @@ import { ensureWritableTargets } from "./safety.js";
 import type { SrtEntry } from "./srt.js";
 import { mergeBilingualEntries, parseSrt } from "./srt.js";
 import { createSpinner, formatFileSize, formatSummaryBox } from "./ui.js";
+import { notifyUpdateIfAvailable } from "./updater.js";
+import { getCurrentVersion } from "./version.js";
 
 const program = new Command();
 
 program
   .name("vsub")
-  .version("1.0.0")
+  .version(getCurrentVersion())
   .description(
     "CLI tool to extract audio from video/audio files, transcribe speech via Groq API, and generate multilingual subtitles (.srt, .vtt, .txt, .json) via Gemini API.",
   )
-  .option("-l, --lang <lang>", "UI display language (en, ja)");
+  .option("-l, --lang <lang>", "UI display language (en, ja)")
+  .option("--no-update-check", "Disable checking for new version updates", false);
 
 // Subcommand: licenses
 program
@@ -100,6 +103,7 @@ configCmd
     if (resolvedConfig.groqModel) {
       console.log(`Groq Model      : ${resolvedConfig.groqModel}`);
     }
+    console.log(`Update Check    : ${resolvedConfig.disableUpdateCheck ? "Disabled" : "Enabled"}`);
     console.log("----------------------------------------\n");
   });
 
@@ -124,6 +128,7 @@ configCmd
     "--concurrency <number>",
     "Default concurrent translation requests to Gemini API (e.g. 3)",
   )
+  .option("--disable-update-check <boolean>", "Disable periodic update checks (true/false)")
   .action(
     (options: {
       lang?: string;
@@ -136,6 +141,7 @@ configCmd
       prompt?: string;
       glossary?: string;
       concurrency?: string;
+      disableUpdateCheck?: string;
     }) => {
       let concurrencyNum: number | undefined;
       if (options.concurrency) {
@@ -143,6 +149,12 @@ configCmd
         if (!Number.isNaN(n) && n > 0) {
           concurrencyNum = Math.floor(n);
         }
+      }
+
+      let disableUpdateCheckVal: boolean | undefined;
+      if (options.disableUpdateCheck !== undefined) {
+        const val = String(options.disableUpdateCheck).toLowerCase();
+        disableUpdateCheckVal = val === "true" || val === "1";
       }
 
       const normalizedLang = options.lang ? normalizeLanguage(options.lang) : undefined;
@@ -165,7 +177,8 @@ configCmd
         !options.whisperPrompt &&
         !options.prompt &&
         !options.glossary &&
-        concurrencyNum === undefined
+        concurrencyNum === undefined &&
+        disableUpdateCheckVal === undefined
       ) {
         console.log(
           "⚠️ Please specify settings to save. (Example: vsub config set --gemini-model gemini-3.8-flash)",
@@ -184,6 +197,9 @@ configCmd
         ...(options.prompt ? { prompt: options.prompt.trim() } : {}),
         ...(options.glossary ? { glossary: options.glossary.trim() } : {}),
         ...(concurrencyNum !== undefined ? { concurrency: concurrencyNum } : {}),
+        ...(disableUpdateCheckVal !== undefined
+          ? { disableUpdateCheck: disableUpdateCheckVal }
+          : {}),
       });
 
       console.log(`✅ Configuration updated and saved: ${getGlobalConfigPath()}`);
@@ -311,6 +327,7 @@ program
       geminiKey?: string;
       verbose?: boolean;
       lang?: string;
+      noUpdateCheck?: boolean;
     }>();
     const startTime = Date.now();
     const verbose = Boolean(options.verbose);
@@ -575,6 +592,11 @@ program
           ) +
           "\n",
       );
+
+      await notifyUpdateIfAvailable({
+        lang: normalizeLanguage(lang),
+        disableUpdateCheck: Boolean(options.noUpdateCheck || rawConfig.disableUpdateCheck),
+      });
     } catch (error) {
       spinner.fail(
         i18n.pipeline.errorOccurred(error instanceof Error ? error.message : String(error)),
@@ -616,6 +638,7 @@ program
         ffmpegPath?: string;
         verbose?: boolean;
         lang?: string;
+        noUpdateCheck?: boolean;
       }>();
       const startTime = Date.now();
       const verbose = Boolean(options.verbose);
@@ -723,6 +746,11 @@ program
             ) +
             "\n",
         );
+
+        await notifyUpdateIfAvailable({
+          lang: normalizeLanguage(lang),
+          disableUpdateCheck: Boolean(options.noUpdateCheck || rawConfig.disableUpdateCheck),
+        });
       } catch (error) {
         spinner.fail(
           i18n.pipeline.errorOccurred(error instanceof Error ? error.message : String(error)),
@@ -804,7 +832,12 @@ program
   .option("--verbose", "Output detailed log messages", false)
   .action(async (targets: string[], _actionOptions: Record<string, unknown>, cmd: Command) => {
     const options = cmd.optsWithGlobals<
-      BatchPipelineOptions & { format: string; targetLang: string; lang?: string }
+      BatchPipelineOptions & {
+        format: string;
+        targetLang: string;
+        lang?: string;
+        noUpdateCheck?: boolean;
+      }
     >();
     const rawConfig = getConfig(options.ffmpegPath, options.lang);
     const lang = options.lang ?? rawConfig.lang ?? "en";
@@ -819,6 +852,11 @@ program
       if (summary.failedCount > 0) {
         process.exit(1);
       }
+
+      await notifyUpdateIfAvailable({
+        lang: normalizeLanguage(lang),
+        disableUpdateCheck: Boolean(options.noUpdateCheck || rawConfig.disableUpdateCheck),
+      });
     } catch (error) {
       console.error(
         pc.red(
@@ -895,7 +933,9 @@ program
       _actionOptions: Record<string, unknown>,
       cmd: Command,
     ) => {
-      const options = cmd.optsWithGlobals<ProcessMediaOptions & { lang?: string }>();
+      const options = cmd.optsWithGlobals<
+        ProcessMediaOptions & { lang?: string; noUpdateCheck?: boolean }
+      >();
       const rawConfig = getConfig(options.ffmpegPath, options.lang);
       const lang = options.lang ?? rawConfig.lang ?? "en";
       const i18n = getI18n(lang);
@@ -910,6 +950,11 @@ program
           ...options,
           lang: normalizeLanguage(lang),
           mediaFile,
+        });
+
+        await notifyUpdateIfAvailable({
+          lang: normalizeLanguage(lang),
+          disableUpdateCheck: Boolean(options.noUpdateCheck || rawConfig.disableUpdateCheck),
         });
       } catch (error) {
         console.error(

@@ -92,6 +92,9 @@ export async function bundleApplication(rootDir = ROOT_DIR): Promise<string> {
 
   console.log(pc.cyan(`📦 Bundling with esbuild: ${entryPoint} -> ${bundleOut}`));
 
+  const pkgPath = path.join(rootDir, "package.json");
+  const pkg = JSON.parse(fs.readFileSync(pkgPath, "utf-8")) as { version: string };
+
   await esbuild.build({
     entryPoints: [entryPoint],
     bundle: true,
@@ -106,6 +109,7 @@ export async function bundleApplication(rootDir = ROOT_DIR): Promise<string> {
     },
     define: {
       "process.env.NODE_ENV": '"production"',
+      "globalThis.__VSUB_VERSION__": JSON.stringify(pkg.version),
     },
   });
 

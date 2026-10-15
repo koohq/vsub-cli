@@ -155,6 +155,7 @@ Options:
   --no-translate                Gemini翻訳をスキップし、Groqの文字起こし結果（原語字幕）のみを出力する
   --save-original               翻訳後字幕に加え、翻訳前の原語文字起こし字幕ファイルも同時に保存する (デフォルト: false)
   --force-translate             検出言語と出力言語が同一の場合でも強制的にGemini翻訳を実行する (デフォルト: false)
+  --no-update-check             新バージョンの自動更新チェックを無効化 (デフォルト: false)
   --verbose                     詳細なログ（APIリクエスト等）を出力する (デフォルト: false)
   -h, --help                    ヘルプを表示
 
@@ -282,6 +283,9 @@ pnpm dev config show
 
 # デフォルトのCLI表示言語・翻訳プロンプト・用語集・並行数をグローバルに保存
 pnpm dev config set --lang ja --prompt "丁寧な敬体で翻訳" --glossary "./glossary.json" --concurrency 4
+
+# 新バージョンの自動更新チェックを無効化
+pnpm dev config set --disable-update-check true
 
 # 設定ファイルの物理パスを表示
 pnpm dev config path

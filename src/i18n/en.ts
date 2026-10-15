@@ -218,4 +218,9 @@ export const en = {
     intro2: "Copyright notices and license terms for each library are listed below.",
     repository: "Repository:",
   },
+  update: {
+    available: (current: string, latest: string) => `Update available: v${current} ➔ v${latest}`,
+    commandHint: (cmd: string) => `Run: ${cmd}`,
+    releaseNotes: (url: string) => `Release notes: ${url}`,
+  },
 };

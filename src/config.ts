@@ -37,15 +37,20 @@ export interface AppConfig {
   groqModel?: string | undefined;
   targetLang?: string | undefined;
   lang?: SupportedLanguage | undefined;
+  disableUpdateCheck?: boolean | undefined;
+}
+
+export function getGlobalConfigDir(): string {
+  const isWindows = process.platform === "win32";
+  if (isWindows && process.env["APPDATA"]) {
+    return path.join(process.env["APPDATA"], "vsub");
+  }
+  const configHome = process.env["XDG_CONFIG_HOME"] || path.join(os.homedir(), ".config");
+  return path.join(configHome, "vsub");
 }
 
 export function getGlobalConfigPath(): string {
-  const isWindows = process.platform === "win32";
-  if (isWindows && process.env["APPDATA"]) {
-    return path.join(process.env["APPDATA"], "vsub", "config.json");
-  }
-  const configHome = process.env["XDG_CONFIG_HOME"] || path.join(os.homedir(), ".config");
-  return path.join(configHome, "vsub", "config.json");
+  return path.join(getGlobalConfigDir(), "config.json");
 }
 
 export function loadGlobalConfig(): Partial<AppConfig> {
@@ -146,6 +151,15 @@ export function getConfig(cliFfmpegPath?: string, cliLang?: string): AppConfig {
 
   const lang = resolveLanguage(cliLang, process.env["VSUB_LANG"], globalConfig.lang);
 
+  const envDisableUpdate =
+    process.env["VSUB_NO_UPDATE_CHECK"]?.trim() || process.env["VSUB_DISABLE_UPDATE_CHECK"]?.trim();
+  let disableUpdateCheck: boolean | undefined;
+  if (envDisableUpdate !== undefined) {
+    disableUpdateCheck = envDisableUpdate === "1" || envDisableUpdate.toLowerCase() === "true";
+  } else if (globalConfig.disableUpdateCheck !== undefined) {
+    disableUpdateCheck = Boolean(globalConfig.disableUpdateCheck);
+  }
+
   return {
     groqApiKey,
     geminiApiKey,
@@ -158,6 +172,7 @@ export function getConfig(cliFfmpegPath?: string, cliLang?: string): AppConfig {
     groqModel,
     targetLang,
     lang,
+    disableUpdateCheck,
   };
 }
 
