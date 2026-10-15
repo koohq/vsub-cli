@@ -95,5 +95,21 @@ describe("i18n module", () => {
         expect(Object.keys(jaSection).sort()).toEqual(Object.keys(enSection).sort());
       }
     });
+
+    it("should execute all functional message templates without errors", () => {
+      for (const dict of [en, ja]) {
+        for (const section of Object.values(dict)) {
+          if (typeof section === "object" && section !== null) {
+            for (const value of Object.values(section)) {
+              if (typeof value === "function") {
+                const fn = value as (...args: unknown[]) => string;
+                expect(() => fn(1, "test", "test2")).not.toThrow();
+                expect(typeof fn(1, "test", "test2")).toBe("string");
+              }
+            }
+          }
+        }
+      }
+    });
   });
 });

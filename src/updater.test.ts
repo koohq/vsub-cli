@@ -132,6 +132,8 @@ e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855  vsub-windows-x
       expect(compareVersions("1.4.0-rc.1", "1.4.0")).toBe(-1);
       expect(compareVersions("1.4.0", "1.4.0-rc.1")).toBe(1);
       expect(compareVersions("1.4.0-alpha.1", "1.4.0-beta.1")).toBe(-1);
+      expect(compareVersions("1.4.0-beta.1", "1.4.0-alpha.1")).toBe(1);
+      expect(compareVersions("1.4.0-beta.1", "1.4.0-beta.1")).toBe(0);
     });
 
     it("should identify newer versions with isNewerVersion", () => {
@@ -226,6 +228,16 @@ e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855  vsub-windows-x
 
     it("should return null when network fails or throws", async () => {
       const mockFetcher = vi.fn().mockRejectedValue(new Error("Network offline"));
+
+      const result = await fetchReleaseDetails(mockFetcher, "1.3.0");
+      expect(result).toBeNull();
+    });
+
+    it("should return null when release data has no tag_name", async () => {
+      const mockFetcher = vi.fn().mockResolvedValue({
+        ok: true,
+        json: async () => ({ html_url: "https://github.com/koohq/vsub-cli/releases" }),
+      } as unknown as Response);
 
       const result = await fetchReleaseDetails(mockFetcher, "1.3.0");
       expect(result).toBeNull();
