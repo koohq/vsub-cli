@@ -17,7 +17,7 @@ import { computeGlossaryHash, extractWhisperPromptHints, parseGlossary } from ".
 import { transcribeAudioSegments } from "./groq.js";
 import { getI18n, type SupportedLanguage } from "./i18n/index.js";
 import { parseTargetLanguages } from "./languages.js";
-import { ensureWritableTargets } from "./safety.js";
+import { type EnsureWritableResult, ensureWritableTargets } from "./safety.js";
 import {
   type BilingualOrder,
   mergeBilingualEntries,
@@ -87,6 +87,7 @@ export interface ProcessMediaOptions {
   targetLang?: string | undefined;
   format?: string | undefined;
   output?: string | undefined;
+  stdout?: boolean | undefined;
   outputDir?: string | undefined;
   overwrite?: boolean | undefined;
   backup?: boolean | undefined;
@@ -127,6 +128,7 @@ export interface ProcessMediaResult {
   targetLanguages: string[];
   entriesCount: number;
   outputFiles: string[];
+  stdoutContent?: string | undefined;
   skippedTranslation?: boolean | undefined;
   skippedLanguages?: string[] | undefined;
   whisperPrompt?: string | undefined;
@@ -152,8 +154,12 @@ export async function processMediaPipeline(
 ): Promise<ProcessMediaResult> {
   const startTime = Date.now();
   const verbose = Boolean(options.verbose);
+  const isStdout = Boolean(options.stdout || options.output === "-");
   const prefix = options.logPrefix ? `${options.logPrefix} ` : "";
-  const spinner = createSpinner("", { isSilent: verbose });
+  const spinner = createSpinner("", {
+    isSilent: verbose,
+    stream: isStdout ? process.stderr : undefined,
+  });
   const outputFiles: string[] = [];
 
   const rawConfig = getConfig(options.ffmpegPath, options.lang);
@@ -163,6 +169,19 @@ export async function processMediaPipeline(
 
   const outputFormats = parseOutputFormats(options.format || "srt");
   const targetLanguages = parseTargetLanguages(options.targetLang || "ja");
+
+  if (isStdout) {
+    if (outputFormats.length > 1) {
+      throw new Error(m.stdoutSingleFormatOnly);
+    }
+    if (targetLanguages.length > 1) {
+      throw new Error(m.stdoutSingleLangOnly);
+    }
+    if (options.burn) {
+      throw new Error(m.stdoutCannotBurn);
+    }
+  }
+
   const isMultiLang = targetLanguages.length > 1;
   const isBilingual = Boolean(options.bilingual);
   const bilingualOrder = parseBilingualOrder(options.bilingualOrder, lang);
@@ -180,54 +199,58 @@ export async function processMediaPipeline(
   const effectiveOutputDir = options.outputDir
     ? path.resolve(process.cwd(), options.outputDir)
     : mediaDir;
-  if (options.outputDir && !fs.existsSync(effectiveOutputDir)) {
+  if (!isStdout && options.outputDir && !fs.existsSync(effectiveOutputDir)) {
     fs.mkdirSync(effectiveOutputDir, { recursive: true });
   }
 
-  // Pre-check output file safety before expensive operations
+  // Pre-check output file safety before expensive operations (skipped in stdout mode)
   const predictedTargets: string[] = [];
-  for (const targetL of targetLanguages) {
-    const targets = resolveOutputFilePaths(
-      mediaDir,
-      mediaBaseName,
-      targetL,
-      outputFormats,
-      options.output,
-      !isMultiLang,
-      isBilingual,
-      options.outputDir,
-    );
-    for (const { filePath } of targets) {
-      predictedTargets.push(filePath);
-    }
-  }
-
-  if (options.burn) {
+  if (!isStdout) {
     for (const targetL of targetLanguages) {
-      let burntVideoPath: string;
-      const langTag = isBilingual ? `${targetL}.bilingual` : targetL;
-      if (options.output) {
-        const resolvedOut = path.resolve(process.cwd(), options.output);
-        const parsedOut = path.parse(resolvedOut);
-        if (isMultiLang) {
-          burntVideoPath = path.join(parsedOut.dir, `${parsedOut.name}.${langTag}.subbed.mp4`);
-        } else if (parsedOut.ext === ".mp4") {
-          burntVideoPath = resolvedOut;
-        } else {
-          burntVideoPath = path.join(parsedOut.dir, `${parsedOut.name}.subbed.mp4`);
-        }
-      } else {
-        burntVideoPath = path.join(effectiveOutputDir, `${mediaBaseName}.${langTag}.subbed.mp4`);
+      const targets = resolveOutputFilePaths(
+        mediaDir,
+        mediaBaseName,
+        targetL,
+        outputFormats,
+        options.output,
+        !isMultiLang,
+        isBilingual,
+        options.outputDir,
+      );
+      for (const { filePath } of targets) {
+        predictedTargets.push(filePath);
       }
-      predictedTargets.push(burntVideoPath);
+    }
+
+    if (options.burn) {
+      for (const targetL of targetLanguages) {
+        let burntVideoPath: string;
+        const langTag = isBilingual ? `${targetL}.bilingual` : targetL;
+        if (options.output) {
+          const resolvedOut = path.resolve(process.cwd(), options.output);
+          const parsedOut = path.parse(resolvedOut);
+          if (isMultiLang) {
+            burntVideoPath = path.join(parsedOut.dir, `${parsedOut.name}.${langTag}.subbed.mp4`);
+          } else if (parsedOut.ext === ".mp4") {
+            burntVideoPath = resolvedOut;
+          } else {
+            burntVideoPath = path.join(parsedOut.dir, `${parsedOut.name}.subbed.mp4`);
+          }
+        } else {
+          burntVideoPath = path.join(effectiveOutputDir, `${mediaBaseName}.${langTag}.subbed.mp4`);
+        }
+        predictedTargets.push(burntVideoPath);
+      }
     }
   }
 
-  const safetyCheck = await ensureWritableTargets(predictedTargets, {
-    overwrite: options.overwrite,
-    backup: options.backup,
-    lang,
-  });
+  const safetyCheck: EnsureWritableResult = isStdout
+    ? { proceed: true, backedUp: [], existingFiles: [] }
+    : await ensureWritableTargets(predictedTargets, {
+        overwrite: options.overwrite,
+        backup: options.backup,
+        lang,
+      });
 
   if (!safetyCheck.proceed) {
     throw new Error(m.conflictAbort);
@@ -272,7 +295,7 @@ export async function processMediaPipeline(
   const mediaTypeName = isAudio ? "audio" : "video";
   const mediaIcon = isAudio ? "🎵" : "🎬";
 
-  if (!options.silentSummary) {
+  if (!options.silentSummary && !isStdout) {
     console.log(
       `\n${mediaIcon} ${pc.bold("vsub-cli")} - ${m.startProcessing(pc.cyan(path.basename(resolvedMediaPath)))}`,
     );
@@ -563,109 +586,124 @@ export async function processMediaPipeline(
       spinner.succeed(`${prefix}${m.step3AllDone(langListDisplay, srtEntries.length)}`);
     }
 
-    // 4. Save output subtitle files
-    spinner.start(`${prefix}${m.step4Saving}`);
+    // 4. Save output subtitle files / generate stdout content
+    let stdoutContent: string | undefined;
 
-    const savedSrtPathsByLang = new Map<string, string>();
-    const tempSrtFilesToCleanup: string[] = [];
-
-    for (const targetL of targetLanguages) {
+    if (isStdout) {
+      const targetL = targetLanguages[0] ?? "ja";
       let entries = resultsByLang.get(targetL) ?? srtEntries;
       if (isBilingual) {
         entries = mergeBilingualEntries(srtEntries, entries, { order: bilingualOrder });
       }
-      const targets = resolveOutputFilePaths(
-        mediaDir,
-        mediaBaseName,
-        targetL,
-        outputFormats,
-        options.output,
-        !isMultiLang,
-        isBilingual,
-        options.outputDir,
-      );
-      for (const { format, filePath } of targets) {
-        fs.writeFileSync(filePath, formatEntries(entries, format), "utf-8");
-        outputFiles.push(filePath);
-        if (format === "srt") {
-          savedSrtPathsByLang.set(targetL, filePath);
-        }
-      }
+      const fmt = outputFormats[0] ?? "srt";
+      stdoutContent = formatEntries(entries, fmt);
+    } else {
+      spinner.start(`${prefix}${m.step4Saving}`);
 
-      if (options.burn && !savedSrtPathsByLang.has(targetL)) {
-        const tempSrtPath = path.join(
-          os.tmpdir(),
-          `vsub-burn-${Date.now()}-${Math.random().toString(36).slice(2, 8)}-${targetL}.srt`,
+      const savedSrtPathsByLang = new Map<string, string>();
+      const tempSrtFilesToCleanup: string[] = [];
+
+      for (const targetL of targetLanguages) {
+        let entries = resultsByLang.get(targetL) ?? srtEntries;
+        if (isBilingual) {
+          entries = mergeBilingualEntries(srtEntries, entries, { order: bilingualOrder });
+        }
+        const targets = resolveOutputFilePaths(
+          mediaDir,
+          mediaBaseName,
+          targetL,
+          outputFormats,
+          options.output,
+          !isMultiLang,
+          isBilingual,
+          options.outputDir,
         );
-        fs.writeFileSync(tempSrtPath, formatEntries(entries, "srt"), "utf-8");
-        savedSrtPathsByLang.set(targetL, tempSrtPath);
-        tempSrtFilesToCleanup.push(tempSrtPath);
-      }
-    }
-
-    const formatListStr = outputFormats.map((f) => f.toUpperCase()).join(", ");
-    spinner.succeed(`${prefix}${m.step4Saved(formatListStr)}`);
-
-    // 5. Burn subtitles to video if --burn option is specified
-    if (options.burn) {
-      try {
-        spinner.start(`${prefix}${m.burnStarting}`);
-
-        for (let i = 0; i < targetLanguages.length; i++) {
-          const targetL = targetLanguages[i] ?? "ja";
-          const srtPathToUse = savedSrtPathsByLang.get(targetL);
-          if (!srtPathToUse || !fs.existsSync(srtPathToUse)) {
-            continue;
-          }
-
-          let burntVideoPath: string;
-          const langTag = isBilingual ? `${targetL}.bilingual` : targetL;
-          if (options.output) {
-            const resolvedOut = path.resolve(process.cwd(), options.output);
-            const parsedOut = path.parse(resolvedOut);
-            if (isMultiLang) {
-              burntVideoPath = path.join(parsedOut.dir, `${parsedOut.name}.${langTag}.subbed.mp4`);
-            } else if (parsedOut.ext === ".mp4") {
-              burntVideoPath = resolvedOut;
-            } else {
-              burntVideoPath = path.join(parsedOut.dir, `${parsedOut.name}.subbed.mp4`);
-            }
-          } else {
-            burntVideoPath = path.join(
-              effectiveOutputDir,
-              `${mediaBaseName}.${langTag}.subbed.mp4`,
-            );
-          }
-
-          if (isMultiLang) {
-            spinner.updateText(
-              `${prefix}${m.burnStarting} (${i + 1}/${targetLanguages.length}: ${targetL.toUpperCase()})...`,
-            );
-          }
-
-          await burnSubtitlesToVideo(resolvedMediaPath, srtPathToUse, burntVideoPath, {
-            ffmpegPath: rawConfig.ffmpegPath,
-            verbose,
-          });
-
-          outputFiles.push(burntVideoPath);
-
-          if (isMultiLang) {
-            spinner.info(
-              `${prefix}  ✔ ${targetL.toUpperCase()} -> ${path.basename(burntVideoPath)}`,
-            );
+        for (const { format, filePath } of targets) {
+          fs.writeFileSync(filePath, formatEntries(entries, format), "utf-8");
+          outputFiles.push(filePath);
+          if (format === "srt") {
+            savedSrtPathsByLang.set(targetL, filePath);
           }
         }
 
-        spinner.succeed(`${prefix}${m.burnDone}`);
-      } finally {
-        for (const tempSrt of tempSrtFilesToCleanup) {
-          try {
-            if (fs.existsSync(tempSrt)) {
-              fs.unlinkSync(tempSrt);
+        if (options.burn && !savedSrtPathsByLang.has(targetL)) {
+          const tempSrtPath = path.join(
+            os.tmpdir(),
+            `vsub-burn-${Date.now()}-${Math.random().toString(36).slice(2, 8)}-${targetL}.srt`,
+          );
+          fs.writeFileSync(tempSrtPath, formatEntries(entries, "srt"), "utf-8");
+          savedSrtPathsByLang.set(targetL, tempSrtPath);
+          tempSrtFilesToCleanup.push(tempSrtPath);
+        }
+      }
+
+      const formatListStr = outputFormats.map((f) => f.toUpperCase()).join(", ");
+      spinner.succeed(`${prefix}${m.step4Saved(formatListStr)}`);
+
+      // 5. Burn subtitles to video if --burn option is specified
+      if (options.burn) {
+        try {
+          spinner.start(`${prefix}${m.burnStarting}`);
+
+          for (let i = 0; i < targetLanguages.length; i++) {
+            const targetL = targetLanguages[i] ?? "ja";
+            const srtPathToUse = savedSrtPathsByLang.get(targetL);
+            if (!srtPathToUse || !fs.existsSync(srtPathToUse)) {
+              continue;
             }
-          } catch {
-            // ignore
+
+            let burntVideoPath: string;
+            const langTag = isBilingual ? `${targetL}.bilingual` : targetL;
+            if (options.output) {
+              const resolvedOut = path.resolve(process.cwd(), options.output);
+              const parsedOut = path.parse(resolvedOut);
+              if (isMultiLang) {
+                burntVideoPath = path.join(
+                  parsedOut.dir,
+                  `${parsedOut.name}.${langTag}.subbed.mp4`,
+                );
+              } else if (parsedOut.ext === ".mp4") {
+                burntVideoPath = resolvedOut;
+              } else {
+                burntVideoPath = path.join(parsedOut.dir, `${parsedOut.name}.subbed.mp4`);
+              }
+            } else {
+              burntVideoPath = path.join(
+                effectiveOutputDir,
+                `${mediaBaseName}.${langTag}.subbed.mp4`,
+              );
+            }
+
+            if (isMultiLang) {
+              spinner.updateText(
+                `${prefix}${m.burnStarting} (${i + 1}/${targetLanguages.length}: ${targetL.toUpperCase()})...`,
+              );
+            }
+
+            await burnSubtitlesToVideo(resolvedMediaPath, srtPathToUse, burntVideoPath, {
+              ffmpegPath: rawConfig.ffmpegPath,
+              verbose,
+            });
+
+            outputFiles.push(burntVideoPath);
+
+            if (isMultiLang) {
+              spinner.info(
+                `${prefix}  ✔ ${targetL.toUpperCase()} -> ${path.basename(burntVideoPath)}`,
+              );
+            }
+          }
+
+          spinner.succeed(`${prefix}${m.burnDone}`);
+        } finally {
+          for (const tempSrt of tempSrtFilesToCleanup) {
+            try {
+              if (fs.existsSync(tempSrt)) {
+                fs.unlinkSync(tempSrt);
+              }
+            } catch {
+              // ignore
+            }
           }
         }
       }
@@ -686,6 +724,7 @@ export async function processMediaPipeline(
       backedUpFiles:
         safetyCheck.backedUp.length > 0 ? safetyCheck.backedUp.map((b) => b.backup) : undefined,
       outputFiles,
+      stdoutContent,
       skippedTranslation: skippedLanguages.length === targetLanguages.length,
       whisperPrompt,
       prompt: translationPrompt,
@@ -701,7 +740,7 @@ export async function processMediaPipeline(
           : undefined,
     };
 
-    if (!options.silentSummary) {
+    if (!options.silentSummary && !isStdout) {
       console.log(`\n${formatSummaryBox(result, lang)}\n`);
     }
 

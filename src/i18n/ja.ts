@@ -111,6 +111,11 @@ export const ja: typeof en = {
     step4Saved: (formats: string) => `💾 [4/4] 字幕ファイルを保存完了 (${formats})`,
     burnStarting: "🎬 FFmpeg で字幕を動画に焼き込み中 (libx264)...",
     burnDone: "🎬 字幕の動画焼き込みが完了しました",
+    stdoutSingleFormatOnly:
+      "--stdout 指定時は複数の出力フォーマットを指定できません。単一のフォーマットを指定してください (例: -f srt)。",
+    stdoutSingleLangOnly:
+      "--stdout 指定時は複数の言語を指定できません。単一の言語を指定してください。",
+    stdoutCannotBurn: "--stdout と --burn (字幕焼き込み) を同時に指定することはできません。",
     errorOccurred: (err: string) => `処理中にエラーが発生しました: ${err}`,
   },
   translate: {
@@ -140,6 +145,10 @@ export const ja: typeof en = {
       `🌐 [2/3] Gemini 翻訳完了 (${langs}) - ${count} 行`,
     step3Saving: "💾 [3/3] 字幕ファイルを保存中...",
     step3Saved: (formats: string) => `💾 [3/3] 字幕ファイルを保存完了 (${formats})`,
+    stdoutSingleFormatOnly:
+      "--stdout 指定時は複数の出力フォーマットを指定できません。単一のフォーマットを指定してください (例: -f srt)。",
+    stdoutSingleLangOnly:
+      "--stdout 指定時は複数の言語を指定できません。単一の言語を指定してください。",
     subtitleNotFound: (path: string) => `字幕ファイルが見つかりません: ${path}`,
   },
   burn: {

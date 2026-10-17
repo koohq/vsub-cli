@@ -308,13 +308,18 @@ export interface ProgressSpinner {
   stop(): ProgressSpinner;
 }
 
+export interface CreateSpinnerOptions {
+  isSilent?: boolean | undefined;
+  stream?: NodeJS.WritableStream | undefined;
+}
+
 /**
  * Creates a configured spinner instance.
  * Automatically handles silent / non-TTY modes.
  */
 export function createSpinner(
   initialText: string,
-  options?: { isSilent?: boolean | undefined },
+  options?: CreateSpinnerOptions,
 ): ProgressSpinner {
   if (options?.isSilent) {
     const silentSpinner: ProgressSpinner = {
@@ -332,6 +337,7 @@ export function createSpinner(
   const spinner: Ora = ora({
     text: initialText,
     color: "cyan",
+    ...(options?.stream ? { stream: options.stream } : {}),
   });
 
   const wrapper: ProgressSpinner = {

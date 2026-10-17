@@ -110,6 +110,11 @@ export const en = {
     step4Saved: (formats: string) => `💾 [4/4] Subtitle files saved successfully (${formats})`,
     burnStarting: "🎬 Burning subtitles into video with FFmpeg (libx264)...",
     burnDone: "🎬 Subtitle burn-in complete",
+    stdoutSingleFormatOnly:
+      "Cannot specify multiple formats with --stdout. Please specify a single format (e.g. -f srt).",
+    stdoutSingleLangOnly:
+      "Cannot specify multiple target languages with --stdout. Please specify a single language.",
+    stdoutCannotBurn: "Cannot use --burn with --stdout.",
     errorOccurred: (err: string) => `An error occurred during processing: ${err}`,
   },
   translate: {
@@ -138,6 +143,10 @@ export const en = {
       `🌐 [2/3] Gemini translation complete (${langs}) - ${count} lines`,
     step3Saving: "💾 [3/3] Saving subtitle files...",
     step3Saved: (formats: string) => `💾 [3/3] Subtitle files saved successfully (${formats})`,
+    stdoutSingleFormatOnly:
+      "Cannot specify multiple formats with --stdout. Please specify a single format (e.g. -f srt).",
+    stdoutSingleLangOnly:
+      "Cannot specify multiple target languages with --stdout. Please specify a single language.",
     subtitleNotFound: (path: string) => `Subtitle file not found: ${path}`,
   },
   burn: {

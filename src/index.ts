@@ -407,12 +407,18 @@ program
     "Disable automatic splitting and reflowing of long subtitle segments",
     false,
   )
+  .option(
+    "--stdout",
+    "Output translated subtitles directly to stdout instead of saving to file",
+    false,
+  )
   .option("--verbose", "Output detailed log messages", false)
   .action(async (subtitleFile: string, _actionOptions: Record<string, unknown>, cmd: Command) => {
     const options = cmd.optsWithGlobals<{
       targetLang: string;
       format: string;
       output?: string;
+      stdout?: boolean;
       overwrite?: boolean;
       backup?: boolean;
       bilingual?: boolean;
@@ -435,17 +441,31 @@ program
     }>();
     const startTime = Date.now();
     const verbose = Boolean(options.verbose);
+    const isStdout = Boolean(options.stdout || options.output === "-");
     const rawConfig = getConfig(undefined, options.lang);
     const lang = options.lang ?? rawConfig.lang ?? "en";
     const i18n = getI18n(lang);
     const tm = i18n.translate;
 
-    const spinner = createSpinner("", { isSilent: verbose });
+    const spinner = createSpinner("", {
+      isSilent: verbose,
+      stream: isStdout ? process.stderr : undefined,
+    });
     const outputFiles: string[] = [];
 
     try {
       const outputFormats = parseOutputFormats(options.format);
       const targetLanguages = parseTargetLanguages(options.targetLang);
+
+      if (isStdout) {
+        if (outputFormats.length > 1) {
+          throw new Error(tm.stdoutSingleFormatOnly);
+        }
+        if (targetLanguages.length > 1) {
+          throw new Error(tm.stdoutSingleLangOnly);
+        }
+      }
+
       const isMultiLang = targetLanguages.length > 1;
       const isBilingual = Boolean(options.bilingual);
       const bilingualOrder = parseBilingualOrder(options.bilingualOrder, lang);
@@ -465,28 +485,32 @@ program
         subBaseName = langSuffixMatch[1];
       }
 
-      // Pre-check output file safety before performing API calls
-      const predictedTargets: string[] = [];
-      for (const tLang of targetLanguages) {
-        const targets = resolveOutputFilePaths(
-          subDir,
-          subBaseName,
-          tLang,
-          outputFormats,
-          options.output,
-          !isMultiLang,
-          isBilingual,
-        );
-        for (const { filePath } of targets) {
-          predictedTargets.push(filePath);
-        }
-      }
-
-      const safetyCheck = await ensureWritableTargets(predictedTargets, {
-        overwrite: options.overwrite,
-        backup: options.backup,
-        lang: normalizeLanguage(lang),
-      });
+      // Pre-check output file safety before performing API calls (skipped in stdout mode)
+      const safetyCheck: { proceed: boolean; backedUp: { original: string; backup: string }[] } =
+        isStdout
+          ? { proceed: true, backedUp: [] }
+          : await (async () => {
+              const targets: string[] = [];
+              for (const tLang of targetLanguages) {
+                const resolved = resolveOutputFilePaths(
+                  subDir,
+                  subBaseName,
+                  tLang,
+                  outputFormats,
+                  options.output,
+                  !isMultiLang,
+                  isBilingual,
+                );
+                for (const { filePath } of resolved) {
+                  targets.push(filePath);
+                }
+              }
+              return ensureWritableTargets(targets, {
+                overwrite: options.overwrite,
+                backup: options.backup,
+                lang: normalizeLanguage(lang),
+              });
+            })();
 
       if (!safetyCheck.proceed) {
         console.log(i18n.safety.aborted);
@@ -514,7 +538,9 @@ program
 
       const geminiModel = options.geminiModel?.trim() || config.geminiModel;
 
-      console.log(`\n🌐 ${pc.bold(tm.started(pc.cyan(path.basename(resolvedSubtitlePath))))}`);
+      if (!isStdout) {
+        console.log(`\n🌐 ${pc.bold(tm.started(pc.cyan(path.basename(resolvedSubtitlePath))))}`);
+      }
 
       // 1. Read and parse subtitle file
       spinner.start(tm.step1Parsing);
@@ -681,65 +707,76 @@ program
       const langListDisplay = targetLanguages.map((l) => l.toUpperCase()).join(", ");
       spinner.succeed(tm.step2Done(langListDisplay, srtEntries.length));
 
-      // 3. Save output subtitle files
-      spinner.start(tm.step3Saving);
-
-      for (const tLang of targetLanguages) {
+      // 3. Save output subtitle files or write to stdout
+      if (isStdout) {
+        const tLang = targetLanguages[0] ?? "ja";
         let entries = resultsByLang.get(tLang) ?? srtEntries;
         if (isBilingual) {
           entries = mergeBilingualEntries(srtEntries, entries, { order: bilingualOrder });
         }
-        const targets = resolveOutputFilePaths(
-          subDir,
-          subBaseName,
-          tLang,
-          outputFormats,
-          options.output,
-          !isMultiLang,
-          isBilingual,
-        );
-        for (const { format, filePath } of targets) {
-          fs.writeFileSync(filePath, formatEntries(entries, format), "utf-8");
-          outputFiles.push(filePath);
+        const fmt = outputFormats[0] ?? "srt";
+        const formatted = formatEntries(entries, fmt);
+        process.stdout.write(formatted.endsWith("\n") ? formatted : `${formatted}\n`);
+      } else {
+        spinner.start(tm.step3Saving);
+
+        for (const tLang of targetLanguages) {
+          let entries = resultsByLang.get(tLang) ?? srtEntries;
+          if (isBilingual) {
+            entries = mergeBilingualEntries(srtEntries, entries, { order: bilingualOrder });
+          }
+          const targets = resolveOutputFilePaths(
+            subDir,
+            subBaseName,
+            tLang,
+            outputFormats,
+            options.output,
+            !isMultiLang,
+            isBilingual,
+          );
+          for (const { format, filePath } of targets) {
+            fs.writeFileSync(filePath, formatEntries(entries, format), "utf-8");
+            outputFiles.push(filePath);
+          }
         }
+
+        const formatListStr = outputFormats.map((f) => f.toUpperCase()).join(", ");
+        spinner.succeed(tm.step3Saved(formatListStr));
+
+        // 4. Output Summary Box
+        const durationMs = Date.now() - startTime;
+        console.log(
+          "\n" +
+            formatSummaryBox(
+              {
+                mediaFile: path.basename(resolvedSubtitlePath),
+                mediaType: "subtitle",
+                durationMs,
+                targetLanguages,
+                entriesCount: srtEntries.length,
+                bilingual: isBilingual ? { order: bilingualOrder } : undefined,
+                backedUpFiles:
+                  safetyCheck.backedUp.length > 0
+                    ? safetyCheck.backedUp.map((b) => b.backup)
+                    : undefined,
+                outputFiles,
+                skippedTranslation: false,
+                prompt: translationPrompt,
+                glossaryTermsCount: totalGlossaryTerms > 0 ? totalGlossaryTerms : undefined,
+                geminiModel: geminiModel || DEFAULT_GEMINI_MODEL,
+                cacheStatus: cachedLanguages.length > 0 ? { cachedLanguages } : undefined,
+                lang: normalizeLanguage(lang),
+              },
+              lang,
+            ) +
+            "\n",
+        );
+
+        await notifyUpdateIfAvailable({
+          lang: normalizeLanguage(lang),
+          disableUpdateCheck: Boolean(options.noUpdateCheck || rawConfig.disableUpdateCheck),
+        });
       }
-
-      const formatListStr = outputFormats.map((f) => f.toUpperCase()).join(", ");
-      spinner.succeed(tm.step3Saved(formatListStr));
-
-      // 4. Output Summary Box
-      const durationMs = Date.now() - startTime;
-      console.log(
-        "\n" +
-          formatSummaryBox(
-            {
-              mediaFile: path.basename(resolvedSubtitlePath),
-              mediaType: "subtitle",
-              durationMs,
-              targetLanguages,
-              entriesCount: srtEntries.length,
-              bilingual: isBilingual ? { order: bilingualOrder } : undefined,
-              backedUpFiles:
-                safetyCheck.backedUp.length > 0
-                  ? safetyCheck.backedUp.map((b) => b.backup)
-                  : undefined,
-              outputFiles,
-              skippedTranslation: false,
-              prompt: translationPrompt,
-              glossaryTermsCount: totalGlossaryTerms > 0 ? totalGlossaryTerms : undefined,
-              geminiModel: geminiModel || DEFAULT_GEMINI_MODEL,
-              cacheStatus: cachedLanguages.length > 0 ? { cachedLanguages } : undefined,
-              lang: normalizeLanguage(lang),
-            },
-            lang,
-          ) +
-          "\n",
-      );
-
-      await notifyUpdateIfAvailable({
-        lang: normalizeLanguage(lang),
-        disableUpdateCheck: Boolean(options.noUpdateCheck || rawConfig.disableUpdateCheck),
-      });
     } catch (error) {
       spinner.fail(
         i18n.pipeline.errorOccurred(error instanceof Error ? error.message : String(error)),
@@ -1099,6 +1136,7 @@ program
     "Disable automatic splitting and reflowing of long subtitle segments",
     false,
   )
+  .option("--stdout", "Output subtitles directly to stdout instead of saving to file", false)
   .option("--verbose", "Output detailed log messages", false)
   .action(
     async (
@@ -1118,17 +1156,30 @@ program
         return;
       }
 
+      const isStdout = Boolean(options.stdout || options.output === "-");
+
       try {
-        await processMediaPipeline({
+        const result = await processMediaPipeline({
           ...options,
+          stdout: isStdout,
           lang: normalizeLanguage(lang),
           mediaFile,
         });
 
-        await notifyUpdateIfAvailable({
-          lang: normalizeLanguage(lang),
-          disableUpdateCheck: Boolean(options.noUpdateCheck || rawConfig.disableUpdateCheck),
-        });
+        if (result.stdoutContent !== undefined) {
+          process.stdout.write(
+            result.stdoutContent.endsWith("\n")
+              ? result.stdoutContent
+              : `${result.stdoutContent}\n`,
+          );
+        }
+
+        if (!isStdout) {
+          await notifyUpdateIfAvailable({
+            lang: normalizeLanguage(lang),
+            disableUpdateCheck: Boolean(options.noUpdateCheck || rawConfig.disableUpdateCheck),
+          });
+        }
       } catch (error) {
         console.error(
           pc.red(
