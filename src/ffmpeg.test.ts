@@ -3,6 +3,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import {
   burnSubtitlesToVideo,
   checkFfmpeg,
+  embedSubtitlesToVideo,
   escapeFfmpegFilterPath,
   extractAudio,
   getMediaDurationInSeconds,
@@ -11,6 +12,7 @@ import {
   isVideoFile,
   prepareAudio,
   resolveFfprobePath,
+  resolveSubtitleCodec,
 } from "./ffmpeg.js";
 
 // Mock execa
@@ -217,6 +219,123 @@ describe("ffmpeg.ts", () => {
       expect(args).toContain("-c:a");
       expect(args).toContain("copy");
       expect(args).toContain("-y");
+      expect(result).toContain("out.mp4");
+    });
+  });
+
+  describe("resolveSubtitleCodec", () => {
+    it("should return mov_text for MP4 containers (.mp4, .m4v, .mov)", () => {
+      expect(resolveSubtitleCodec(".mp4")).toBe("mov_text");
+      expect(resolveSubtitleCodec("video.m4v")).toBe("mov_text");
+      expect(resolveSubtitleCodec("movie.MOV")).toBe("mov_text");
+    });
+
+    it("should return srt for MKV containers (.mkv)", () => {
+      expect(resolveSubtitleCodec(".mkv")).toBe("srt");
+      expect(resolveSubtitleCodec("/path/to/movie.MKV")).toBe("srt");
+    });
+
+    it("should return webvtt for WebM containers (.webm)", () => {
+      expect(resolveSubtitleCodec(".webm")).toBe("webvtt");
+    });
+
+    it("should throw error for unsupported container formats", () => {
+      expect(() => resolveSubtitleCodec(".avi")).toThrow(
+        /Unsupported video container for soft subtitles: \.avi/,
+      );
+      expect(() => resolveSubtitleCodec("audio.mp3")).toThrow(
+        /Unsupported video container for soft subtitles: \.mp3/,
+      );
+    });
+  });
+
+  describe("embedSubtitlesToVideo", () => {
+    it("should throw error if input video does not exist", async () => {
+      vi.spyOn(fs, "existsSync").mockReturnValue(false);
+      await expect(
+        embedSubtitlesToVideo("nonexistent.mp4", [{ path: "sub.srt" }], "out.mp4"),
+      ).rejects.toThrow(/Specified video file not found/);
+    });
+
+    it("should throw error if input is an audio file", async () => {
+      vi.spyOn(fs, "existsSync").mockReturnValue(true);
+      await expect(
+        embedSubtitlesToVideo("audio.mp3", [{ path: "sub.srt" }], "out.mp4"),
+      ).rejects.toThrow(/Cannot embed subtitles into a non-video file/);
+    });
+
+    it("should throw error if no subtitle tracks provided", async () => {
+      vi.spyOn(fs, "existsSync").mockReturnValue(true);
+      await expect(embedSubtitlesToVideo("video.mp4", [], "out.mp4")).rejects.toThrow(
+        /At least one subtitle track is required/,
+      );
+    });
+
+    it("should throw error if any subtitle file does not exist", async () => {
+      vi.spyOn(fs, "existsSync").mockImplementation((p) => {
+        const s = p.toString();
+        return s.endsWith("video.mp4") || s.endsWith("video.ja.srt");
+      });
+      await expect(
+        embedSubtitlesToVideo(
+          "video.mp4",
+          [{ path: "video.ja.srt" }, { path: "nonexistent.en.srt" }],
+          "out.mp4",
+        ),
+      ).rejects.toThrow(/Specified subtitle file not found: nonexistent\.en\.srt/);
+    });
+
+    it("should build ffmpeg args with stream copy and multi-track metadata", async () => {
+      vi.spyOn(fs, "existsSync").mockReturnValue(true);
+      vi.spyOn(fs, "mkdirSync").mockReturnValue(undefined as unknown as string);
+      mockExeca.mockResolvedValueOnce({ stdout: "" });
+
+      const result = await embedSubtitlesToVideo(
+        "video.mp4",
+        [
+          { path: "sub.ja.srt", language: "ja" },
+          { path: "sub.en.srt", language: "en", title: "English Subtitles" },
+        ],
+        "out.mp4",
+        { ffmpegPath: "my-ffmpeg", verbose: true },
+      );
+
+      expect(mockExeca).toHaveBeenCalledTimes(1);
+      const [cmd, args] = mockExeca.mock.calls[0] as [string, string[]];
+      expect(cmd).toBe("my-ffmpeg");
+
+      // Verify input mappings
+      expect(args[0]).toBe("-i");
+      expect(args[1]).toContain("video.mp4");
+      expect(args[2]).toBe("-i");
+      expect(args[3]).toContain("sub.ja.srt");
+      expect(args[4]).toBe("-i");
+      expect(args[5]).toContain("sub.en.srt");
+
+      // Verify stream mapping
+      expect(args).toContain("-map");
+      expect(args).toContain("0:v");
+      expect(args).toContain("0:a?");
+      expect(args).toContain("1:s");
+      expect(args).toContain("2:s");
+
+      // Verify stream copy and codec
+      expect(args).toContain("-c:v");
+      expect(args).toContain("copy");
+      expect(args).toContain("-c:a");
+      expect(args).toContain("copy");
+      expect(args).toContain("-c:s");
+      expect(args).toContain("mov_text");
+
+      // Verify metadata
+      expect(args).toContain("-metadata:s:s:0");
+      expect(args).toContain("language=jpn");
+      expect(args).toContain("title=Japanese");
+
+      expect(args).toContain("-metadata:s:s:1");
+      expect(args).toContain("language=eng");
+      expect(args).toContain("title=English Subtitles");
+
       expect(result).toContain("out.mp4");
     });
   });

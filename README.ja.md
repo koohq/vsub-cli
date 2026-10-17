@@ -155,6 +155,7 @@ Options:
   --max-duration <seconds>      字幕1件あたりの目安最大表示秒数 (デフォルト: 7)
   --no-reflow                   長文セグメントのスマート自動分割を無効化 (デフォルト: false)
   --burn                        生成された字幕を動画自体に焼き込んで出力 (hardsub) (デフォルト: false)
+  --embed                       生成された字幕を動画コンテナへ字幕トラックとして埋め込み (softsub) (デフォルト: false)
   --keep-audio                  中間生成した音声ファイルを削除せずに保持する (デフォルト: false)
   --no-translate                Gemini翻訳をスキップし、Groqの文字起こし結果（原語字幕）のみを出力する
   --save-original               翻訳後字幕に加え、翻訳前の原語文字起こし字幕ファイルも同時に保存する (デフォルト: false)
@@ -165,7 +166,9 @@ Options:
 
 Commands:
   burn <video-file> <sub-file>  既存の字幕ファイル (.srt) を FFmpeg で動画に直接焼き込み (hardsub)
+  embed <video> <sub-files...>  既存の動画と字幕 (.srt) を FFmpeg ストリームコピーで字幕トラックとして高速埋め込み (softsub)
   translate <subtitle-file>     既存の字幕ファイル (.srt) を Gemini API で直接別言語に翻訳
+
   update [options]              スタンドアロンバイナリを最新リリース版へ自己更新 (エイリアス: upgrade)
   cache path                    キャッシュディレクトリのパスを表示
   cache stats                   キャッシュファイル数と使用容量を表示
@@ -230,7 +233,18 @@ pnpm dev video.mp4 -t ja --burn
 pnpm dev burn video.mp4 video.ja.srt -o video.subbed.mp4
 ```
 
-### 6. 用語集 (Glossary) & カスタムプロンプトの活用
+### 6. 動画へのソフトサブ（字幕トラック）高速埋め込み (`--embed` & `vsub embed`)
+映像・音声を一切再エンコードせず、FFmpeg の無劣化ストリームコピーにより、動画プレイヤーで ON/OFF や言語切り替えが可能な字幕トラックとして高速埋め込みします（長尺動画でも数秒で完了）：
+```bash
+# 複数言語の字幕トラックを1つの動画ファイルにまとめて格納
+pnpm dev video.mp4 -t ja,en,zh --embed
+# => 出力: video.embedded.mp4 (日本語・英語・中国語の切り替え可能トラック入り)
+
+# または既存の動画と複数の SRT 字幕ファイルを直接合成
+pnpm dev embed video.mp4 video.ja.srt video.en.srt -o video.subbed.mp4
+```
+
+### 7. 用語集 (Glossary) & カスタムプロンプトの活用
 
 #### インライン用語集の指定
 ```bash
@@ -264,7 +278,7 @@ pnpm dev video.mp4 -t ja,zh --glossary ./glossary.json
 pnpm dev video.mp4 -t ja --prompt "ITエンジニア向けの丁寧なです・ます調で翻訳してください。各行は30文字以内で簡潔にまとめてください。"
 ```
 
-### 7. キャッシュ管理 & パフォーマンス最適化
+### 8. キャッシュ管理 & パフォーマンス最適化
 ```bash
 # キャッシュ使用状況の確認
 pnpm dev cache stats
@@ -279,7 +293,25 @@ pnpm dev cache clean
 pnpm dev video.mp4 -t ja --concurrency 5
 ```
 
-### 8. スタンドアロンバイナリの自己更新 (`vsub update`)
+### 9. AI チャプター生成 & 要約サブコマンド (`vsub chapters` & `vsub summarize`)
+
+任意の動画・音声・既存 `.srt` ファイルから、YouTube 概要欄用チャプターや構造化された Markdown 要約を自動生成します。すでに `vsub` で文字起こし済みのメディアであれば、文字起こしキャッシュを再利用して数秒で生成が完了します。
+
+```bash
+# YouTube 概要欄にそのまま貼れるチャプター一覧を生成 ([名前].chapters.txt に保存)
+vsub chapters video.mp4 -t ja
+vsub chapters subtitle.srt -f json  # 構造化 JSON として出力
+
+# 全体要約・主要ポイント・トピック別ハイライトを生成 ([名前].summary.md に保存)
+vsub summarize video.mp4 -t ja
+vsub summarize interview.srt -f txt # 装飾なしプレーンテキストで出力
+
+# UNIX パイプ / stdout ストリーム連携
+vsub chapters video.mp4 --stdout | pbcopy
+vsub summarize meeting.mp4 --stdout > summary.md
+```
+
+### 10. スタンドアロンバイナリの自己更新 (`vsub update`)
 手動でのダウンロードやファイル配置を行わずに、ワンコマンドで最新版へアップデートします：
 ```bash
 # 更新を適用せずに新バージョンの有無のみ確認
@@ -311,23 +343,6 @@ pnpm dev config set --disable-update-check true
 pnpm dev config path
 ```
 
-### 7. AI チャプター生成 & 要約サブコマンド (`vsub chapters` & `vsub summarize`)
-
-任意の動画・音声・既存 `.srt` ファイルから、YouTube 概要欄用チャプターや構造化された Markdown 要約を自動生成します。すでに `vsub` で文字起こし済みのメディアであれば、文字起こしキャッシュを再利用して数秒で生成が完了します。
-
-```bash
-# YouTube 概要欄にそのまま貼れるチャプター一覧を生成 ([名前].chapters.txt に保存)
-vsub chapters video.mp4 -t ja
-vsub chapters subtitle.srt -f json  # 構造化 JSON として出力
-
-# 全体要約・主要ポイント・トピック別ハイライトを生成 ([名前].summary.md に保存)
-vsub summarize video.mp4 -t ja
-vsub summarize interview.srt -f txt # 装飾なしプレーンテキストで出力
-
-# UNIX パイプ / stdout ストリーム連携
-vsub chapters video.mp4 --stdout | pbcopy
-vsub summarize meeting.mp4 --stdout > summary.md
-```
 
 ---
 

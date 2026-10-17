@@ -20,7 +20,13 @@ import {
   getGlobalConfigPath,
   saveGlobalConfig,
 } from "./config.js";
-import { burnSubtitlesToVideo, checkFfmpeg, isVideoFile } from "./ffmpeg.js";
+import {
+  burnSubtitlesToVideo,
+  checkFfmpeg,
+  embedSubtitlesToVideo,
+  isVideoFile,
+  type SubtitleTrackInput,
+} from "./ffmpeg.js";
 import {
   formatEntries,
   parseChaptersFormat,
@@ -31,7 +37,8 @@ import { translateSrtEntries } from "./gemini.js";
 import { computeGlossaryHash, parseGlossary } from "./glossary.js";
 import { getI18n, normalizeLanguage } from "./i18n/index.js";
 import { runInitWizard } from "./init.js";
-import { parseTargetLanguages } from "./languages.js";
+import { getLanguageDisplayName, parseTargetLanguages } from "./languages.js";
+
 import { printLicenses } from "./licenses.js";
 import {
   type ProcessMediaOptions,
@@ -1112,9 +1119,206 @@ program
     },
   );
 
+/**
+ * Infers language code and display title from a subtitle file path (e.g. "movie.ja.srt" -> "ja").
+ */
+function inferLanguageFromSubtitlePath(filePath: string): { language?: string; title?: string } {
+  const base = path.basename(filePath);
+  const match = base.match(/[._-]([a-zA-Z]{2,3}(?:-[a-zA-Z0-9]{2,4})?)\.[a-zA-Z0-9]+$/i);
+  if (match?.[1]) {
+    const rawLang = match[1].toLowerCase();
+    try {
+      const parsed = parseTargetLanguages(rawLang);
+      if (parsed[0]) {
+        return {
+          language: parsed[0],
+          title: getLanguageDisplayName(parsed[0]),
+        };
+      }
+    } catch {
+      // not a recognized language code, fallback below
+    }
+  }
+  const cleanName = path.basename(filePath, path.extname(filePath));
+  return { title: cleanName };
+}
+
+// Subcommand: embed
+program
+  .command("embed")
+  .description(
+    "Embed one or more subtitle files (.srt) as soft subtitle tracks into a video via FFmpeg stream copy",
+  )
+  .argument("<video-file>", "Input video file path (.mp4, .mkv, .mov, etc.)")
+  .argument("<subtitle-files...>", "One or more subtitle files to embed as tracks (.srt)")
+  .option("-o, --output <path>", "Output video file path (default: <video>.embedded.<ext>)")
+  .option("-w, --overwrite", "Overwrite existing output files without confirmation prompt", false)
+  .option("--backup", "Create backup (.bak) of existing output files before overwriting", false)
+  .option(
+    "--ffmpeg-path <path>",
+    "Path to ffmpeg executable (searches VSUB_FFMPEG_PATH or PATH if omitted)",
+  )
+  .option("--verbose", "Output detailed log messages", false)
+  .action(
+    async (
+      videoFile: string,
+      subtitleFiles: string[],
+      _actionOptions: Record<string, unknown>,
+      cmd: Command,
+    ) => {
+      const options = cmd.optsWithGlobals<{
+        output?: string;
+        overwrite?: boolean;
+        backup?: boolean;
+        ffmpegPath?: string;
+        verbose?: boolean;
+        lang?: string;
+        noUpdateCheck?: boolean;
+      }>();
+      const startTime = Date.now();
+      const verbose = Boolean(options.verbose);
+      const rawConfig = getConfig(options.ffmpegPath, options.lang);
+      const lang = options.lang ?? rawConfig.lang ?? "en";
+      const i18n = getI18n(lang);
+      const em = i18n.embed;
+
+      const spinner = createSpinner("", { isSilent: verbose });
+
+      try {
+        const resolvedVideoPath = path.resolve(process.cwd(), videoFile);
+        if (!fs.existsSync(resolvedVideoPath)) {
+          throw new Error(em.videoNotFound(resolvedVideoPath));
+        }
+        if (!isVideoFile(resolvedVideoPath)) {
+          throw new Error(em.notVideoFile(path.basename(resolvedVideoPath)));
+        }
+        if (!subtitleFiles || subtitleFiles.length === 0) {
+          throw new Error(em.noSubtitles);
+        }
+
+        const resolvedSubtitlePaths: string[] = [];
+        for (const sub of subtitleFiles) {
+          const resolvedSub = path.resolve(process.cwd(), sub);
+          if (!fs.existsSync(resolvedSub)) {
+            throw new Error(em.subtitleNotFound(resolvedSub));
+          }
+          resolvedSubtitlePaths.push(resolvedSub);
+        }
+
+        await checkFfmpeg(rawConfig.ffmpegPath);
+
+        let resolvedOutputPath: string;
+        if (options.output) {
+          resolvedOutputPath = path.resolve(process.cwd(), options.output);
+        } else {
+          const videoDir = path.dirname(resolvedVideoPath);
+          const videoExt = path.extname(resolvedVideoPath);
+          const videoBase = path.basename(resolvedVideoPath, videoExt);
+          resolvedOutputPath = path.join(videoDir, `${videoBase}.embedded${videoExt}`);
+        }
+
+        // Pre-check output video file safety
+        const safetyCheck = await ensureWritableTargets([resolvedOutputPath], {
+          overwrite: options.overwrite,
+          backup: options.backup,
+          lang: normalizeLanguage(lang),
+        });
+
+        if (!safetyCheck.proceed) {
+          console.log(i18n.safety.aborted);
+          return;
+        }
+
+        if (safetyCheck.backedUp.length > 0) {
+          for (const { original, backup } of safetyCheck.backedUp) {
+            console.log(
+              `📦 ${i18n.pipeline.backupCreated(pc.cyan(path.basename(original)), pc.yellow(path.basename(backup)))}`,
+            );
+          }
+        }
+
+        console.log(
+          `\n🎬 ${pc.bold(em.started(pc.cyan(path.basename(resolvedVideoPath)), resolvedSubtitlePaths.length))}`,
+        );
+
+        const tracks: SubtitleTrackInput[] = resolvedSubtitlePaths.map((subPath) => {
+          const { language, title } = inferLanguageFromSubtitlePath(subPath);
+          return {
+            path: subPath,
+            language,
+            title,
+          };
+        });
+
+        spinner.start(em.stepEmbedding);
+        await embedSubtitlesToVideo(resolvedVideoPath, tracks, resolvedOutputPath, {
+          ffmpegPath: rawConfig.ffmpegPath,
+          verbose,
+        });
+        spinner.succeed(em.stepSaved(path.basename(resolvedOutputPath)));
+
+        const durationMs = Date.now() - startTime;
+        let outStats: fs.Stats | undefined;
+        try {
+          outStats = fs.statSync(resolvedOutputPath);
+        } catch {
+          // ignore
+        }
+
+        let totalEntriesCount = 0;
+        for (const subPath of resolvedSubtitlePaths) {
+          try {
+            const subContent = fs.readFileSync(subPath, "utf-8");
+            totalEntriesCount += parseSrt(subContent).length;
+          } catch {
+            // ignore
+          }
+        }
+
+        console.log(
+          "\n" +
+            formatSummaryBox(
+              {
+                mediaFile: path.basename(resolvedVideoPath),
+                mediaType: "video",
+                durationMs,
+                entriesCount: totalEntriesCount,
+                backedUpFiles:
+                  safetyCheck.backedUp.length > 0
+                    ? safetyCheck.backedUp.map((b) => b.backup)
+                    : undefined,
+                outputFiles: [
+                  outStats
+                    ? `${resolvedOutputPath} (${formatFileSize(outStats.size)})`
+                    : resolvedOutputPath,
+                ],
+                lang: normalizeLanguage(lang),
+              },
+              lang,
+            ) +
+            "\n",
+        );
+
+        await notifyUpdateIfAvailable({
+          lang: normalizeLanguage(lang),
+          disableUpdateCheck: Boolean(options.noUpdateCheck || rawConfig.disableUpdateCheck),
+        });
+      } catch (error) {
+        spinner.fail(
+          i18n.pipeline.errorOccurred(error instanceof Error ? error.message : String(error)),
+        );
+        if (verbose && error instanceof Error && error.stack) {
+          console.error(error.stack);
+        }
+        process.exit(1);
+      }
+    },
+  );
+
 // Subcommand: batch
 program
   .command("batch")
+
   .description(
     "Process multiple media files in bulk (directories, multiple files, or glob patterns)",
   )
@@ -1171,6 +1375,11 @@ program
     "5",
   )
   .option("--burn", "Burn generated subtitles directly into output video (hardsub)", false)
+  .option(
+    "--embed",
+    "Embed generated subtitles directly as soft subtitle tracks into output video",
+    false,
+  )
   .option("--keep-audio", "Keep intermediate extracted audio files without deleting", false)
   .option("--no-translate", "Skip translation and output raw transcribed subtitles", false)
   .option(
@@ -1283,6 +1492,11 @@ program
     "5",
   )
   .option("--burn", "Burn generated subtitles directly into output video (hardsub)", false)
+  .option(
+    "--embed",
+    "Embed generated subtitles directly as soft subtitle tracks into output video",
+    false,
+  )
   .option("--keep-audio", "Keep intermediate extracted audio files without deleting", false)
   .option("--no-translate", "Skip translation and output raw transcribed subtitles", false)
   .option(

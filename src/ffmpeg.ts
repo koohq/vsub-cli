@@ -2,6 +2,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { execa } from "execa";
+import { getLanguageDisplayName, toIso6392 } from "./languages.js";
 
 export interface ExtractedAudioResult {
   audioPaths: string[];
@@ -353,6 +354,142 @@ export async function burnSubtitlesToVideo(
 
   if (!fs.existsSync(resolvedOutput)) {
     throw new Error(`Failed to burn subtitles: Output file was not created at ${resolvedOutput}`);
+  }
+
+  return resolvedOutput;
+}
+
+export interface SubtitleTrackInput {
+  path: string;
+  language?: string | undefined;
+  title?: string | undefined;
+}
+
+export interface EmbedSubtitlesOptions {
+  ffmpegPath?: string | undefined;
+  verbose?: boolean | undefined;
+}
+
+/**
+ * Supported container extensions and their corresponding subtitle codecs for soft subtitle embedding.
+ */
+export const CONTAINER_SUBTITLE_CODECS: Record<string, string> = {
+  ".mp4": "mov_text",
+  ".m4v": "mov_text",
+  ".mov": "mov_text",
+  ".mkv": "srt",
+  ".webm": "webvtt",
+};
+
+/**
+ * Resolves the appropriate subtitle codec for a given video file extension.
+ * Throws an error if the container is not supported for soft subtitle embedding.
+ */
+export function resolveSubtitleCodec(extOrPath: string): string {
+  const ext = (path.extname(extOrPath) || extOrPath).toLowerCase();
+  const codec = CONTAINER_SUBTITLE_CODECS[ext];
+  if (!codec) {
+    const supported = Object.keys(CONTAINER_SUBTITLE_CODECS).join(", ");
+    throw new Error(
+      `Unsupported video container for soft subtitles: ${ext || "(none)"}. Supported containers: ${supported}`,
+    );
+  }
+  return codec;
+}
+
+/**
+ * Embeds one or more subtitle tracks into a video container using fast FFmpeg stream copy (-c:v copy -c:a copy).
+ * Creates soft subtitles that can be toggled on/off and switched by language in video players.
+ */
+export async function embedSubtitlesToVideo(
+  videoPath: string,
+  subtitles: SubtitleTrackInput[],
+  outputPath: string,
+  options?: EmbedSubtitlesOptions,
+): Promise<string> {
+  const ffmpegPath = options?.ffmpegPath ?? "ffmpeg";
+  const verbose = Boolean(options?.verbose);
+
+  const resolvedVideo = path.resolve(videoPath);
+  const resolvedOutput = path.resolve(outputPath);
+
+  if (!fs.existsSync(resolvedVideo)) {
+    throw new Error(`Specified video file not found: ${videoPath}`);
+  }
+  if (!isVideoFile(resolvedVideo)) {
+    throw new Error(
+      `Cannot embed subtitles into a non-video file: ${path.basename(videoPath)} (supported video formats: ${Array.from(SUPPORTED_VIDEO_EXTENSIONS).join(", ")})`,
+    );
+  }
+  if (!subtitles || subtitles.length === 0) {
+    throw new Error("At least one subtitle track is required to embed into video");
+  }
+
+  // Validate that all subtitle files exist
+  for (const sub of subtitles) {
+    const resolvedSub = path.resolve(sub.path);
+    if (!fs.existsSync(resolvedSub)) {
+      throw new Error(`Specified subtitle file not found: ${sub.path}`);
+    }
+  }
+
+  const outDir = path.dirname(resolvedOutput);
+  if (!fs.existsSync(outDir)) {
+    fs.mkdirSync(outDir, { recursive: true });
+  }
+
+  const outExt = path.extname(resolvedOutput);
+  const subtitleCodec = resolveSubtitleCodec(outExt);
+
+  const ffmpegArgs: string[] = ["-i", resolvedVideo];
+
+  // Add each subtitle file as an input
+  for (const sub of subtitles) {
+    ffmpegArgs.push("-i", path.resolve(sub.path));
+  }
+
+  // Map video and optional audio streams from primary input
+  ffmpegArgs.push("-map", "0:v", "-map", "0:a?");
+
+  // Map each subtitle stream (input 1, 2, ...)
+  for (let i = 0; i < subtitles.length; i++) {
+    ffmpegArgs.push("-map", `${i + 1}:s`);
+  }
+
+  // Stream copy video and audio without re-encoding, and set subtitle codec
+  ffmpegArgs.push("-c:v", "copy", "-c:a", "copy", "-c:s", subtitleCodec);
+
+  // Set language and title metadata for each subtitle stream
+  for (let i = 0; i < subtitles.length; i++) {
+    const sub = subtitles[i];
+    if (!sub) {
+      continue;
+    }
+    if (sub.language) {
+      const iso6392 = toIso6392(sub.language);
+      ffmpegArgs.push(`-metadata:s:s:${i}`, `language=${iso6392}`);
+    }
+    const title = sub.title || (sub.language ? getLanguageDisplayName(sub.language) : undefined);
+    if (title) {
+      ffmpegArgs.push(`-metadata:s:s:${i}`, `title=${title}`);
+    }
+  }
+
+  ffmpegArgs.push("-y", resolvedOutput);
+
+  if (verbose) {
+    console.log(`[ffmpeg] Embedding soft subtitles: ${ffmpegPath} ${ffmpegArgs.join(" ")}`);
+  }
+
+  try {
+    await execa(ffmpegPath, ffmpegArgs);
+  } catch (error) {
+    const errMessage = error instanceof Error ? error.message : String(error);
+    throw new Error(`Failed to embed subtitles into video with FFmpeg: ${errMessage}`);
+  }
+
+  if (!fs.existsSync(resolvedOutput)) {
+    throw new Error(`Failed to embed subtitles: Output file was not created at ${resolvedOutput}`);
   }
 
   return resolvedOutput;

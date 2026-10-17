@@ -262,5 +262,45 @@ describe("batch.ts", () => {
       expect(summary.items[2]?.status).toBe("skipped");
       expect(pipelineSpy).toHaveBeenCalledTimes(1);
     });
+
+    it("should propagate embed option to processMediaPipeline", async () => {
+      const file1 = path.join(tempDir, "ep1.mp4");
+      fs.writeFileSync(file1, "video1");
+
+      vi.spyOn(configModule, "getConfig").mockReturnValue({
+        groqApiKey: "gsk-mock",
+        geminiApiKey: "gem-mock",
+        ffmpegPath: "ffmpeg",
+      });
+      vi.spyOn(configModule, "ensureApiKeys").mockResolvedValue({
+        groqApiKey: "gsk-mock",
+        geminiApiKey: "gem-mock",
+        ffmpegPath: "ffmpeg",
+      });
+      vi.spyOn(ffmpegModule, "checkFfmpeg").mockResolvedValue();
+
+      let passedOptions: pipelineModule.ProcessMediaOptions | undefined;
+      vi.spyOn(pipelineModule, "processMediaPipeline").mockImplementation(async (opts) => {
+        passedOptions = opts;
+        return {
+          mediaFile: path.basename(opts.mediaFile),
+          mediaType: "video",
+          durationMs: 500,
+          targetLanguages: ["ja"],
+          entriesCount: 3,
+          outputFiles: [path.join(tempDir, "ep1.embedded.mp4")],
+        };
+      });
+
+      const summary = await runBatchPipeline({
+        targets: [file1],
+        targetLang: "ja",
+        embed: true,
+      });
+
+      expect(summary.totalFiles).toBe(1);
+      expect(summary.succeededCount).toBe(1);
+      expect(passedOptions?.embed).toBe(true);
+    });
   });
 });

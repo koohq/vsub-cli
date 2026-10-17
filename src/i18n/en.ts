@@ -110,13 +110,18 @@ export const en = {
     step4Saved: (formats: string) => `💾 [4/4] Subtitle files saved successfully (${formats})`,
     burnStarting: "🎬 Burning subtitles into video with FFmpeg (libx264)...",
     burnDone: "🎬 Subtitle burn-in complete",
+    embedStarting: "🎬 Embedding soft subtitle tracks into video with FFmpeg...",
+    embedDone: "🎬 Subtitle tracks embedded into video successfully",
+    cannotEmbedAudio: "Cannot embed subtitles into an audio file",
     stdoutSingleFormatOnly:
       "Cannot specify multiple formats with --stdout. Please specify a single format (e.g. -f srt).",
     stdoutSingleLangOnly:
       "Cannot specify multiple target languages with --stdout. Please specify a single language.",
     stdoutCannotBurn: "Cannot use --burn with --stdout.",
+    stdoutCannotEmbed: "Cannot use --embed with --stdout.",
     errorOccurred: (err: string) => `An error occurred during processing: ${err}`,
   },
+
   translate: {
     started: (name: string) => `vsub-cli translate - Subtitle translation started: ${name}`,
     step1Parsing: "📖 [1/3] Reading and parsing subtitle file...",
@@ -180,6 +185,17 @@ export const en = {
     notVideoFile: (name: string) => `Cannot burn subtitles into non-video format: ${name}`,
     subtitleNotFound: (path: string) => `Subtitle file not found: ${path}`,
   },
+  embed: {
+    started: (video: string, count: number) =>
+      `vsub-cli embed - Soft subtitle embedding started: ${video} (${count} subtitle track(s))`,
+    videoNotFound: (path: string) => `Video file not found: ${path}`,
+    notVideoFile: (name: string) => `Cannot embed subtitles into non-video format: ${name}`,
+    subtitleNotFound: (path: string) => `Subtitle file not found: ${path}`,
+    noSubtitles: "At least one subtitle file is required to embed into video.",
+    stepEmbedding: "Embedding subtitle track(s) via FFmpeg stream copy...",
+    stepSaved: (path: string) => `Embedded video saved successfully: ${path}`,
+  },
+
   batch: {
     noMediaFiles: (targets: string) =>
       `\n⚠️  No supported video or audio media files found.\n   Specified path(s): ${targets}\n`,

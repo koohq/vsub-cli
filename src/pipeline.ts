@@ -14,7 +14,15 @@ import {
   saveTranslationCache,
 } from "./cache.js";
 import { DEFAULT_GEMINI_MODEL, DEFAULT_GROQ_MODEL, ensureApiKeys, getConfig } from "./config.js";
-import { burnSubtitlesToVideo, checkFfmpeg, extractAudio, isAudioFile } from "./ffmpeg.js";
+import {
+  burnSubtitlesToVideo,
+  checkFfmpeg,
+  embedSubtitlesToVideo,
+  extractAudio,
+  isAudioFile,
+  isVideoFile,
+  type SubtitleTrackInput,
+} from "./ffmpeg.js";
 import {
   type ChapterItem,
   type ChaptersFormat,
@@ -30,7 +38,8 @@ import { generateChapters, generateSummary, translateSrtEntries } from "./gemini
 import { computeGlossaryHash, extractWhisperPromptHints, parseGlossary } from "./glossary.js";
 import { transcribeAudioSegments } from "./groq.js";
 import { getI18n, type SupportedLanguage } from "./i18n/index.js";
-import { parseTargetLanguages } from "./languages.js";
+import { getLanguageDisplayName, parseTargetLanguages } from "./languages.js";
+
 import { type EnsureWritableResult, ensureWritableTargets } from "./safety.js";
 import {
   type BilingualOrder,
@@ -119,6 +128,7 @@ export interface ProcessMediaOptions {
   fresh?: boolean | undefined;
   cacheDir?: string | undefined;
   burn?: boolean | undefined;
+  embed?: boolean | undefined;
   keepAudio?: boolean | undefined;
   noTranslate?: boolean | undefined;
   saveOriginal?: boolean | undefined;
@@ -195,6 +205,9 @@ export async function processMediaPipeline(
     if (options.burn) {
       throw new Error(m.stdoutCannotBurn);
     }
+    if (options.embed) {
+      throw new Error(m.stdoutCannotEmbed);
+    }
   }
 
   const isMultiLang = targetLanguages.length > 1;
@@ -257,6 +270,23 @@ export async function processMediaPipeline(
         predictedTargets.push(burntVideoPath);
       }
     }
+
+    if (options.embed) {
+      let embeddedVideoPath: string;
+      const targetExt = isVideoFile(resolvedMediaPath) ? mediaExt : ".mp4";
+      if (options.output) {
+        const resolvedOut = path.resolve(process.cwd(), options.output);
+        const parsedOut = path.parse(resolvedOut);
+        if (isVideoFile(resolvedOut)) {
+          embeddedVideoPath = resolvedOut;
+        } else {
+          embeddedVideoPath = path.join(parsedOut.dir, `${parsedOut.name}.embedded${targetExt}`);
+        }
+      } else {
+        embeddedVideoPath = path.join(effectiveOutputDir, `${mediaBaseName}.embedded${targetExt}`);
+      }
+      predictedTargets.push(embeddedVideoPath);
+    }
   }
 
   const safetyCheck: EnsureWritableResult = isStdout
@@ -307,6 +337,10 @@ export async function processMediaPipeline(
   if (options.burn && isAudio) {
     throw new Error(m.cannotBurnAudio);
   }
+  if (options.embed && isAudio) {
+    throw new Error(m.cannotEmbedAudio);
+  }
+
   const mediaTypeName = isAudio ? "audio" : "video";
   const mediaIcon = isAudio ? "🎵" : "🎬";
 
@@ -641,7 +675,7 @@ export async function processMediaPipeline(
           }
         }
 
-        if (options.burn && !savedSrtPathsByLang.has(targetL)) {
+        if ((options.burn || options.embed) && !savedSrtPathsByLang.has(targetL)) {
           const tempSrtPath = path.join(
             os.tmpdir(),
             `vsub-burn-${Date.now()}-${Math.random().toString(36).slice(2, 8)}-${targetL}.srt`,
@@ -655,9 +689,9 @@ export async function processMediaPipeline(
       const formatListStr = outputFormats.map((f) => f.toUpperCase()).join(", ");
       spinner.succeed(`${prefix}${m.step4Saved(formatListStr)}`);
 
-      // 5. Burn subtitles to video if --burn option is specified
-      if (options.burn) {
-        try {
+      try {
+        // 5. Burn subtitles to video if --burn option is specified
+        if (options.burn) {
           spinner.start(`${prefix}${m.burnStarting}`);
 
           for (let i = 0; i < targetLanguages.length; i++) {
@@ -710,15 +744,65 @@ export async function processMediaPipeline(
           }
 
           spinner.succeed(`${prefix}${m.burnDone}`);
-        } finally {
-          for (const tempSrt of tempSrtFilesToCleanup) {
-            try {
-              if (fs.existsSync(tempSrt)) {
-                fs.unlinkSync(tempSrt);
-              }
-            } catch {
-              // ignore
+        }
+
+        // 6. Embed soft subtitles to video if --embed option is specified
+        if (options.embed) {
+          spinner.start(`${prefix}${m.embedStarting}`);
+
+          const subtitleTracks: SubtitleTrackInput[] = [];
+          for (const targetL of targetLanguages) {
+            const srtPathToUse = savedSrtPathsByLang.get(targetL);
+            if (!srtPathToUse || !fs.existsSync(srtPathToUse)) {
+              continue;
             }
+            const displayName = getLanguageDisplayName(targetL);
+            const title = isBilingual ? `${displayName} (Bilingual)` : displayName;
+            subtitleTracks.push({
+              path: srtPathToUse,
+              language: targetL,
+              title,
+            });
+          }
+
+          if (subtitleTracks.length > 0) {
+            let embeddedVideoPath: string;
+            const targetExt = isVideoFile(resolvedMediaPath) ? mediaExt : ".mp4";
+            if (options.output) {
+              const resolvedOut = path.resolve(process.cwd(), options.output);
+              const parsedOut = path.parse(resolvedOut);
+              if (isVideoFile(resolvedOut)) {
+                embeddedVideoPath = resolvedOut;
+              } else {
+                embeddedVideoPath = path.join(
+                  parsedOut.dir,
+                  `${parsedOut.name}.embedded${targetExt}`,
+                );
+              }
+            } else {
+              embeddedVideoPath = path.join(
+                effectiveOutputDir,
+                `${mediaBaseName}.embedded${targetExt}`,
+              );
+            }
+
+            await embedSubtitlesToVideo(resolvedMediaPath, subtitleTracks, embeddedVideoPath, {
+              ffmpegPath: rawConfig.ffmpegPath,
+              verbose,
+            });
+
+            outputFiles.push(embeddedVideoPath);
+            spinner.succeed(`${prefix}${m.embedDone}`);
+          }
+        }
+      } finally {
+        for (const tempSrt of tempSrtFilesToCleanup) {
+          try {
+            if (fs.existsSync(tempSrt)) {
+              fs.unlinkSync(tempSrt);
+            }
+          } catch {
+            // ignore
           }
         }
       }

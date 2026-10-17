@@ -111,13 +111,19 @@ export const ja: typeof en = {
     step4Saved: (formats: string) => `💾 [4/4] 字幕ファイルを保存完了 (${formats})`,
     burnStarting: "🎬 FFmpeg で字幕を動画に焼き込み中 (libx264)...",
     burnDone: "🎬 字幕の動画焼き込みが完了しました",
+    embedStarting: "🎬 FFmpeg で字幕トラックを動画に埋め込み中 (ソフトサブ)...",
+    embedDone: "🎬 動画への字幕トラック埋め込みが完了しました",
+    cannotEmbedAudio: "音声ファイルに字幕トラックを埋め込むことはできません",
     stdoutSingleFormatOnly:
       "--stdout 指定時は複数の出力フォーマットを指定できません。単一のフォーマットを指定してください (例: -f srt)。",
     stdoutSingleLangOnly:
       "--stdout 指定時は複数の言語を指定できません。単一の言語を指定してください。",
     stdoutCannotBurn: "--stdout と --burn (字幕焼き込み) を同時に指定することはできません。",
+    stdoutCannotEmbed:
+      "--stdout と --embed (ソフトサブ埋め込み) を同時に指定することはできません。",
     errorOccurred: (err: string) => `処理中にエラーが発生しました: ${err}`,
   },
+
   translate: {
     started: (name: string) => `vsub-cli translate - 字幕翻訳開始: ${name}`,
     step1Parsing: "📖 [1/3] 字幕ファイルを読み込み・パース中...",
@@ -181,6 +187,18 @@ export const ja: typeof en = {
     notVideoFile: (name: string) => `動画ファイル以外の形式には字幕を焼き込めません: ${name}`,
     subtitleNotFound: (path: string) => `字幕ファイルが見つかりません: ${path}`,
   },
+  embed: {
+    started: (video: string, count: number) =>
+      `vsub-cli embed - 字幕トラック埋め込み開始: ${video} (${count} トラック)`,
+    videoNotFound: (path: string) => `動画ファイルが見つかりません: ${path}`,
+    notVideoFile: (name: string) =>
+      `動画ファイル以外の形式には字幕トラックを埋め込めません: ${name}`,
+    subtitleNotFound: (path: string) => `字幕ファイルが見つかりません: ${path}`,
+    noSubtitles: "動画に埋め込む字幕ファイルを1つ以上指定してください。",
+    stepEmbedding: "FFmpeg ストリームコピーで字幕トラックを埋め込み中...",
+    stepSaved: (path: string) => `字幕トラック埋め込み動画を保存完了: ${path}`,
+  },
+
   batch: {
     noMediaFiles: (targets: string) =>
       `\n⚠️  対象となる動画・音声メディアファイルが見つかりませんでした。\n   指定パス: ${targets}\n`,

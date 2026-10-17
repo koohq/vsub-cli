@@ -155,6 +155,7 @@ Options:
   --max-duration <seconds>      Max display duration in seconds per subtitle entry (default: 7)
   --no-reflow                   Disable automatic splitting and reflowing of long subtitle segments (default: false)
   --burn                        Burn generated subtitles directly into output video (hardsub) (default: false)
+  --embed                       Embed generated subtitles directly as soft subtitle tracks into output video (default: false)
   --keep-audio                  Keep intermediate extracted audio files without deleting (default: false)
   --no-translate                Skip translation and output raw transcribed subtitles
   --save-original               Save original transcription subtitle file alongside the result (default: false)
@@ -230,7 +231,19 @@ pnpm dev video.mp4 -t ja --burn
 pnpm dev burn video.mp4 video.ja.srt -o video.subbed.mp4
 ```
 
-### 6. Using Glossary & Custom Prompts
+### 6. Fast Soft Subtitle Embedding (`--embed` & `vsub embed`)
+Embed subtitles into video containers as toggleable subtitle tracks without re-encoding video or audio (lossless & finishes in seconds via FFmpeg stream copy):
+```bash
+# Embed multi-language subtitle tracks into a single MP4 video file
+pnpm dev video.mp4 -t ja,en,zh --embed
+# => Output: video.embedded.mp4 (with Japanese, English, and Chinese selectable tracks)
+
+# Or embed one or more existing SRT subtitle files into a video directly
+pnpm dev embed video.mp4 video.ja.srt video.en.srt -o video.subbed.mp4
+```
+
+### 7. Using Glossary & Custom Prompts
+
 
 #### Inline Glossary Mapping
 ```bash
@@ -264,7 +277,7 @@ pnpm dev video.mp4 -t ja,zh --glossary ./glossary.json
 pnpm dev video.mp4 -t ja --prompt "Translate in a polite and professional tone suited for software engineers. Keep subtitles concise."
 ```
 
-### 7. Cache Management & Performance Tuning
+### 8. Cache Management & Performance Tuning
 ```bash
 # View cache usage statistics
 pnpm dev cache stats
@@ -279,7 +292,25 @@ pnpm dev cache clean
 pnpm dev video.mp4 -t ja --concurrency 5
 ```
 
-### 8. Standalone Binary Self-Update (`vsub update`)
+### 9. AI Chapters & Video Summary (`vsub chapters` & `vsub summarize`)
+
+Generate YouTube chapters or structured markdown summaries from any video, audio, or existing `.srt` file. When the media has already been processed by `vsub`, it reuses the transcription cache and finishes in seconds!
+
+```bash
+# Generate YouTube-compatible chapters (00:00 Title format, saved to [name].chapters.txt)
+vsub chapters video.mp4 -t ja
+vsub chapters subtitle.srt -f json  # Output as JSON array
+
+# Generate structured executive summary (Markdown by default, saved to [name].summary.md)
+vsub summarize video.mp4 -t ja
+vsub summarize interview.srt -f txt # Output plain text summary
+
+# UNIX pipe / stdout stream
+vsub chapters video.mp4 --stdout | pbcopy
+vsub summarize meeting.mp4 --stdout > summary.md
+```
+
+### 10. Standalone Binary Self-Update (`vsub update`)
 Keep your standalone executable up to date without manual downloads or reinstallations:
 ```bash
 # Check if a newer version is available without applying update
@@ -311,23 +342,6 @@ pnpm dev config set --disable-update-check true
 pnpm dev config path
 ```
 
-### 7. AI Chapters & Video Summary (`vsub chapters` & `vsub summarize`)
-
-Generate YouTube chapters or structured markdown summaries from any video, audio, or existing `.srt` file. When the media has already been processed by `vsub`, it reuses the transcription cache and finishes in seconds!
-
-```bash
-# Generate YouTube-compatible chapters (00:00 Title format, saved to [name].chapters.txt)
-vsub chapters video.mp4 -t ja
-vsub chapters subtitle.srt -f json  # Output as JSON array
-
-# Generate structured executive summary (Markdown by default, saved to [name].summary.md)
-vsub summarize video.mp4 -t ja
-vsub summarize interview.srt -f txt # Output plain text summary
-
-# UNIX pipe / stdout stream
-vsub chapters video.mp4 --stdout | pbcopy
-vsub summarize meeting.mp4 --stdout > summary.md
-```
 
 ---
 

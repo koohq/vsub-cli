@@ -34,6 +34,17 @@ vi.mock("./gemini.js", async (importOriginal) => {
   };
 });
 
+vi.mock("./ffmpeg.js", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("./ffmpeg.js")>();
+  return {
+    ...actual,
+    embedSubtitlesToVideo: vi.fn().mockImplementation(async (_video, _subs, output) => {
+      fs.writeFileSync(output, "dummy embedded video");
+      return output;
+    }),
+  };
+});
+
 describe("pipeline.ts", () => {
   let tempDir: string;
 
@@ -156,6 +167,25 @@ describe("pipeline.ts", () => {
       ).rejects.toThrow(/音声ファイルには字幕を焼き込めません/);
     });
 
+    it("should throw error if --embed is specified on audio file", async () => {
+      const audioFile = path.join(tempDir, "test_audio.mp3");
+      fs.writeFileSync(audioFile, "dummy");
+
+      await expect(
+        processMediaPipeline({
+          mediaFile: audioFile,
+          embed: true,
+        }),
+      ).rejects.toThrow(/Cannot embed subtitles into an audio file/);
+      await expect(
+        processMediaPipeline({
+          mediaFile: audioFile,
+          embed: true,
+          lang: "ja",
+        }),
+      ).rejects.toThrow(/音声ファイルに字幕トラックを埋め込むことはできません/);
+    });
+
     it("should accept maxLength, maxDuration, and noReflow options without type or schema error", async () => {
       const nonExistent = path.join(tempDir, "non_existent.mp4");
       await expect(
@@ -234,6 +264,30 @@ describe("pipeline.ts", () => {
           lang: "ja",
         }),
       ).rejects.toThrow(/--stdout と --burn \(字幕焼き込み\) を同時に指定することはできません/);
+    });
+
+    it("should throw error if --embed is specified with --stdout", async () => {
+      const mediaFile = path.join(tempDir, "sample_embed.mp4");
+      fs.writeFileSync(mediaFile, "dummy");
+
+      await expect(
+        processMediaPipeline({
+          mediaFile,
+          stdout: true,
+          embed: true,
+        }),
+      ).rejects.toThrow(/Cannot use --embed with --stdout/);
+
+      await expect(
+        processMediaPipeline({
+          mediaFile,
+          output: "-",
+          embed: true,
+          lang: "ja",
+        }),
+      ).rejects.toThrow(
+        /--stdout と --embed \(ソフトサブ埋め込み\) を同時に指定することはできません/,
+      );
     });
 
     it("should generate stdoutContent and not write any files to disk", async () => {
@@ -536,6 +590,117 @@ describe("pipeline.ts", () => {
 
       expect(result.fromCache).toBe(true);
       expect(result.summary.title).toBe("Cached Title");
+    });
+  });
+
+  describe("processMediaPipeline soft subtitles mode (--embed)", () => {
+    it("should embed multi-language subtitle tracks into a single video file", async () => {
+      const mediaFile = path.join(tempDir, "sample_multitrack.mp4");
+      fs.writeFileSync(mediaFile, "dummy video data");
+      const cacheDir = path.join(tempDir, "cache");
+
+      const mockEntries = [
+        {
+          id: 1,
+          startTime: "00:00:01,000",
+          endTime: "00:00:03,000",
+          text: "Hello",
+        },
+      ];
+
+      saveTranscriptionCache(
+        mediaFile,
+        {
+          detectedLanguage: "en",
+          entries: mockEntries,
+          createdAt: Date.now(),
+        },
+        cacheDir,
+      );
+
+      saveTranslationCache(
+        mediaFile,
+        "ja",
+        {
+          targetLang: "ja",
+          entries: [
+            {
+              id: 1,
+              startTime: "00:00:01,000",
+              endTime: "00:00:03,000",
+              text: "こんにちは",
+            },
+          ],
+          createdAt: Date.now(),
+        },
+        cacheDir,
+      );
+
+      saveTranslationCache(
+        mediaFile,
+        "es",
+        {
+          targetLang: "es",
+          entries: [
+            {
+              id: 1,
+              startTime: "00:00:01,000",
+              endTime: "00:00:03,000",
+              text: "Hola",
+            },
+          ],
+          createdAt: Date.now(),
+        },
+        cacheDir,
+      );
+
+      const result = await processMediaPipeline({
+        mediaFile,
+        targetLang: "ja,es",
+        embed: true,
+        cacheDir,
+      });
+
+      const embeddedFile = result.outputFiles.find((f) => f.endsWith(".embedded.mp4"));
+      expect(embeddedFile).toBeDefined();
+      expect(embeddedFile).toBe(path.join(tempDir, "sample_multitrack.embedded.mp4"));
+      expect(embeddedFile ? fs.existsSync(embeddedFile) : false).toBe(true);
+    });
+
+    it("should respect explicit output path when embedding soft subtitles", async () => {
+      const mediaFile = path.join(tempDir, "sample_custom.mp4");
+      fs.writeFileSync(mediaFile, "dummy video data");
+      const cacheDir = path.join(tempDir, "cache");
+      const customOut = path.join(tempDir, "custom_output.mp4");
+
+      saveTranscriptionCache(
+        mediaFile,
+        {
+          detectedLanguage: "ja",
+          entries: [
+            {
+              id: 1,
+              startTime: "00:00:00,000",
+              endTime: "00:00:02,000",
+              text: "テスト",
+            },
+          ],
+          createdAt: Date.now(),
+        },
+        cacheDir,
+      );
+
+      const result = await processMediaPipeline({
+        mediaFile,
+        targetLang: "ja",
+        noTranslate: true,
+        embed: true,
+        output: customOut,
+        cacheDir,
+      });
+
+      expect(result.outputFiles).toContain(customOut);
+      expect(fs.existsSync(customOut)).toBe(true);
     });
   });
 });
