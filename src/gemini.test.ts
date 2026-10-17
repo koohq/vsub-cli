@@ -1,6 +1,8 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import {
   asyncPool,
+  buildTranslationPrompt,
+  DEFAULT_CONTEXT_WINDOW_SIZE,
   formatModelNotFoundError,
   isModelNotFoundError,
   translateSrtEntries,
@@ -15,6 +17,14 @@ vi.mock("@google/genai", () => {
       models = {
         generateContent: mockGenerateContent,
       };
+    },
+    Type: {
+      ARRAY: "ARRAY",
+      STRING: "STRING",
+      NUMBER: "NUMBER",
+      INTEGER: "INTEGER",
+      BOOLEAN: "BOOLEAN",
+      OBJECT: "OBJECT",
     },
   };
 });
@@ -57,6 +67,56 @@ describe("gemini.ts", () => {
           return item;
         }),
       ).rejects.toThrow("Worker failure");
+    });
+  });
+
+  describe("buildTranslationPrompt", () => {
+    it("should build standard prompt without preceding context", () => {
+      const texts = ["Hello world", "How are you?"];
+      const prompt = buildTranslationPrompt(texts, "ja");
+
+      expect(prompt).toContain(
+        'Translate the following array of subtitle texts into target language code "ja".',
+      );
+      expect(prompt).toContain("STRICT RULES:");
+      expect(prompt).toContain(
+        "1. Return ONLY a valid JSON array of strings corresponding 1-to-1 with the input array.",
+      );
+      expect(prompt).toContain(
+        "2. The output array MUST contain exactly 2 items in the same order as input.",
+      );
+      expect(prompt).toContain(
+        "3. Translate into natural, clear conversational style suited for video subtitles.",
+      );
+      expect(prompt).toContain("4. Do NOT include markdown code blocks");
+      expect(prompt).not.toContain('5. Translate ONLY the items in "Input Array"');
+      expect(prompt).not.toContain("PRECEDING CONTEXT");
+      expect(prompt).toContain('Input Array:\n[\n  "Hello world",\n  "How are you?"\n]');
+    });
+
+    it("should inject preceding context and rule 5 when contextTexts is provided", () => {
+      const texts = ["Current line 1", "Current line 2"];
+      const contextTexts = ["Preceding dialogue 1", "Preceding dialogue 2"];
+      const prompt = buildTranslationPrompt(texts, "ja", undefined, contextTexts);
+
+      expect(prompt).toContain(
+        '5. Translate ONLY the items in "Input Array". Do NOT translate, output, or include items from "Preceding Context".',
+      );
+      expect(prompt).toContain("PRECEDING CONTEXT (FOR REFERENCE ONLY - DO NOT TRANSLATE):");
+      expect(prompt).toContain(
+        "The following lines immediately precede the input subtitles in the media.",
+      );
+      expect(prompt).toContain('"Preceding dialogue 1"');
+      expect(prompt).toContain('"Preceding dialogue 2"');
+      expect(prompt).toContain('Input Array:\n[\n  "Current line 1",\n  "Current line 2"\n]');
+    });
+
+    it("should not inject preceding context if contextTexts is empty", () => {
+      const texts = ["Line 1"];
+      const prompt = buildTranslationPrompt(texts, "es", undefined, []);
+
+      expect(prompt).not.toContain('5. Translate ONLY the items in "Input Array"');
+      expect(prompt).not.toContain("PRECEDING CONTEXT");
     });
   });
 
@@ -358,6 +418,146 @@ describe("gemini.ts", () => {
       ).rejects.toThrow(/Specified Gemini model 'gemini-nonexistent' was not found/);
 
       expect(mockGenerateContent).toHaveBeenCalledTimes(1);
+    });
+
+    it("should send responseSchema with Type.ARRAY of Type.STRING in generateContent config", async () => {
+      const entries: SrtEntry[] = [
+        {
+          id: 1,
+          startTime: "00:00:01,000",
+          endTime: "00:00:02,000",
+          text: "Structured output test",
+        },
+      ];
+
+      mockGenerateContent.mockResolvedValueOnce({
+        text: JSON.stringify(["構造化出力テスト"]),
+      });
+
+      await translateSrtEntries(entries, "ja", "fake-key");
+
+      expect(mockGenerateContent).toHaveBeenCalledTimes(1);
+      const callArgs = mockGenerateContent.mock.calls[0]?.[0];
+      expect(callArgs.config).toEqual({
+        responseMimeType: "application/json",
+        responseSchema: {
+          type: "ARRAY",
+          items: {
+            type: "STRING",
+          },
+          description: expect.stringContaining(
+            "Array of translated subtitle texts matching 1-to-1",
+          ),
+        },
+      });
+    });
+
+    it("should inject preceding context of default 5 lines into subsequent chunks and not chunk 1", async () => {
+      const entries: SrtEntry[] = [];
+      for (let i = 1; i <= 60; i++) {
+        entries.push({
+          id: i,
+          startTime: "00:00:00,000",
+          endTime: "00:00:01,000",
+          text: `Sentence ${i}`,
+        });
+      }
+
+      mockGenerateContent
+        .mockResolvedValueOnce({
+          text: JSON.stringify(Array.from({ length: 50 }, (_, i) => `文 ${i + 1}`)),
+        })
+        .mockResolvedValueOnce({
+          text: JSON.stringify(Array.from({ length: 10 }, (_, i) => `文 ${i + 51}`)),
+        });
+
+      await translateSrtEntries(entries, "ja", "fake-key", false, undefined, { concurrency: 1 });
+
+      expect(mockGenerateContent).toHaveBeenCalledTimes(2);
+
+      // Chunk 1 (first 50 items): must NOT have PRECEDING CONTEXT
+      const call1Args = mockGenerateContent.mock.calls[0]?.[0];
+      expect(call1Args.contents).not.toContain("PRECEDING CONTEXT");
+      expect(call1Args.contents).not.toContain('5. Translate ONLY the items in "Input Array"');
+
+      // Chunk 2 (last 10 items): MUST have PRECEDING CONTEXT with items 46..50
+      const call2Args = mockGenerateContent.mock.calls[1]?.[0];
+      expect(call2Args.contents).toContain(
+        "PRECEDING CONTEXT (FOR REFERENCE ONLY - DO NOT TRANSLATE):",
+      );
+      expect(call2Args.contents).toContain(
+        '5. Translate ONLY the items in "Input Array". Do NOT translate, output, or include items from "Preceding Context".',
+      );
+      expect(call2Args.contents).toContain('"Sentence 46"');
+      expect(call2Args.contents).toContain('"Sentence 47"');
+      expect(call2Args.contents).toContain('"Sentence 48"');
+      expect(call2Args.contents).toContain('"Sentence 49"');
+      expect(call2Args.contents).toContain('"Sentence 50"');
+      expect(call2Args.contents).not.toContain('"Sentence 45"');
+    });
+
+    it("should respect custom contextWindowSize option", async () => {
+      const entries: SrtEntry[] = [];
+      for (let i = 1; i <= 60; i++) {
+        entries.push({
+          id: i,
+          startTime: "00:00:00,000",
+          endTime: "00:00:01,000",
+          text: `Line ${i}`,
+        });
+      }
+
+      mockGenerateContent
+        .mockResolvedValueOnce({
+          text: JSON.stringify(Array.from({ length: 50 }, (_, i) => `訳 ${i + 1}`)),
+        })
+        .mockResolvedValueOnce({
+          text: JSON.stringify(Array.from({ length: 10 }, (_, i) => `訳 ${i + 51}`)),
+        });
+
+      await translateSrtEntries(entries, "ja", "fake-key", false, undefined, {
+        concurrency: 1,
+        contextWindowSize: 2,
+      });
+
+      const call2Args = mockGenerateContent.mock.calls[1]?.[0];
+      expect(call2Args.contents).toContain("PRECEDING CONTEXT");
+      expect(call2Args.contents).toContain('"Line 49"');
+      expect(call2Args.contents).toContain('"Line 50"');
+      expect(call2Args.contents).not.toContain('"Line 48"');
+    });
+
+    it("should disable sliding context window when contextWindowSize is 0", async () => {
+      const entries: SrtEntry[] = [];
+      for (let i = 1; i <= 60; i++) {
+        entries.push({
+          id: i,
+          startTime: "00:00:00,000",
+          endTime: "00:00:01,000",
+          text: `Line ${i}`,
+        });
+      }
+
+      mockGenerateContent
+        .mockResolvedValueOnce({
+          text: JSON.stringify(Array.from({ length: 50 }, (_, i) => `訳 ${i + 1}`)),
+        })
+        .mockResolvedValueOnce({
+          text: JSON.stringify(Array.from({ length: 10 }, (_, i) => `訳 ${i + 51}`)),
+        });
+
+      await translateSrtEntries(entries, "ja", "fake-key", false, undefined, {
+        concurrency: 1,
+        contextWindowSize: 0,
+      });
+
+      const call2Args = mockGenerateContent.mock.calls[1]?.[0];
+      expect(call2Args.contents).not.toContain("PRECEDING CONTEXT");
+      expect(call2Args.contents).not.toContain('5. Translate ONLY the items in "Input Array"');
+    });
+
+    it("should export DEFAULT_CONTEXT_WINDOW_SIZE as 5", () => {
+      expect(DEFAULT_CONTEXT_WINDOW_SIZE).toBe(5);
     });
   });
 

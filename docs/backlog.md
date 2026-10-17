@@ -34,7 +34,7 @@
 | **Completed** | 22. 対話型初期セットアップ & 導通確認ウィザード (`vsub init`) | CLI UX | 低 | API キー・FFmpeg・デフォルト言語の対話的初期導入と導通保証 | **完了** |
 | **Completed** | 23. GitHub Releases & スタンドアロンバイナリ配布 (SEA) | DevOps/配布 | 中 | Node.js 未導入ユーザー向け単体バイナリ配布 & OSS ライセンス保護 | **完了** |
 | **Completed** | 24. 新バージョン検知・通知 & スタンドアロンバイナリ self-update 機構 (`vsub update`) | CLI UX / 配布 | 中 | 手動更新の手間解消、最新モデルや新機能への迅速な追従、バイナリ版のUX大幅向上 | **完了** |
-| **High** | 25. チャンク境界の文脈引き継ぎ翻訳 (Sliding Window Context) & 構造保証 | 翻訳品質/信頼性 | 低〜中 | 並列速度を維持したままチャンク切れ目の口調・文脈ブレを解消、行数不一致防止 | **未着手** |
+| **Completed** | 25. チャンク境界の文脈引き継ぎ翻訳 (Sliding Window Context) & 構造保証 | 翻訳品質/信頼性 | 低〜中 | 並列速度を維持したままチャンク切れ目の口調・文脈ブレを解消、行数不一致防止 | **完了** |
 | **High** | 26. 長文セグメントのスマート自動分割・リフロー (Subtitle Reflow) | 字幕品質/UX | 中 | 早口トーク等で1画面に長文が詰まる問題を解消し、読みやすい字幕長に自動調整 | **未着手** |
 | **High** | 27. 標準出力モード (`--stdout`) & AI エージェント / パイプ連携強化 | CLI UX / Agentic DX | 低〜中 | 一時ファイルなしで字幕・文字起こしを直接 `stdout` へ出力しパイプ・AI連携を容易化 | **未着手** |
 | **Medium** | 28. AI チャプター生成 & 要約サブコマンド (`vsub chapters` / `vsub summarize`) | 機能拡張 / Agentic DX | 中 | 既存の文字起こし＆キャッシュ資産を活かし、YouTubeチャプターや要約を即時生成 | **未着手** |
@@ -256,23 +256,21 @@
   * `--verbose`: 詳細ログ出力
 * **対応ファイル**: `src/updater.ts`, `src/updater.test.ts`, `src/index.ts`, `src/i18n/en.ts`, `src/i18n/ja.ts`, `src/ui.ts`, `README.md`, `README.ja.md`, `docs/backlog.md`
 
+### 1.24 チャンク境界の文脈引き継ぎ翻訳 (Sliding Window Context) & 構造保証 (#25)
+* **スライディングウィンドウ文脈参照 (`precedingContext`)**:
+  * 50 行ごとのチャンク並列翻訳時、直前チャンクの末尾 5 行（`DEFAULT_CONTEXT_WINDOW_SIZE = 5`）の原文を「参照用コンテキスト（翻訳対象外）」として各チャンクのプロンプトに注入。
+  * 原文配列のスライス時に同期抽出するため、直前チャンクの翻訳完了待ち（直列化）が一切発生せず、**`asyncPool` による既存の並列処理速度を 100% 維持**したまま、文脈・口調・代名詞の一貫性を担保。
+  * プロンプト内の明示的ルール（Rule 5）により、参照コンテキストが出力配列に混入するのを防止。
+* **Structured Outputs (`responseSchema`) の導入**:
+  * `@google/genai` の `Type.ARRAY` / `Type.STRING` による `responseSchema` を指定し、Gemini の文法制約デコーディングを活用して文字列配列の構造を厳格に保証。
+* **CLI & パイプライン制御**:
+  * `--context-window <lines>`（デフォルト: 5、`0` で無効化）をメインコマンド、`vsub translate`、`vsub batch` に追加。
+* **対応ファイル**: `src/gemini.ts`, `src/gemini.test.ts`, `src/pipeline.ts`, `src/index.ts`, `README.md`, `README.ja.md`, `docs/backlog.md`
+
 ---
 ## 2. 次期イテレーション・未着手バックログ (Next Candidates)
 
-コードベースの構造分析および AI エージェント連携（Agentic DX）の観点から抽出した、次期アップデート候補（25〜30）の設計・実装指針です。
-
-### 2.1 チャンク境界の文脈引き継ぎ翻訳 (Sliding Window Context) & 構造保証 (#25) 【優先度: High】
-* **背景/課題**:
-  * 現在の `src/gemini.ts` は字幕配列を 50 行ずつのチャンク（`DEFAULT_CHUNK_SIZE = 50`）に単純分割し、`asyncPool`（デフォルト 3 並列）で並列翻訳している。
-  * チャンクの切れ目（例: 50 行目と 51 行目）で 1 つの文が跨っている場合や、前後の会話の流れが次のチャンクに伝わらないため、口調（です・ます調 / タメ口）や主語・代名詞の訳し方がチャンク境界でブレることがある。
-  * また、`responseMimeType: "application/json"` のみで要素数一致をプロンプト指示に頼っているため、長文チャンクで稀に行が結合され `incomplete count` によるリトライが発生しうる。
-* **提案内容**:
-  * **スライディングウィンドウ文脈参照 (`precedingContext`)**:
-    * 各チャンク（Index $k$）を翻訳する際、直前チャンク（Index $k-1$）の末尾 3〜5 行の原文を「参照コンテキスト（翻訳出力の対象外・文脈および口調維持用）」としてプロンプトに付与する。
-    * 原文配列のスライス時に抽出するだけのため、**既存の `asyncPool` による並列リクエスト速度を一切犠牲にせず**に文脈の一貫性を担保できる。
-  * **Structured Outputs (`responseSchema`) の導入**:
-    * `@google/genai` の `responseSchema` を指定し、出力 JSON の型・構造を厳格化して行数不一致エラーの発生率を低減する。
-* **対応スコープ**: `src/gemini.ts`, `src/gemini.test.ts`
+コードベースの構造分析および AI エージェント連携（Agentic DX）の観点から抽出した、次期アップデート候補（26〜30）の設計・実装指針です。
 
 ### 2.2 長文セグメントのスマート自動分割・リフロー (Smart Subtitle Reflow) (#26) 【優先度: High】
 * **背景/課題**:
@@ -340,5 +338,5 @@
 * **Phase 1: 初期コア & DevOps / 配布ロードマップ (タスク 1〜24)**:
   * コア機能（音声抽出・分割・Groq 文字起こし・Gemini 並列翻訳・キャッシュ・用語集・バイリンガル・バッチ処理・ハードサブ焼き込み）、CI/CD 自動リリース、Node.js SEA スタンドアロンバイナリ配布、および `vsub update` 自己更新機構まで **全 24 項目完了**。
 * **Phase 2: 品質深化 & Agentic DX 拡張ロードマップ (タスク 25〜30)**:
-  * 翻訳・字幕品質のさらなる向上（#25 文脈引き継ぎ、#26 スマート分割）、AI エージェント・パイプ連携（#27 `--stdout`、#28 `chapters` / `summarize`）、およびメディア処理補完（#29 `--embed` ソフトサブ、#30 `--burn` 位置・サイズ指定）をバックログとして策定済み（未着手）。
+  * 翻訳・字幕品質のさらなる向上（#25 文脈引き継ぎ【完了】、#26 スマート分割）、AI エージェント・パイプ連携（#27 `--stdout`、#28 `chapters` / `summarize`）、およびメディア処理補完（#29 `--embed` ソフトサブ、#30 `--burn` 位置・サイズ指定）を順次推進中。
 

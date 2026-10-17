@@ -107,6 +107,7 @@ export interface ProcessMediaOptions {
   silentSummary?: boolean | undefined;
   logPrefix?: string | undefined;
   lang?: SupportedLanguage | undefined;
+  contextWindow?: string | number | undefined;
 }
 
 export interface ProcessMediaResult {
@@ -456,6 +457,13 @@ export async function processMediaPipeline(
           : undefined;
 
       const effectiveGeminiModel = geminiModel || DEFAULT_GEMINI_MODEL;
+      const contextWindowVal =
+        options.contextWindow !== undefined ? Number(options.contextWindow) : undefined;
+      const resolvedContextWindow =
+        contextWindowVal !== undefined && !Number.isNaN(contextWindowVal)
+          ? Math.max(0, Math.floor(contextWindowVal))
+          : undefined;
+
       const initialText = isMultiLang
         ? `${prefix}${m.step3TranslatingMulti(effectiveGeminiModel, i + 1, targetLanguages.length, targetL.toUpperCase(), 1, totalChunks)}`
         : `${prefix}${m.step3TranslatingSingle(effectiveGeminiModel, targetL, 1, totalChunks)}`;
@@ -484,6 +492,7 @@ export async function processMediaPipeline(
           concurrency: resolvedConcurrency,
           model: geminiModel,
           lang,
+          contextWindowSize: resolvedContextWindow,
         },
       );
 

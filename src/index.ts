@@ -377,7 +377,11 @@ program
     "Ignore existing cache and generate fresh translations, overwriting cache",
     false,
   )
-  .option("--cache-dir <path>", "Custom cache directory")
+  .option(
+    "--context-window <lines>",
+    "Number of preceding context lines to carry across translation chunks (0 to disable)",
+    "5",
+  )
   .option("--gemini-key <key>", "Gemini API Key override")
   .option("--verbose", "Output detailed log messages", false)
   .action(async (subtitleFile: string, _actionOptions: Record<string, unknown>, cmd: Command) => {
@@ -396,6 +400,7 @@ program
       noCache?: boolean;
       fresh?: boolean;
       cacheDir?: string;
+      contextWindow?: string;
       geminiKey?: string;
       verbose?: boolean;
       lang?: string;
@@ -511,6 +516,12 @@ program
         concurrencyVal && !Number.isNaN(concurrencyVal) && concurrencyVal > 0
           ? Math.floor(concurrencyVal)
           : undefined;
+      const contextWindowVal =
+        options.contextWindow !== undefined ? Number(options.contextWindow) : undefined;
+      const resolvedContextWindow =
+        contextWindowVal !== undefined && !Number.isNaN(contextWindowVal)
+          ? Math.max(0, Math.floor(contextWindowVal))
+          : undefined;
       let totalGlossaryTerms = 0;
 
       for (let i = 0; i < targetLanguages.length; i++) {
@@ -580,6 +591,7 @@ program
             concurrency: resolvedConcurrency,
             model: geminiModel,
             lang: normalizeLanguage(lang),
+            contextWindowSize: resolvedContextWindow,
           },
         );
 
@@ -888,6 +900,11 @@ program
     false,
   )
   .option("--cache-dir <path>", "Custom cache directory")
+  .option(
+    "--context-window <lines>",
+    "Number of preceding context lines to carry across translation chunks (0 to disable)",
+    "5",
+  )
   .option("--burn", "Burn generated subtitles directly into output video (hardsub)", false)
   .option("--keep-audio", "Keep intermediate extracted audio files without deleting", false)
   .option("--no-translate", "Skip translation and output raw transcribed subtitles", false)
@@ -985,6 +1002,11 @@ program
     false,
   )
   .option("--cache-dir <path>", "Custom cache directory")
+  .option(
+    "--context-window <lines>",
+    "Number of preceding context lines to carry across translation chunks (0 to disable)",
+    "5",
+  )
   .option("--burn", "Burn generated subtitles directly into output video (hardsub)", false)
   .option("--keep-audio", "Keep intermediate extracted audio files without deleting", false)
   .option("--no-translate", "Skip translation and output raw transcribed subtitles", false)

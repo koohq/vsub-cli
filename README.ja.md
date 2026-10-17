@@ -150,6 +150,7 @@ Options:
   --no-cache                    中間キャッシュを使用・保存せずに実行 (デフォルト: false)
   --fresh                       既存キャッシュを無視して新規実行し、結果をキャッシュへ上書き (デフォルト: false)
   --cache-dir <path>            カスタムキャッシュ保存ディレクトリの指定
+  --context-window <lines>      チャンク間で文脈・口調を引き継ぐ直前参照行数 (0 で無効化) (デフォルト: 5)
   --burn                        生成された字幕を動画自体に焼き込んで出力 (hardsub) (デフォルト: false)
   --keep-audio                  中間生成した音声ファイルを削除せずに保持する (デフォルト: false)
   --no-translate                Gemini翻訳をスキップし、Groqの文字起こし結果（原語字幕）のみを出力する

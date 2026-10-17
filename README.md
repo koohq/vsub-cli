@@ -150,6 +150,7 @@ Options:
   --no-cache                    Do not use or save intermediate cache (default: false)
   --fresh                       Ignore existing cache and generate fresh output, overwriting cache (default: false)
   --cache-dir <path>            Custom cache directory path
+  --context-window <lines>      Number of preceding context lines to carry across translation chunks (0 to disable) (default: 5)
   --burn                        Burn generated subtitles directly into output video (hardsub) (default: false)
   --keep-audio                  Keep intermediate extracted audio files without deleting (default: false)
   --no-translate                Skip translation and output raw transcribed subtitles

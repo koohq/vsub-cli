@@ -1,4 +1,4 @@
-import { GoogleGenAI } from "@google/genai";
+import { GoogleGenAI, Type } from "@google/genai";
 import { DEFAULT_GEMINI_MODEL } from "./config.js";
 import { type FlatGlossary, formatGlossaryPrompt } from "./glossary.js";
 import { getI18n, type SupportedLanguage } from "./i18n/index.js";
@@ -7,6 +7,7 @@ import type { SrtEntry } from "./srt.js";
 const DEFAULT_CHUNK_SIZE = 50;
 const DEFAULT_CONCURRENCY = 3;
 const MAX_RETRIES = 4;
+export const DEFAULT_CONTEXT_WINDOW_SIZE = 5;
 
 export interface TranslateOptions {
   prompt?: string | undefined;
@@ -14,6 +15,7 @@ export interface TranslateOptions {
   concurrency?: number | undefined;
   model?: string | undefined;
   lang?: SupportedLanguage | undefined;
+  contextWindowSize?: number | undefined;
 }
 
 /**
@@ -45,15 +47,18 @@ export async function asyncPool<T, R>(
 }
 
 /**
- * Builds the translation prompt with optional custom instructions and glossary rules.
+ * Builds the translation prompt with optional custom instructions, glossary rules,
+ * and preceding context for continuity across chunks.
  */
 export function buildTranslationPrompt(
   texts: string[],
   targetLang: string,
   options?: TranslateOptions,
+  contextTexts?: string[],
 ): string {
   const customPrompt = options?.prompt?.trim();
   const glossaryRules = options?.glossary ? formatGlossaryPrompt(options.glossary) : "";
+  const hasContext = Boolean(contextTexts && contextTexts.length > 0);
 
   let prompt = `You are a professional translator for video subtitles.
 Translate the following array of subtitle texts into target language code "${targetLang}".
@@ -64,12 +69,20 @@ STRICT RULES:
 3. Translate into natural, clear conversational style suited for video subtitles.
 4. Do NOT include markdown code blocks (such as \`\`\`json), explanations, or any extra text outside the JSON array.`;
 
+  if (hasContext) {
+    prompt += `\n5. Translate ONLY the items in "Input Array". Do NOT translate, output, or include items from "Preceding Context".`;
+  }
+
   if (customPrompt) {
     prompt += `\n\nADDITIONAL TRANSLATION INSTRUCTIONS:\n${customPrompt}`;
   }
 
   if (glossaryRules) {
     prompt += `\n\nGLOSSARY / TERMINOLOGY RULES (MUST USE THESE EXACT TRANSLATIONS):\n${glossaryRules}`;
+  }
+
+  if (hasContext && contextTexts) {
+    prompt += `\n\nPRECEDING CONTEXT (FOR REFERENCE ONLY - DO NOT TRANSLATE):\nThe following lines immediately precede the input subtitles in the media. Use them solely to understand conversational flow, tone, and pronoun context:\n${JSON.stringify(contextTexts, null, 2)}`;
   }
 
   prompt += `\n\nInput Array:\n${JSON.stringify(texts, null, 2)}`;
@@ -123,8 +136,9 @@ async function translateChunkWithRetry(
   options?: TranslateOptions,
   chunkIndex = 1,
   totalChunks = 1,
+  contextTexts?: string[],
 ): Promise<string[]> {
-  const prompt = buildTranslationPrompt(texts, targetLang, options);
+  const prompt = buildTranslationPrompt(texts, targetLang, options, contextTexts);
 
   let lastError: Error | null = null;
 
@@ -141,6 +155,13 @@ async function translateChunkWithRetry(
         contents: prompt,
         config: {
           responseMimeType: "application/json",
+          responseSchema: {
+            type: Type.ARRAY,
+            items: {
+              type: Type.STRING,
+            },
+            description: `Array of translated subtitle texts matching 1-to-1 with the input array (${texts.length} items).`,
+          },
         },
       });
 
@@ -222,15 +243,27 @@ export async function translateSrtEntries(
       ? Math.floor(options.concurrency)
       : DEFAULT_CONCURRENCY;
 
+  const contextWindowSize =
+    options?.contextWindowSize !== undefined
+      ? Math.max(0, Math.floor(options.contextWindowSize))
+      : DEFAULT_CONTEXT_WINDOW_SIZE;
+
   let completedChunks = 0;
 
   const chunkResults = await asyncPool(concurrency, chunks, async (chunk, chunkIdx) => {
     const chunkIndex = chunkIdx + 1;
     const originalTexts = chunk.map((e) => e.text);
+    const startIdx = chunkIdx * DEFAULT_CHUNK_SIZE;
+    const contextTexts =
+      contextWindowSize > 0 && startIdx > 0
+        ? entries.slice(Math.max(0, startIdx - contextWindowSize), startIdx).map((e) => e.text)
+        : undefined;
 
     if (verbose) {
+      const ctxInfo =
+        contextTexts && contextTexts.length > 0 ? ` [context: ${contextTexts.length} lines]` : "";
       console.log(
-        `[Gemini API] Translating chunk (${chunkIndex}/${totalChunks}) [${chunk.length} items] [model: ${modelName}]...`,
+        `[Gemini API] Translating chunk (${chunkIndex}/${totalChunks}) [${chunk.length} items] [model: ${modelName}]${ctxInfo}...`,
       );
     }
 
@@ -243,6 +276,7 @@ export async function translateSrtEntries(
       options,
       chunkIndex,
       totalChunks,
+      contextTexts,
     );
 
     completedChunks++;
