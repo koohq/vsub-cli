@@ -151,6 +151,9 @@ Options:
   --fresh                       既存キャッシュを無視して新規実行し、結果をキャッシュへ上書き (デフォルト: false)
   --cache-dir <path>            カスタムキャッシュ保存ディレクトリの指定
   --context-window <lines>      チャンク間で文脈・口調を引き継ぐ直前参照行数 (0 で無効化) (デフォルト: 5)
+  --max-length <chars>          長文セグメント自動分割の目安最大文字数 (デフォルト: 日本語/CJK 32文字, 英語/欧文 75文字)
+  --max-duration <seconds>      字幕1件あたりの目安最大表示秒数 (デフォルト: 7)
+  --no-reflow                   長文セグメントのスマート自動分割を無効化 (デフォルト: false)
   --burn                        生成された字幕を動画自体に焼き込んで出力 (hardsub) (デフォルト: false)
   --keep-audio                  中間生成した音声ファイルを削除せずに保持する (デフォルト: false)
   --no-translate                Gemini翻訳をスキップし、Groqの文字起こし結果（原語字幕）のみを出力する

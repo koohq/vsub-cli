@@ -18,8 +18,12 @@ import { transcribeAudioSegments } from "./groq.js";
 import { getI18n, type SupportedLanguage } from "./i18n/index.js";
 import { parseTargetLanguages } from "./languages.js";
 import { ensureWritableTargets } from "./safety.js";
-import type { BilingualOrder, SrtEntry } from "./srt.js";
-import { mergeBilingualEntries } from "./srt.js";
+import {
+  type BilingualOrder,
+  mergeBilingualEntries,
+  reflowSrtEntries,
+  type SrtEntry,
+} from "./srt.js";
 import { createSpinner, formatFileSize, formatSummaryBox } from "./ui.js";
 
 /**
@@ -108,6 +112,9 @@ export interface ProcessMediaOptions {
   logPrefix?: string | undefined;
   lang?: SupportedLanguage | undefined;
   contextWindow?: string | number | undefined;
+  maxLength?: number | string | undefined;
+  maxDuration?: number | string | undefined;
+  noReflow?: boolean | undefined;
 }
 
 export interface ProcessMediaResult {
@@ -243,6 +250,21 @@ export async function processMediaPipeline(
     whisperPrompt = extractWhisperPromptHints(glossaryInput);
   }
 
+  const maxLengthVal = options.maxLength !== undefined ? Number(options.maxLength) : undefined;
+  const resolvedMaxLength =
+    maxLengthVal !== undefined && !Number.isNaN(maxLengthVal) && maxLengthVal > 0
+      ? Math.floor(maxLengthVal)
+      : rawConfig.maxLength;
+
+  const maxDurationVal =
+    options.maxDuration !== undefined ? Number(options.maxDuration) : undefined;
+  const resolvedMaxDuration =
+    maxDurationVal !== undefined && !Number.isNaN(maxDurationVal) && maxDurationVal > 0
+      ? Math.floor(maxDurationVal)
+      : undefined;
+
+  const noReflow = Boolean(options.noReflow);
+
   const isAudio = isAudioFile(resolvedMediaPath);
   if (options.burn && isAudio) {
     throw new Error(m.cannotBurnAudio);
@@ -354,6 +376,19 @@ export async function processMediaPipeline(
     }
   }
 
+  const rawEntriesCount = srtEntries.length;
+  if (!noReflow && srtEntries.length > 0) {
+    srtEntries = reflowSrtEntries(srtEntries, {
+      maxLength: resolvedMaxLength,
+      maxDuration: resolvedMaxDuration,
+    });
+    if (verbose && srtEntries.length !== rawEntriesCount) {
+      console.log(
+        `${prefix}[Reflow] Adjusted subtitle segments: ${rawEntriesCount} -> ${srtEntries.length} entries`,
+      );
+    }
+  }
+
   try {
     // Save original raw subtitles if requested
     if (options.saveOriginal && srtEntries.length > 0) {
@@ -426,7 +461,8 @@ export async function processMediaPipeline(
       const cachedTranslation = mediaCache?.translations?.[targetL.toLowerCase()];
       const isCacheValid =
         useCache &&
-        isTranslationCacheValid(cachedTranslation, translationPrompt, glossaryHash, geminiModel);
+        isTranslationCacheValid(cachedTranslation, translationPrompt, glossaryHash, geminiModel) &&
+        cachedTranslation?.entries.length === srtEntries.length;
 
       if (isCacheValid && cachedTranslation && cachedTranslation.entries.length > 0) {
         resultsByLang.set(targetL, cachedTranslation.entries);

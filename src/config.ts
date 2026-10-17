@@ -38,6 +38,7 @@ export interface AppConfig {
   targetLang?: string | undefined;
   lang?: SupportedLanguage | undefined;
   disableUpdateCheck?: boolean | undefined;
+  maxLength?: number | undefined;
 }
 
 export function getGlobalConfigDir(): string {
@@ -160,6 +161,18 @@ export function getConfig(cliFfmpegPath?: string, cliLang?: string): AppConfig {
     disableUpdateCheck = Boolean(globalConfig.disableUpdateCheck);
   }
 
+  const envMaxLength = process.env["VSUB_MAX_LENGTH"]?.trim();
+  let maxLength: number | undefined;
+  if (envMaxLength && !Number.isNaN(Number(envMaxLength)) && Number(envMaxLength) > 0) {
+    maxLength = Math.floor(Number(envMaxLength));
+  } else if (
+    globalConfig.maxLength !== undefined &&
+    !Number.isNaN(Number(globalConfig.maxLength)) &&
+    Number(globalConfig.maxLength) > 0
+  ) {
+    maxLength = Math.floor(Number(globalConfig.maxLength));
+  }
+
   return {
     groqApiKey,
     geminiApiKey,
@@ -173,6 +186,7 @@ export function getConfig(cliFfmpegPath?: string, cliLang?: string): AppConfig {
     targetLang,
     lang,
     disableUpdateCheck,
+    maxLength,
   };
 }
 

@@ -35,8 +35,7 @@ import {
   resolveOutputFilePaths,
 } from "./pipeline.js";
 import { ensureWritableTargets } from "./safety.js";
-import type { SrtEntry } from "./srt.js";
-import { mergeBilingualEntries, parseSrt } from "./srt.js";
+import { mergeBilingualEntries, parseSrt, reflowSrtEntries, type SrtEntry } from "./srt.js";
 import { createSpinner, formatFileSize, formatSummaryBox } from "./ui.js";
 import {
   checkUpdate,
@@ -175,6 +174,9 @@ configCmd
     if (resolvedConfig.groqModel) {
       console.log(`Groq Model      : ${resolvedConfig.groqModel}`);
     }
+    if (resolvedConfig.maxLength) {
+      console.log(`Max Length      : ${resolvedConfig.maxLength} chars`);
+    }
     console.log(`Update Check    : ${resolvedConfig.disableUpdateCheck ? "Disabled" : "Enabled"}`);
     console.log("----------------------------------------\n");
   });
@@ -201,6 +203,7 @@ configCmd
     "Default concurrent translation requests to Gemini API (e.g. 3)",
   )
   .option("--disable-update-check <boolean>", "Disable periodic update checks (true/false)")
+  .option("--max-length <chars>", "Default max characters per subtitle entry (e.g. 60)")
   .action(
     (options: {
       lang?: string;
@@ -214,6 +217,7 @@ configCmd
       glossary?: string;
       concurrency?: string;
       disableUpdateCheck?: string;
+      maxLength?: string;
     }) => {
       let concurrencyNum: number | undefined;
       if (options.concurrency) {
@@ -227,6 +231,14 @@ configCmd
       if (options.disableUpdateCheck !== undefined) {
         const val = String(options.disableUpdateCheck).toLowerCase();
         disableUpdateCheckVal = val === "true" || val === "1";
+      }
+
+      let maxLengthNum: number | undefined;
+      if (options.maxLength) {
+        const n = Number(options.maxLength);
+        if (!Number.isNaN(n) && n > 0) {
+          maxLengthNum = Math.floor(n);
+        }
       }
 
       const normalizedLang = options.lang ? normalizeLanguage(options.lang) : undefined;
@@ -250,7 +262,8 @@ configCmd
         !options.prompt &&
         !options.glossary &&
         concurrencyNum === undefined &&
-        disableUpdateCheckVal === undefined
+        disableUpdateCheckVal === undefined &&
+        maxLengthNum === undefined
       ) {
         console.log(
           "⚠️ Please specify settings to save. (Example: vsub config set --gemini-model gemini-3.8-flash)",
@@ -272,6 +285,7 @@ configCmd
         ...(disableUpdateCheckVal !== undefined
           ? { disableUpdateCheck: disableUpdateCheckVal }
           : {}),
+        ...(maxLengthNum !== undefined ? { maxLength: maxLengthNum } : {}),
       });
 
       console.log(`✅ Configuration updated and saved: ${getGlobalConfigPath()}`);
@@ -383,6 +397,16 @@ program
     "5",
   )
   .option("--gemini-key <key>", "Gemini API Key override")
+  .option("--max-length <chars>", "Max characters per subtitle entry before automatic splitting")
+  .option(
+    "--max-duration <seconds>",
+    "Max display duration in seconds per subtitle entry (default: 7)",
+  )
+  .option(
+    "--no-reflow",
+    "Disable automatic splitting and reflowing of long subtitle segments",
+    false,
+  )
   .option("--verbose", "Output detailed log messages", false)
   .action(async (subtitleFile: string, _actionOptions: Record<string, unknown>, cmd: Command) => {
     const options = cmd.optsWithGlobals<{
@@ -402,6 +426,9 @@ program
       cacheDir?: string;
       contextWindow?: string;
       geminiKey?: string;
+      maxLength?: string;
+      maxDuration?: string;
+      noReflow?: boolean;
       verbose?: boolean;
       lang?: string;
       noUpdateCheck?: boolean;
@@ -492,10 +519,36 @@ program
       // 1. Read and parse subtitle file
       spinner.start(tm.step1Parsing);
       const fileContent = fs.readFileSync(resolvedSubtitlePath, "utf-8");
-      const srtEntries = parseSrt(fileContent);
+      let srtEntries = parseSrt(fileContent);
 
       if (srtEntries.length === 0) {
         throw new Error(tm.step1NoEntries(path.basename(resolvedSubtitlePath)));
+      }
+
+      const maxLengthVal = options.maxLength !== undefined ? Number(options.maxLength) : undefined;
+      const resolvedMaxLength =
+        maxLengthVal !== undefined && !Number.isNaN(maxLengthVal) && maxLengthVal > 0
+          ? Math.floor(maxLengthVal)
+          : rawConfig.maxLength;
+
+      const maxDurationVal =
+        options.maxDuration !== undefined ? Number(options.maxDuration) : undefined;
+      const resolvedMaxDuration =
+        maxDurationVal !== undefined && !Number.isNaN(maxDurationVal) && maxDurationVal > 0
+          ? Math.floor(maxDurationVal)
+          : undefined;
+
+      const rawEntriesCount = srtEntries.length;
+      if (!options.noReflow && srtEntries.length > 0) {
+        srtEntries = reflowSrtEntries(srtEntries, {
+          maxLength: resolvedMaxLength,
+          maxDuration: resolvedMaxDuration,
+        });
+        if (verbose && srtEntries.length !== rawEntriesCount) {
+          console.log(
+            `[Reflow] Adjusted subtitle segments: ${rawEntriesCount} -> ${srtEntries.length} entries`,
+          );
+        }
       }
 
       spinner.succeed(tm.step1Parsed(srtEntries.length));
@@ -535,7 +588,13 @@ program
         const cachedTranslation = subtitleCache?.translations?.[tLang.toLowerCase()];
         const isCacheValid =
           useCache &&
-          isTranslationCacheValid(cachedTranslation, translationPrompt, glossaryHash, geminiModel);
+          isTranslationCacheValid(
+            cachedTranslation,
+            translationPrompt,
+            glossaryHash,
+            geminiModel,
+          ) &&
+          cachedTranslation?.entries.length === srtEntries.length;
 
         if (isCacheValid && cachedTranslation && cachedTranslation.entries.length > 0) {
           resultsByLang.set(tLang, cachedTranslation.entries);
@@ -918,6 +977,16 @@ program
     "Force Gemini translation even if detected language matches target language",
     false,
   )
+  .option("--max-length <chars>", "Max characters per subtitle entry before automatic splitting")
+  .option(
+    "--max-duration <seconds>",
+    "Max display duration in seconds per subtitle entry (default: 7)",
+  )
+  .option(
+    "--no-reflow",
+    "Disable automatic splitting and reflowing of long subtitle segments",
+    false,
+  )
   .option("--verbose", "Output detailed log messages", false)
   .action(async (targets: string[], _actionOptions: Record<string, unknown>, cmd: Command) => {
     const options = cmd.optsWithGlobals<
@@ -1018,6 +1087,16 @@ program
   .option(
     "--force-translate",
     "Force Gemini translation even if detected language matches target language",
+    false,
+  )
+  .option("--max-length <chars>", "Max characters per subtitle entry before automatic splitting")
+  .option(
+    "--max-duration <seconds>",
+    "Max display duration in seconds per subtitle entry (default: 7)",
+  )
+  .option(
+    "--no-reflow",
+    "Disable automatic splitting and reflowing of long subtitle segments",
     false,
   )
   .option("--verbose", "Output detailed log messages", false)

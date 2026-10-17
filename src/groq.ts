@@ -1,24 +1,8 @@
 import fs from "node:fs";
 import Groq from "groq-sdk";
-import type { SrtEntry } from "./srt.js";
+import { formatSrtTime, type SrtEntry } from "./srt.js";
 
-/**
- * Formats seconds (e.g. 62.5) into SRT timestamp format ("00:01:02,500")
- */
-export function formatSrtTime(totalSeconds: number): string {
-  const totalMs = Math.round(totalSeconds * 1000);
-  const hours = Math.floor(totalMs / 3_600_000);
-  const minutes = Math.floor((totalMs % 3_600_000) / 60_000);
-  const seconds = Math.floor((totalMs % 60_000) / 1_000);
-  const milliseconds = totalMs % 1_000;
-
-  const hh = String(hours).padStart(2, "0");
-  const mm = String(minutes).padStart(2, "0");
-  const ss = String(seconds).padStart(2, "0");
-  const ms = String(milliseconds).padStart(3, "0");
-
-  return `${hh}:${mm}:${ss},${ms}`;
-}
+export { formatSrtTime };
 
 export interface GroqSegment {
   id?: number;

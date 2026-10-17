@@ -125,5 +125,17 @@ describe("pipeline.ts", () => {
         }),
       ).rejects.toThrow(/音声ファイルには字幕を焼き込めません/);
     });
+
+    it("should accept maxLength, maxDuration, and noReflow options without type or schema error", async () => {
+      const nonExistent = path.join(tempDir, "non_existent.mp4");
+      await expect(
+        processMediaPipeline({
+          mediaFile: nonExistent,
+          maxLength: 50,
+          maxDuration: 6,
+          noReflow: true,
+        }),
+      ).rejects.toThrow(/Media file not found/);
+    });
   });
 });

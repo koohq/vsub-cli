@@ -151,6 +151,9 @@ Options:
   --fresh                       Ignore existing cache and generate fresh output, overwriting cache (default: false)
   --cache-dir <path>            Custom cache directory path
   --context-window <lines>      Number of preceding context lines to carry across translation chunks (0 to disable) (default: 5)
+  --max-length <chars>          Max characters per subtitle entry before automatic splitting (default: CJK 32, Latin 75)
+  --max-duration <seconds>      Max display duration in seconds per subtitle entry (default: 7)
+  --no-reflow                   Disable automatic splitting and reflowing of long subtitle segments (default: false)
   --burn                        Burn generated subtitles directly into output video (hardsub) (default: false)
   --keep-audio                  Keep intermediate extracted audio files without deleting (default: false)
   --no-translate                Skip translation and output raw transcribed subtitles

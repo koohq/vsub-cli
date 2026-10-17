@@ -286,4 +286,23 @@ describe("config.ts", () => {
       expect(config.disableUpdateCheck).toBeUndefined();
     });
   });
+
+  describe("maxLength", () => {
+    it("should parse VSUB_MAX_LENGTH environment variable", () => {
+      process.env["VSUB_MAX_LENGTH"] = "50";
+      const config = getConfig();
+      expect(config.maxLength).toBe(50);
+    });
+
+    it("should ignore invalid VSUB_MAX_LENGTH values", () => {
+      process.env["VSUB_MAX_LENGTH"] = "not-a-number";
+      const config = getConfig();
+      expect(config.maxLength).toBeUndefined();
+    });
+
+    it("should be undefined when not configured", () => {
+      const config = getConfig();
+      expect(config.maxLength).toBeUndefined();
+    });
+  });
 });
