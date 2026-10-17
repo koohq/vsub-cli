@@ -2,6 +2,7 @@ import crypto from "node:crypto";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
+import type { ChapterItem, SummaryResult } from "./formatter.js";
 import type { SrtEntry } from "./srt.js";
 
 export interface CachedTranscription {
@@ -18,6 +19,22 @@ export interface CachedTranslation {
   prompt?: string | undefined;
   glossaryHash?: string | undefined;
   entries: SrtEntry[];
+  createdAt: number;
+}
+
+export interface CachedChapters {
+  targetLang: string;
+  model?: string | undefined;
+  prompt?: string | undefined;
+  chapters: ChapterItem[];
+  createdAt: number;
+}
+
+export interface CachedSummary {
+  targetLang: string;
+  model?: string | undefined;
+  prompt?: string | undefined;
+  summary: SummaryResult;
   createdAt: number;
 }
 
@@ -72,6 +89,50 @@ export function isTranslationCacheValid(
   return true;
 }
 
+/**
+ * Checks if cached chapters match current prompt and model requirements.
+ */
+export function isChaptersCacheValid(
+  cached: CachedChapters | undefined,
+  currentPrompt?: string,
+  currentModel?: string,
+): boolean {
+  if (!cached) return false;
+  if (currentPrompt !== undefined && (cached.prompt ?? "") !== currentPrompt.trim()) {
+    return false;
+  }
+  if (
+    currentModel !== undefined &&
+    cached.model !== undefined &&
+    cached.model !== currentModel.trim()
+  ) {
+    return false;
+  }
+  return true;
+}
+
+/**
+ * Checks if cached summary matches current prompt and model requirements.
+ */
+export function isSummaryCacheValid(
+  cached: CachedSummary | undefined,
+  currentPrompt?: string,
+  currentModel?: string,
+): boolean {
+  if (!cached) return false;
+  if (currentPrompt !== undefined && (cached.prompt ?? "") !== currentPrompt.trim()) {
+    return false;
+  }
+  if (
+    currentModel !== undefined &&
+    cached.model !== undefined &&
+    cached.model !== currentModel.trim()
+  ) {
+    return false;
+  }
+  return true;
+}
+
 export interface MediaCacheData {
   version: 1;
   mediaPath: string;
@@ -79,6 +140,8 @@ export interface MediaCacheData {
   mediaMtimeMs: number;
   transcription?: CachedTranscription | undefined;
   translations?: Record<string, CachedTranslation> | undefined;
+  chapters?: Record<string, CachedChapters> | undefined;
+  summaries?: Record<string, CachedSummary> | undefined;
   createdAt: number;
   updatedAt: number;
 }
@@ -187,6 +250,8 @@ export function saveTranscriptionCache(
       mediaMtimeMs: stat.mtimeMs,
       transcription,
       translations: existing?.translations ?? {},
+      chapters: existing?.chapters,
+      summaries: existing?.summaries,
       createdAt: existing?.createdAt ?? now,
       updatedAt: now,
     };
@@ -230,6 +295,98 @@ export function saveTranslationCache(
       mediaMtimeMs: stat.mtimeMs,
       transcription: existing?.transcription,
       translations,
+      chapters: existing?.chapters,
+      summaries: existing?.summaries,
+      createdAt: existing?.createdAt ?? now,
+      updatedAt: now,
+    };
+
+    fs.writeFileSync(cacheFile, JSON.stringify(data, null, 2), "utf-8");
+  } catch {
+    // Non-fatal if cache save fails
+  }
+}
+
+/**
+ * Saves or updates chapters results for a specific target language in media cache.
+ */
+export function saveChaptersCache(
+  filePath: string,
+  targetLang: string,
+  chaptersData: CachedChapters,
+  customCacheDir?: string,
+): void {
+  try {
+    const resolved = path.resolve(filePath);
+    if (!fs.existsSync(resolved)) return;
+
+    const stat = fs.statSync(resolved);
+    const dir = getCacheDir(customCacheDir);
+    if (!fs.existsSync(dir)) {
+      fs.mkdirSync(dir, { recursive: true });
+    }
+
+    const cacheFile = getCacheFilePath(filePath, customCacheDir);
+    const existing = loadMediaCache(filePath, customCacheDir);
+
+    const now = Date.now();
+    const chapters = existing?.chapters ?? {};
+    chapters[targetLang.toLowerCase()] = chaptersData;
+
+    const data: MediaCacheData = {
+      version: 1,
+      mediaPath: resolved,
+      mediaSize: stat.size,
+      mediaMtimeMs: stat.mtimeMs,
+      transcription: existing?.transcription,
+      translations: existing?.translations,
+      chapters,
+      summaries: existing?.summaries,
+      createdAt: existing?.createdAt ?? now,
+      updatedAt: now,
+    };
+
+    fs.writeFileSync(cacheFile, JSON.stringify(data, null, 2), "utf-8");
+  } catch {
+    // Non-fatal if cache save fails
+  }
+}
+
+/**
+ * Saves or updates summary results for a specific target language in media cache.
+ */
+export function saveSummaryCache(
+  filePath: string,
+  targetLang: string,
+  summaryData: CachedSummary,
+  customCacheDir?: string,
+): void {
+  try {
+    const resolved = path.resolve(filePath);
+    if (!fs.existsSync(resolved)) return;
+
+    const stat = fs.statSync(resolved);
+    const dir = getCacheDir(customCacheDir);
+    if (!fs.existsSync(dir)) {
+      fs.mkdirSync(dir, { recursive: true });
+    }
+
+    const cacheFile = getCacheFilePath(filePath, customCacheDir);
+    const existing = loadMediaCache(filePath, customCacheDir);
+
+    const now = Date.now();
+    const summaries = existing?.summaries ?? {};
+    summaries[targetLang.toLowerCase()] = summaryData;
+
+    const data: MediaCacheData = {
+      version: 1,
+      mediaPath: resolved,
+      mediaSize: stat.size,
+      mediaMtimeMs: stat.mtimeMs,
+      transcription: existing?.transcription,
+      translations: existing?.translations,
+      chapters: existing?.chapters,
+      summaries,
       createdAt: existing?.createdAt ?? now,
       updatedAt: now,
     };

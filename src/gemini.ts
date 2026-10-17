@@ -1,5 +1,11 @@
 import { GoogleGenAI, Type } from "@google/genai";
 import { DEFAULT_GEMINI_MODEL } from "./config.js";
+import {
+  type ChapterItem,
+  type SummaryResult,
+  secondsToTimestamp,
+  timestampToSeconds,
+} from "./formatter.js";
 import { type FlatGlossary, formatGlossaryPrompt } from "./glossary.js";
 import { getI18n, type SupportedLanguage } from "./i18n/index.js";
 import type { SrtEntry } from "./srt.js";
@@ -16,6 +22,22 @@ export interface TranslateOptions {
   model?: string | undefined;
   lang?: SupportedLanguage | undefined;
   contextWindowSize?: number | undefined;
+}
+
+export interface ChapterOptions {
+  prompt?: string | undefined;
+  model?: string | undefined;
+  targetLang?: string | undefined;
+  lang?: SupportedLanguage | undefined;
+  verbose?: boolean | undefined;
+}
+
+export interface SummaryOptions {
+  prompt?: string | undefined;
+  model?: string | undefined;
+  targetLang?: string | undefined;
+  lang?: SupportedLanguage | undefined;
+  verbose?: boolean | undefined;
 }
 
 /**
@@ -293,4 +315,322 @@ export async function translateSrtEntries(
   });
 
   return chunkResults.flat();
+}
+
+/**
+ * Generates video chapters from transcript entries using Google Gemini API.
+ */
+export async function generateChapters(
+  entries: SrtEntry[],
+  apiKey: string,
+  options?: ChapterOptions,
+): Promise<ChapterItem[]> {
+  if (entries.length === 0) return [];
+
+  const ai = new GoogleGenAI({ apiKey });
+  const modelName =
+    options?.model ||
+    process.env["VSUB_GEMINI_MODEL"] ||
+    process.env["GEMINI_MODEL"] ||
+    DEFAULT_GEMINI_MODEL;
+
+  const targetLang = options?.targetLang?.trim() || "ja";
+  const verbose = Boolean(options?.verbose);
+
+  // Format transcript with compact timestamps
+  const transcript = entries.map((e) => `[${e.startTime.split(",")[0]}] ${e.text}`).join("\n");
+
+  let prompt = `You are an expert video content editor and chapter generator.
+Analyze the following timestamped transcript and identify topic boundaries to create video chapters (table of contents).
+
+Target language for chapter titles: "${targetLang}"
+
+STRICT RULES:
+1. Return ONLY a valid JSON array of objects with "timestamp", "seconds", and "title".
+2. The first chapter MUST start at "00:00" (seconds: 0) and describe the introduction or opening topic.
+3. All timestamps MUST be in chronological order (ascending).
+4. Timestamp format should be MM:SS (or HH:MM:SS if over 1 hour).
+5. Titles should be concise (2-6 words), descriptive, and written in "${targetLang}".
+6. Generate meaningful chapters corresponding to major topic shifts (typically 3 to 15 chapters depending on content length).
+7. Do NOT include markdown code blocks, explanations, or any extra text outside the JSON array.`;
+
+  if (options?.prompt?.trim()) {
+    prompt += `\n\nADDITIONAL CHAPTER INSTRUCTIONS:\n${options.prompt.trim()}`;
+  }
+
+  prompt += `\n\nTimestamped Transcript:\n${transcript}`;
+
+  let lastError: Error | null = null;
+
+  for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
+    try {
+      if (verbose && attempt > 1) {
+        console.log(
+          `[Gemini API] Retry attempt ${attempt}/${MAX_RETRIES} for chapters generation...`,
+        );
+      }
+
+      const response = await ai.models.generateContent({
+        model: modelName,
+        contents: prompt,
+        config: {
+          responseMimeType: "application/json",
+          responseSchema: {
+            type: Type.ARRAY,
+            items: {
+              type: Type.OBJECT,
+              properties: {
+                timestamp: {
+                  type: Type.STRING,
+                  description: "Timestamp in MM:SS or HH:MM:SS format",
+                },
+                seconds: {
+                  type: Type.INTEGER,
+                  description: "Total seconds from start",
+                },
+                title: {
+                  type: Type.STRING,
+                  description: "Concise chapter title in target language",
+                },
+              },
+              required: ["timestamp", "title"],
+            },
+            description: "Chronological list of video chapters",
+          },
+        },
+      });
+
+      const rawText = response.text?.trim() || "";
+      const cleanedJson = rawText
+        .replace(/^```json\s*/i, "")
+        .replace(/```$/, "")
+        .trim();
+
+      const parsed = JSON.parse(cleanedJson);
+      if (!Array.isArray(parsed) || parsed.length === 0) {
+        throw new Error("Gemini API returned empty or invalid chapters format");
+      }
+
+      const chapters: ChapterItem[] = parsed.map(
+        (item: { timestamp?: string; seconds?: number; title?: string }) => {
+          const rawTs = String(item.timestamp || "00:00");
+          const seconds =
+            typeof item.seconds === "number" && !Number.isNaN(item.seconds)
+              ? Math.max(0, Math.floor(item.seconds))
+              : timestampToSeconds(rawTs);
+          const timestamp = secondsToTimestamp(seconds);
+          const title = String(item.title || "").trim();
+          return { timestamp, seconds, title };
+        },
+      );
+
+      // Ensure first chapter starts at 00:00
+      const firstChapter = chapters[0];
+      if (firstChapter && firstChapter.seconds > 0) {
+        if (firstChapter.seconds <= 30) {
+          firstChapter.seconds = 0;
+          firstChapter.timestamp = "00:00";
+        } else {
+          chapters.unshift({
+            timestamp: "00:00",
+            seconds: 0,
+            title: targetLang.toLowerCase().startsWith("ja")
+              ? "イントロダクション"
+              : "Introduction",
+          });
+        }
+      }
+
+      chapters.sort((a, b) => a.seconds - b.seconds);
+      return chapters;
+    } catch (err) {
+      lastError = err instanceof Error ? err : new Error(String(err));
+      if (isModelNotFoundError(lastError)) {
+        throw new Error(formatModelNotFoundError(modelName, options?.lang));
+      }
+      if (attempt === MAX_RETRIES) break;
+
+      const isRateLimit =
+        (err as { status?: number })?.status === 429 ||
+        /429|RESOURCE_EXHAUSTED|rate limit|quota/i.test(lastError.message);
+
+      const baseDelay = isRateLimit ? 3000 : 1500;
+      const jitter = Math.floor(Math.random() * 1000);
+      const delayMs = Math.min(20000, baseDelay * 2 ** (attempt - 1) + jitter);
+
+      if (verbose) {
+        console.log(
+          `[Gemini API] Error during chapters generation (attempt ${attempt}/${MAX_RETRIES}, retrying in ${delayMs}ms): ${lastError.message}`,
+        );
+      }
+
+      await new Promise((resolve) => setTimeout(resolve, delayMs));
+    }
+  }
+
+  throw new Error(
+    `Gemini API chapters generation failed after ${MAX_RETRIES} attempts: ${lastError?.message}`,
+  );
+}
+
+/**
+ * Generates structured content summary from transcript entries using Google Gemini API.
+ */
+export async function generateSummary(
+  entries: SrtEntry[],
+  apiKey: string,
+  options?: SummaryOptions,
+): Promise<SummaryResult> {
+  if (entries.length === 0) {
+    return {
+      title: "No Content",
+      summary: "No transcript entries provided to summarize.",
+      keyPoints: [],
+      topics: [],
+    };
+  }
+
+  const ai = new GoogleGenAI({ apiKey });
+  const modelName =
+    options?.model ||
+    process.env["VSUB_GEMINI_MODEL"] ||
+    process.env["GEMINI_MODEL"] ||
+    DEFAULT_GEMINI_MODEL;
+
+  const targetLang = options?.targetLang?.trim() || "ja";
+  const verbose = Boolean(options?.verbose);
+
+  const transcript = entries.map((e) => `[${e.startTime.split(",")[0]}] ${e.text}`).join("\n");
+
+  let prompt = `You are an expert content summarizer and meeting recorder.
+Analyze the following timestamped transcript and produce a comprehensive, structured summary.
+
+Target language for summary: "${targetLang}"
+
+STRICT RULES:
+1. Return ONLY a valid JSON object matching the requested schema.
+2. "title": A concise, engaging title for the content in "${targetLang}".
+3. "summary": A clear executive summary (2 to 4 sentences) in "${targetLang}".
+4. "keyPoints": An array of key takeaways or important bullet points (3 to 7 items) in "${targetLang}".
+5. "topics": An array of important discussion topics/highlights in chronological order with "timestamp", "title", and "description" in "${targetLang}".
+6. Do NOT include markdown code blocks, explanations, or any extra text outside the JSON object.`;
+
+  if (options?.prompt?.trim()) {
+    prompt += `\n\nADDITIONAL SUMMARY INSTRUCTIONS:\n${options.prompt.trim()}`;
+  }
+
+  prompt += `\n\nTimestamped Transcript:\n${transcript}`;
+
+  let lastError: Error | null = null;
+
+  for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
+    try {
+      if (verbose && attempt > 1) {
+        console.log(
+          `[Gemini API] Retry attempt ${attempt}/${MAX_RETRIES} for summary generation...`,
+        );
+      }
+
+      const response = await ai.models.generateContent({
+        model: modelName,
+        contents: prompt,
+        config: {
+          responseMimeType: "application/json",
+          responseSchema: {
+            type: Type.OBJECT,
+            properties: {
+              title: {
+                type: Type.STRING,
+                description: "Content title in target language",
+              },
+              summary: {
+                type: Type.STRING,
+                description: "Executive summary paragraph in target language",
+              },
+              keyPoints: {
+                type: Type.ARRAY,
+                items: { type: Type.STRING },
+                description: "List of key takeaways in target language",
+              },
+              topics: {
+                type: Type.ARRAY,
+                items: {
+                  type: Type.OBJECT,
+                  properties: {
+                    timestamp: {
+                      type: Type.STRING,
+                      description: "Timestamp in MM:SS or HH:MM:SS",
+                    },
+                    title: {
+                      type: Type.STRING,
+                      description: "Topic title in target language",
+                    },
+                    description: {
+                      type: Type.STRING,
+                      description: "Brief description of topic",
+                    },
+                  },
+                  required: ["timestamp", "title", "description"],
+                },
+                description: "Key topics with timestamps",
+              },
+            },
+            required: ["title", "summary", "keyPoints", "topics"],
+          },
+        },
+      });
+
+      const rawText = response.text?.trim() || "";
+      const cleanedJson = rawText
+        .replace(/^```json\s*/i, "")
+        .replace(/```$/, "")
+        .trim();
+
+      const parsed = JSON.parse(cleanedJson);
+      const result: SummaryResult = {
+        title: String(parsed.title || "Untitled").trim(),
+        summary: String(parsed.summary || "").trim(),
+        keyPoints: Array.isArray(parsed.keyPoints)
+          ? parsed.keyPoints.map((k: unknown) => String(k).trim()).filter(Boolean)
+          : [],
+        topics: Array.isArray(parsed.topics)
+          ? parsed.topics.map(
+              (t: { timestamp?: string; title?: string; description?: string }) => ({
+                timestamp: secondsToTimestamp(timestampToSeconds(String(t.timestamp || "00:00"))),
+                title: String(t.title || "").trim(),
+                description: String(t.description || "").trim(),
+              }),
+            )
+          : [],
+      };
+
+      return result;
+    } catch (err) {
+      lastError = err instanceof Error ? err : new Error(String(err));
+      if (isModelNotFoundError(lastError)) {
+        throw new Error(formatModelNotFoundError(modelName, options?.lang));
+      }
+      if (attempt === MAX_RETRIES) break;
+
+      const isRateLimit =
+        (err as { status?: number })?.status === 429 ||
+        /429|RESOURCE_EXHAUSTED|rate limit|quota/i.test(lastError.message);
+
+      const baseDelay = isRateLimit ? 3000 : 1500;
+      const jitter = Math.floor(Math.random() * 1000);
+      const delayMs = Math.min(20000, baseDelay * 2 ** (attempt - 1) + jitter);
+
+      if (verbose) {
+        console.log(
+          `[Gemini API] Error during summary generation (attempt ${attempt}/${MAX_RETRIES}, retrying in ${delayMs}ms): ${lastError.message}`,
+        );
+      }
+
+      await new Promise((resolve) => setTimeout(resolve, delayMs));
+    }
+  }
+
+  throw new Error(
+    `Gemini API summary generation failed after ${MAX_RETRIES} attempts: ${lastError?.message}`,
+  );
 }

@@ -3,16 +3,30 @@ import os from "node:os";
 import path from "node:path";
 import pc from "picocolors";
 import {
+  isChaptersCacheValid,
+  isSummaryCacheValid,
   isTranscriptionCacheValid,
   isTranslationCacheValid,
   loadMediaCache,
+  saveChaptersCache,
+  saveSummaryCache,
   saveTranscriptionCache,
   saveTranslationCache,
 } from "./cache.js";
 import { DEFAULT_GEMINI_MODEL, DEFAULT_GROQ_MODEL, ensureApiKeys, getConfig } from "./config.js";
 import { burnSubtitlesToVideo, checkFfmpeg, extractAudio, isAudioFile } from "./ffmpeg.js";
-import { formatEntries, type OutputFormat, parseOutputFormats } from "./formatter.js";
-import { translateSrtEntries } from "./gemini.js";
+import {
+  type ChapterItem,
+  type ChaptersFormat,
+  formatChapters,
+  formatEntries,
+  formatSummary,
+  type OutputFormat,
+  parseOutputFormats,
+  type SummaryFormat,
+  type SummaryResult,
+} from "./formatter.js";
+import { generateChapters, generateSummary, translateSrtEntries } from "./gemini.js";
 import { computeGlossaryHash, extractWhisperPromptHints, parseGlossary } from "./glossary.js";
 import { transcribeAudioSegments } from "./groq.js";
 import { getI18n, type SupportedLanguage } from "./i18n/index.js";
@@ -21,6 +35,7 @@ import { type EnsureWritableResult, ensureWritableTargets } from "./safety.js";
 import {
   type BilingualOrder,
   mergeBilingualEntries,
+  parseSrt,
   reflowSrtEntries,
   type SrtEntry,
 } from "./srt.js";
@@ -754,4 +769,489 @@ export async function processMediaPipeline(
       }
     }
   }
+}
+
+export interface ResolveTranscriptOptions {
+  filePath: string;
+  groqModel?: string | undefined;
+  whisperPrompt?: string | undefined;
+  noCache?: boolean | undefined;
+  fresh?: boolean | undefined;
+  cacheDir?: string | undefined;
+  verbose?: boolean | undefined;
+  lang?: SupportedLanguage | undefined;
+  spinner?: ReturnType<typeof createSpinner> | undefined;
+  prefix?: string | undefined;
+}
+
+export interface ResolveTranscriptResult {
+  entries: SrtEntry[];
+  detectedLanguage?: string | undefined;
+  fromCache: boolean;
+  isSubtitleFile: boolean;
+}
+
+/**
+ * Resolves transcript entries from an existing .srt file or media file (with cache support).
+ */
+export async function resolveTranscriptEntries(
+  options: ResolveTranscriptOptions,
+): Promise<ResolveTranscriptResult> {
+  const resolvedPath = path.resolve(options.filePath);
+  if (!fs.existsSync(resolvedPath)) {
+    throw new Error(`File not found: ${resolvedPath}`);
+  }
+
+  const isSrt = resolvedPath.toLowerCase().endsWith(".srt");
+
+  if (isSrt) {
+    const content = fs.readFileSync(resolvedPath, "utf-8");
+    const entries = parseSrt(content);
+    return {
+      entries,
+      fromCache: false,
+      isSubtitleFile: true,
+    };
+  }
+
+  const useCache = !options.noCache && !options.fresh;
+  const mediaCache = useCache ? loadMediaCache(resolvedPath, options.cacheDir) : null;
+  const isMatch =
+    useCache &&
+    isTranscriptionCacheValid(mediaCache?.transcription, options.whisperPrompt, options.groqModel);
+
+  if (isMatch && mediaCache?.transcription) {
+    return {
+      entries: mediaCache.transcription.entries,
+      detectedLanguage: mediaCache.transcription.detectedLanguage,
+      fromCache: true,
+      isSubtitleFile: false,
+    };
+  }
+
+  // Not cached, transcribe via Groq
+  const rawConfig = getConfig(undefined, options.lang);
+  const config = await ensureApiKeys(rawConfig, {
+    requireGroq: true,
+    requireGemini: false,
+    lang: options.lang,
+  });
+  await checkFfmpeg(config.ffmpegPath);
+
+  const verbose = Boolean(options.verbose);
+  const extractResult = await extractAudio(resolvedPath, config.ffmpegPath, verbose);
+  const audioPaths = extractResult.audioPaths;
+
+  try {
+    const transcriptResult = await transcribeAudioSegments(
+      audioPaths,
+      config.groqApiKey,
+      verbose,
+      undefined,
+      {
+        model: options.groqModel,
+        ...(options.whisperPrompt ? { prompt: options.whisperPrompt } : {}),
+        ...(extractResult.durations ? { durations: extractResult.durations } : {}),
+      },
+    );
+
+    if (!options.noCache) {
+      saveTranscriptionCache(
+        resolvedPath,
+        {
+          detectedLanguage: transcriptResult.detectedLanguage,
+          model: options.groqModel,
+          prompt: options.whisperPrompt,
+          entries: transcriptResult.entries,
+          createdAt: Date.now(),
+        },
+        options.cacheDir,
+      );
+    }
+
+    return {
+      entries: transcriptResult.entries,
+      detectedLanguage: transcriptResult.detectedLanguage,
+      fromCache: false,
+      isSubtitleFile: false,
+    };
+  } finally {
+    if (extractResult.cleanup) {
+      await extractResult.cleanup();
+    }
+  }
+}
+
+export interface ProcessChaptersOptions {
+  inputFile: string;
+  targetLang?: string | undefined;
+  format?: ChaptersFormat | undefined;
+  output?: string | undefined;
+  stdout?: boolean | undefined;
+  overwrite?: boolean | undefined;
+  backup?: boolean | undefined;
+  geminiModel?: string | undefined;
+  groqModel?: string | undefined;
+  whisperPrompt?: string | undefined;
+  prompt?: string | undefined;
+  noCache?: boolean | undefined;
+  fresh?: boolean | undefined;
+  cacheDir?: string | undefined;
+  verbose?: boolean | undefined;
+  lang?: SupportedLanguage | undefined;
+}
+
+export interface ProcessChaptersResult {
+  inputFile: string;
+  outputFile?: string | undefined;
+  chapters: ChapterItem[];
+  formattedOutput: string;
+  durationMs: number;
+  fromCache: boolean;
+  transcriptionFromCache: boolean;
+}
+
+/**
+ * Pipeline to generate chapters from media or subtitle files.
+ */
+export async function processChaptersPipeline(
+  options: ProcessChaptersOptions,
+): Promise<ProcessChaptersResult> {
+  const startTime = Date.now();
+  const verbose = Boolean(options.verbose);
+  const isStdout = Boolean(options.stdout || options.output === "-");
+  const lang = options.lang || "en";
+  const i18n = getI18n(lang);
+  const cm = i18n.chapters;
+
+  const resolvedInput = path.resolve(options.inputFile);
+  if (!fs.existsSync(resolvedInput)) {
+    throw new Error(i18n.pipeline.mediaNotFound(resolvedInput));
+  }
+
+  const format = options.format || "txt";
+  const rawConfig = getConfig(undefined, lang);
+  const targetLang = options.targetLang?.trim() || rawConfig.targetLang || "ja";
+  const geminiModel = options.geminiModel?.trim() || rawConfig.geminiModel || DEFAULT_GEMINI_MODEL;
+  const groqModel = options.groqModel?.trim() || rawConfig.groqModel || DEFAULT_GROQ_MODEL;
+
+  let outputPath: string | undefined;
+  if (!isStdout) {
+    if (options.output) {
+      outputPath = path.resolve(process.cwd(), options.output);
+    } else {
+      const parsed = path.parse(resolvedInput);
+      const ext = format === "json" ? "json" : format === "vtt" ? "vtt" : "txt";
+      outputPath = path.join(parsed.dir, `${parsed.name}.chapters.${ext}`);
+    }
+
+    const safetyCheck = await ensureWritableTargets([outputPath], {
+      overwrite: options.overwrite,
+      backup: options.backup,
+      lang,
+    });
+    if (!safetyCheck.proceed) {
+      throw new Error(i18n.pipeline.conflictAbort);
+    }
+  }
+
+  if (!isStdout) {
+    console.log(`\n📑 ${pc.bold(cm.started(pc.cyan(path.basename(resolvedInput))))}`);
+  }
+
+  const spinner = createSpinner("", { isSilent: verbose || isStdout });
+
+  // Check chapters cache
+  const useCache = !options.noCache && !options.fresh;
+  const isSrt = resolvedInput.toLowerCase().endsWith(".srt");
+  const mediaCache = useCache && !isSrt ? loadMediaCache(resolvedInput, options.cacheDir) : null;
+  const cachedChapters = mediaCache?.chapters?.[targetLang.toLowerCase()];
+
+  if (
+    useCache &&
+    isChaptersCacheValid(cachedChapters, options.prompt, geminiModel) &&
+    cachedChapters
+  ) {
+    const chapters = cachedChapters.chapters;
+    spinner.succeed(cm.step2Cached(chapters.length));
+
+    const formattedOutput = formatChapters(chapters, format);
+    if (isStdout) {
+      process.stdout.write(formattedOutput);
+    } else if (outputPath) {
+      fs.writeFileSync(outputPath, formattedOutput, "utf-8");
+      spinner.succeed(cm.step3Saved(pc.cyan(path.basename(outputPath))));
+    }
+
+    return {
+      inputFile: resolvedInput,
+      outputFile: outputPath,
+      chapters,
+      formattedOutput,
+      durationMs: Date.now() - startTime,
+      fromCache: true,
+      transcriptionFromCache: true,
+    };
+  }
+
+  // Ensure Gemini API Key
+  const config = await ensureApiKeys(rawConfig, {
+    requireGemini: true,
+    requireGroq: false,
+    lang,
+  });
+
+  // Step 1: Resolve transcript entries
+  spinner.start(cm.step1Resolve);
+  const transcriptResult = await resolveTranscriptEntries({
+    filePath: resolvedInput,
+    groqModel,
+    whisperPrompt: options.whisperPrompt,
+    noCache: options.noCache,
+    fresh: options.fresh,
+    cacheDir: options.cacheDir,
+    verbose,
+    lang,
+    spinner,
+  });
+
+  if (transcriptResult.entries.length === 0) {
+    spinner.fail(cm.noEntries);
+    throw new Error(cm.noEntries);
+  }
+  spinner.succeed(cm.step1Parsed(transcriptResult.entries.length));
+
+  // Step 2: Generate chapters with Gemini
+  spinner.start(cm.step2Generating(geminiModel, targetLang.toUpperCase()));
+  const chapters = await generateChapters(transcriptResult.entries, config.geminiApiKey, {
+    targetLang,
+    model: geminiModel,
+    prompt: options.prompt,
+    lang,
+    verbose,
+  });
+  spinner.succeed(cm.step2Done(chapters.length));
+
+  // Save chapters to cache if media file
+  if (!options.noCache && !isSrt) {
+    saveChaptersCache(
+      resolvedInput,
+      targetLang,
+      {
+        targetLang,
+        model: geminiModel,
+        prompt: options.prompt,
+        chapters,
+        createdAt: Date.now(),
+      },
+      options.cacheDir,
+    );
+  }
+
+  // Step 3: Format and save or stdout
+  const formattedOutput = formatChapters(chapters, format);
+  if (isStdout) {
+    process.stdout.write(formattedOutput);
+  } else if (outputPath) {
+    spinner.start(cm.step3Saving);
+    fs.writeFileSync(outputPath, formattedOutput, "utf-8");
+    spinner.succeed(cm.step3Saved(pc.cyan(path.basename(outputPath))));
+  }
+
+  return {
+    inputFile: resolvedInput,
+    outputFile: outputPath,
+    chapters,
+    formattedOutput,
+    durationMs: Date.now() - startTime,
+    fromCache: false,
+    transcriptionFromCache: transcriptResult.fromCache,
+  };
+}
+
+export interface ProcessSummaryOptions {
+  inputFile: string;
+  targetLang?: string | undefined;
+  format?: SummaryFormat | undefined;
+  output?: string | undefined;
+  stdout?: boolean | undefined;
+  overwrite?: boolean | undefined;
+  backup?: boolean | undefined;
+  geminiModel?: string | undefined;
+  groqModel?: string | undefined;
+  whisperPrompt?: string | undefined;
+  prompt?: string | undefined;
+  noCache?: boolean | undefined;
+  fresh?: boolean | undefined;
+  cacheDir?: string | undefined;
+  verbose?: boolean | undefined;
+  lang?: SupportedLanguage | undefined;
+}
+
+export interface ProcessSummaryResult {
+  inputFile: string;
+  outputFile?: string | undefined;
+  summary: SummaryResult;
+  formattedOutput: string;
+  durationMs: number;
+  fromCache: boolean;
+  transcriptionFromCache: boolean;
+}
+
+/**
+ * Pipeline to generate structured summary from media or subtitle files.
+ */
+export async function processSummaryPipeline(
+  options: ProcessSummaryOptions,
+): Promise<ProcessSummaryResult> {
+  const startTime = Date.now();
+  const verbose = Boolean(options.verbose);
+  const isStdout = Boolean(options.stdout || options.output === "-");
+  const lang = options.lang || "en";
+  const i18n = getI18n(lang);
+  const sm = i18n.summarize;
+
+  const resolvedInput = path.resolve(options.inputFile);
+  if (!fs.existsSync(resolvedInput)) {
+    throw new Error(i18n.pipeline.mediaNotFound(resolvedInput));
+  }
+
+  const format = options.format || "md";
+  const rawConfig = getConfig(undefined, lang);
+  const targetLang = options.targetLang?.trim() || rawConfig.targetLang || "ja";
+  const geminiModel = options.geminiModel?.trim() || rawConfig.geminiModel || DEFAULT_GEMINI_MODEL;
+  const groqModel = options.groqModel?.trim() || rawConfig.groqModel || DEFAULT_GROQ_MODEL;
+
+  let outputPath: string | undefined;
+  if (!isStdout) {
+    if (options.output) {
+      outputPath = path.resolve(process.cwd(), options.output);
+    } else {
+      const parsed = path.parse(resolvedInput);
+      const ext = format === "json" ? "json" : format === "txt" ? "txt" : "md";
+      outputPath = path.join(parsed.dir, `${parsed.name}.summary.${ext}`);
+    }
+
+    const safetyCheck = await ensureWritableTargets([outputPath], {
+      overwrite: options.overwrite,
+      backup: options.backup,
+      lang,
+    });
+    if (!safetyCheck.proceed) {
+      throw new Error(i18n.pipeline.conflictAbort);
+    }
+  }
+
+  if (!isStdout) {
+    console.log(`\n📝 ${pc.bold(sm.started(pc.cyan(path.basename(resolvedInput))))}`);
+  }
+
+  const spinner = createSpinner("", { isSilent: verbose || isStdout });
+
+  // Check summary cache
+  const useCache = !options.noCache && !options.fresh;
+  const isSrt = resolvedInput.toLowerCase().endsWith(".srt");
+  const mediaCache = useCache && !isSrt ? loadMediaCache(resolvedInput, options.cacheDir) : null;
+  const cachedSummary = mediaCache?.summaries?.[targetLang.toLowerCase()];
+
+  if (
+    useCache &&
+    isSummaryCacheValid(cachedSummary, options.prompt, geminiModel) &&
+    cachedSummary
+  ) {
+    const summary = cachedSummary.summary;
+    spinner.succeed(sm.step2Cached);
+
+    const formattedOutput = formatSummary(summary, format);
+    if (isStdout) {
+      process.stdout.write(formattedOutput);
+    } else if (outputPath) {
+      fs.writeFileSync(outputPath, formattedOutput, "utf-8");
+      spinner.succeed(sm.step3Saved(pc.cyan(path.basename(outputPath))));
+    }
+
+    return {
+      inputFile: resolvedInput,
+      outputFile: outputPath,
+      summary,
+      formattedOutput,
+      durationMs: Date.now() - startTime,
+      fromCache: true,
+      transcriptionFromCache: true,
+    };
+  }
+
+  // Ensure Gemini API Key
+  const config = await ensureApiKeys(rawConfig, {
+    requireGemini: true,
+    requireGroq: false,
+    lang,
+  });
+
+  // Step 1: Resolve transcript entries
+  spinner.start(sm.step1Resolve);
+  const transcriptResult = await resolveTranscriptEntries({
+    filePath: resolvedInput,
+    groqModel,
+    whisperPrompt: options.whisperPrompt,
+    noCache: options.noCache,
+    fresh: options.fresh,
+    cacheDir: options.cacheDir,
+    verbose,
+    lang,
+    spinner,
+  });
+
+  if (transcriptResult.entries.length === 0) {
+    spinner.fail(sm.noEntries);
+    throw new Error(sm.noEntries);
+  }
+  spinner.succeed(sm.step1Parsed(transcriptResult.entries.length));
+
+  // Step 2: Generate summary with Gemini
+  spinner.start(sm.step2Generating(geminiModel, targetLang.toUpperCase()));
+  const summary = await generateSummary(transcriptResult.entries, config.geminiApiKey, {
+    targetLang,
+    model: geminiModel,
+    prompt: options.prompt,
+    lang,
+    verbose,
+  });
+  spinner.succeed(sm.step2Done);
+
+  // Save summary to cache if media file
+  if (!options.noCache && !isSrt) {
+    saveSummaryCache(
+      resolvedInput,
+      targetLang,
+      {
+        targetLang,
+        model: geminiModel,
+        prompt: options.prompt,
+        summary,
+        createdAt: Date.now(),
+      },
+      options.cacheDir,
+    );
+  }
+
+  // Step 3: Format and save or stdout
+  const formattedOutput = formatSummary(summary, format);
+  if (isStdout) {
+    process.stdout.write(formattedOutput);
+  } else if (outputPath) {
+    spinner.start(sm.step3Saving);
+    fs.writeFileSync(outputPath, formattedOutput, "utf-8");
+    spinner.succeed(sm.step3Saved(pc.cyan(path.basename(outputPath))));
+  }
+
+  return {
+    inputFile: resolvedInput,
+    outputFile: outputPath,
+    summary,
+    formattedOutput,
+    durationMs: Date.now() - startTime,
+    fromCache: false,
+    transcriptionFromCache: transcriptResult.fromCache,
+  };
 }

@@ -21,7 +21,12 @@ import {
   saveGlobalConfig,
 } from "./config.js";
 import { burnSubtitlesToVideo, checkFfmpeg, isVideoFile } from "./ffmpeg.js";
-import { formatEntries, parseOutputFormats } from "./formatter.js";
+import {
+  formatEntries,
+  parseChaptersFormat,
+  parseOutputFormats,
+  parseSummaryFormat,
+} from "./formatter.js";
 import { translateSrtEntries } from "./gemini.js";
 import { computeGlossaryHash, parseGlossary } from "./glossary.js";
 import { getI18n, normalizeLanguage } from "./i18n/index.js";
@@ -31,7 +36,9 @@ import { printLicenses } from "./licenses.js";
 import {
   type ProcessMediaOptions,
   parseBilingualOrder,
+  processChaptersPipeline,
   processMediaPipeline,
+  processSummaryPipeline,
   resolveOutputFilePaths,
 } from "./pipeline.js";
 import { ensureWritableTargets } from "./safety.js";
@@ -346,6 +353,168 @@ cacheCmd
     console.log(
       `✅ Cleared ${result.deletedCount} cache files (${formatFileSize(result.freedBytes)} freed) from: ${result.cacheDir}`,
     );
+  });
+
+// Subcommand: chapters
+program
+  .command("chapters")
+  .description(
+    "Generate video chapters (table of contents) from media or subtitle files via Gemini",
+  )
+  .argument("<file>", "Media file (.mp4, .mp3, etc.) or subtitle file (.srt)")
+  .option("-t, --target-lang <lang>", "Target language for chapter titles (default: config or ja)")
+  .option(
+    "-f, --format <format>",
+    "Output format: txt (YouTube format), json, vtt (default: txt)",
+    "txt",
+  )
+  .option("-o, --output <path>", "Output file path or '-' for stdout")
+  .option("--stdout", "Output chapters directly to stdout", false)
+  .option("--prompt <instruction>", "Additional instruction prompt for Gemini chapter generation")
+  .option("--gemini-model <model>", "Gemini model to use for chapters generation")
+  .option("--groq-model <model>", "Groq Whisper model to use (if media transcription needed)")
+  .option("--whisper-prompt <text>", "Groq Whisper recognition prompt hint")
+  .option("-w, --overwrite", "Overwrite existing output file without confirmation prompt", false)
+  .option("--backup", "Create backup (.bak) of existing output file before overwriting", false)
+  .option("--no-cache", "Do not use or save intermediate cache", false)
+  .option("--fresh", "Ignore existing cache and generate fresh chapters, overwriting cache", false)
+  .option("--cache-dir <dir>", "Custom cache directory path")
+  .option("--verbose", "Output detailed log messages", false)
+  .action(async (file: string, _actionOpts: Record<string, unknown>, cmd: Command) => {
+    const options = cmd.optsWithGlobals<{
+      targetLang?: string;
+      format?: string;
+      output?: string;
+      stdout?: boolean;
+      prompt?: string;
+      geminiModel?: string;
+      groqModel?: string;
+      whisperPrompt?: string;
+      overwrite?: boolean;
+      backup?: boolean;
+      noCache?: boolean;
+      fresh?: boolean;
+      cacheDir?: string;
+      verbose?: boolean;
+      lang?: string;
+      noUpdateCheck?: boolean;
+    }>();
+
+    const rawConfig = getConfig(undefined, options.lang);
+    const lang = options.lang ?? rawConfig.lang ?? "en";
+    const isStdout = Boolean(options.stdout || options.output === "-");
+
+    try {
+      const format = parseChaptersFormat(options.format);
+      await processChaptersPipeline({
+        inputFile: file,
+        targetLang: options.targetLang,
+        format,
+        output: options.output,
+        stdout: options.stdout,
+        prompt: options.prompt,
+        geminiModel: options.geminiModel,
+        groqModel: options.groqModel,
+        whisperPrompt: options.whisperPrompt,
+        overwrite: options.overwrite,
+        backup: options.backup,
+        noCache: options.noCache,
+        fresh: options.fresh,
+        cacheDir: options.cacheDir,
+        verbose: options.verbose,
+        lang: normalizeLanguage(lang),
+      });
+
+      if (!isStdout) {
+        await notifyUpdateIfAvailable({
+          lang: normalizeLanguage(lang),
+          disableUpdateCheck: Boolean(options.noUpdateCheck || rawConfig.disableUpdateCheck),
+        });
+      }
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : String(err);
+      console.error(pc.red(`\n✖ ${message}`));
+      process.exit(1);
+    }
+  });
+
+// Subcommand: summarize
+program
+  .command("summarize")
+  .description(
+    "Generate structured summary and key topic highlights from media or subtitle files via Gemini",
+  )
+  .argument("<file>", "Media file (.mp4, .mp3, etc.) or subtitle file (.srt)")
+  .option("-t, --target-lang <lang>", "Target language for summary (default: config or ja)")
+  .option("-f, --format <format>", "Output format: md (Markdown), txt, json (default: md)", "md")
+  .option("-o, --output <path>", "Output file path or '-' for stdout")
+  .option("--stdout", "Output summary directly to stdout", false)
+  .option("--prompt <instruction>", "Additional instruction prompt for Gemini summary generation")
+  .option("--gemini-model <model>", "Gemini model to use for summary generation")
+  .option("--groq-model <model>", "Groq Whisper model to use (if media transcription needed)")
+  .option("--whisper-prompt <text>", "Groq Whisper recognition prompt hint")
+  .option("-w, --overwrite", "Overwrite existing output file without confirmation prompt", false)
+  .option("--backup", "Create backup (.bak) of existing output file before overwriting", false)
+  .option("--no-cache", "Do not use or save intermediate cache", false)
+  .option("--fresh", "Ignore existing cache and generate fresh summary, overwriting cache", false)
+  .option("--cache-dir <dir>", "Custom cache directory path")
+  .option("--verbose", "Output detailed log messages", false)
+  .action(async (file: string, _actionOpts: Record<string, unknown>, cmd: Command) => {
+    const options = cmd.optsWithGlobals<{
+      targetLang?: string;
+      format?: string;
+      output?: string;
+      stdout?: boolean;
+      prompt?: string;
+      geminiModel?: string;
+      groqModel?: string;
+      whisperPrompt?: string;
+      overwrite?: boolean;
+      backup?: boolean;
+      noCache?: boolean;
+      fresh?: boolean;
+      cacheDir?: string;
+      verbose?: boolean;
+      lang?: string;
+      noUpdateCheck?: boolean;
+    }>();
+
+    const rawConfig = getConfig(undefined, options.lang);
+    const lang = options.lang ?? rawConfig.lang ?? "en";
+    const isStdout = Boolean(options.stdout || options.output === "-");
+
+    try {
+      const format = parseSummaryFormat(options.format);
+      await processSummaryPipeline({
+        inputFile: file,
+        targetLang: options.targetLang,
+        format,
+        output: options.output,
+        stdout: options.stdout,
+        prompt: options.prompt,
+        geminiModel: options.geminiModel,
+        groqModel: options.groqModel,
+        whisperPrompt: options.whisperPrompt,
+        overwrite: options.overwrite,
+        backup: options.backup,
+        noCache: options.noCache,
+        fresh: options.fresh,
+        cacheDir: options.cacheDir,
+        verbose: options.verbose,
+        lang: normalizeLanguage(lang),
+      });
+
+      if (!isStdout) {
+        await notifyUpdateIfAvailable({
+          lang: normalizeLanguage(lang),
+          disableUpdateCheck: Boolean(options.noUpdateCheck || rawConfig.disableUpdateCheck),
+        });
+      }
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : String(err);
+      console.error(pc.red(`\n✖ ${message}`));
+      process.exit(1);
+    }
   });
 
 // Subcommand: translate

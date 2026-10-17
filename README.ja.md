@@ -311,6 +311,24 @@ pnpm dev config set --disable-update-check true
 pnpm dev config path
 ```
 
+### 7. AI チャプター生成 & 要約サブコマンド (`vsub chapters` & `vsub summarize`)
+
+任意の動画・音声・既存 `.srt` ファイルから、YouTube 概要欄用チャプターや構造化された Markdown 要約を自動生成します。すでに `vsub` で文字起こし済みのメディアであれば、文字起こしキャッシュを再利用して数秒で生成が完了します。
+
+```bash
+# YouTube 概要欄にそのまま貼れるチャプター一覧を生成 ([名前].chapters.txt に保存)
+vsub chapters video.mp4 -t ja
+vsub chapters subtitle.srt -f json  # 構造化 JSON として出力
+
+# 全体要約・主要ポイント・トピック別ハイライトを生成 ([名前].summary.md に保存)
+vsub summarize video.mp4 -t ja
+vsub summarize interview.srt -f txt # 装飾なしプレーンテキストで出力
+
+# UNIX パイプ / stdout ストリーム連携
+vsub chapters video.mp4 --stdout | pbcopy
+vsub summarize meeting.mp4 --stdout > summary.md
+```
+
 ---
 
 ## ライセンス

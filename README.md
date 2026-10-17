@@ -311,6 +311,24 @@ pnpm dev config set --disable-update-check true
 pnpm dev config path
 ```
 
+### 7. AI Chapters & Video Summary (`vsub chapters` & `vsub summarize`)
+
+Generate YouTube chapters or structured markdown summaries from any video, audio, or existing `.srt` file. When the media has already been processed by `vsub`, it reuses the transcription cache and finishes in seconds!
+
+```bash
+# Generate YouTube-compatible chapters (00:00 Title format, saved to [name].chapters.txt)
+vsub chapters video.mp4 -t ja
+vsub chapters subtitle.srt -f json  # Output as JSON array
+
+# Generate structured executive summary (Markdown by default, saved to [name].summary.md)
+vsub summarize video.mp4 -t ja
+vsub summarize interview.srt -f txt # Output plain text summary
+
+# UNIX pipe / stdout stream
+vsub chapters video.mp4 --stdout | pbcopy
+vsub summarize meeting.mp4 --stdout > summary.md
+```
+
 ---
 
 ## License

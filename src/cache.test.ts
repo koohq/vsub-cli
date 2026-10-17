@@ -7,9 +7,13 @@ import {
   getCacheDir,
   getCacheStats,
   getFileCacheKey,
+  isChaptersCacheValid,
+  isSummaryCacheValid,
   isTranscriptionCacheValid,
   isTranslationCacheValid,
   loadMediaCache,
+  saveChaptersCache,
+  saveSummaryCache,
   saveTranscriptionCache,
   saveTranslationCache,
 } from "./cache.js";
@@ -241,6 +245,88 @@ describe("cache module", () => {
         false,
       );
       expect(isTranslationCacheValid(undefined)).toBe(false);
+    });
+
+    it("should check chapters cache prompt and model match", () => {
+      const cached = {
+        targetLang: "ja",
+        chapters: [{ timestamp: "00:00", seconds: 0, title: "Intro" }],
+        model: "gemini-3.8-flash",
+        prompt: "ChapterPrompt",
+        createdAt: Date.now(),
+      };
+      expect(isChaptersCacheValid(cached)).toBe(true);
+      expect(isChaptersCacheValid(cached, "ChapterPrompt")).toBe(true);
+      expect(isChaptersCacheValid(cached, "ChapterPrompt", "gemini-3.8-flash")).toBe(true);
+      expect(isChaptersCacheValid(cached, "DifferentPrompt")).toBe(false);
+      expect(isChaptersCacheValid(cached, "ChapterPrompt", "gemini-2.5-flash")).toBe(false);
+      expect(isChaptersCacheValid(undefined)).toBe(false);
+    });
+
+    it("should check summary cache prompt and model match", () => {
+      const cached = {
+        targetLang: "ja",
+        summary: {
+          title: "Title",
+          summary: "Summary text",
+          keyPoints: ["Point 1"],
+          topics: [],
+        },
+        model: "gemini-3.8-flash",
+        prompt: "SummaryPrompt",
+        createdAt: Date.now(),
+      };
+      expect(isSummaryCacheValid(cached)).toBe(true);
+      expect(isSummaryCacheValid(cached, "SummaryPrompt")).toBe(true);
+      expect(isSummaryCacheValid(cached, "SummaryPrompt", "gemini-3.8-flash")).toBe(true);
+      expect(isSummaryCacheValid(cached, "DifferentPrompt")).toBe(false);
+      expect(isSummaryCacheValid(cached, "SummaryPrompt", "gemini-2.5-flash")).toBe(false);
+      expect(isSummaryCacheValid(undefined)).toBe(false);
+    });
+  });
+
+  describe("saveChaptersCache and saveSummaryCache", () => {
+    it("should save and load chapters cache", () => {
+      saveChaptersCache(
+        testMediaFile,
+        "ja",
+        {
+          targetLang: "ja",
+          model: "gemini-3.8-flash",
+          prompt: "test prompt",
+          chapters: [{ timestamp: "00:00", seconds: 0, title: "Opening" }],
+          createdAt: Date.now(),
+        },
+        customCacheDir,
+      );
+
+      const cache = loadMediaCache(testMediaFile, customCacheDir);
+      expect(cache?.chapters?.["ja"]?.chapters[0]?.title).toBe("Opening");
+      expect(cache?.chapters?.["ja"]?.model).toBe("gemini-3.8-flash");
+    });
+
+    it("should save and load summary cache", () => {
+      saveSummaryCache(
+        testMediaFile,
+        "en",
+        {
+          targetLang: "en",
+          model: "gemini-3.8-flash",
+          prompt: "test summary prompt",
+          summary: {
+            title: "Test Overview",
+            summary: "Brief overview",
+            keyPoints: ["Key point A"],
+            topics: [{ timestamp: "00:10", title: "Topic 1", description: "Details" }],
+          },
+          createdAt: Date.now(),
+        },
+        customCacheDir,
+      );
+
+      const cache = loadMediaCache(testMediaFile, customCacheDir);
+      expect(cache?.summaries?.["en"]?.summary.title).toBe("Test Overview");
+      expect(cache?.summaries?.["en"]?.summary.keyPoints).toEqual(["Key point A"]);
     });
   });
 

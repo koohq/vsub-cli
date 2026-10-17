@@ -2,8 +2,37 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { saveTranscriptionCache, saveTranslationCache } from "./cache.js";
-import { parseBilingualOrder, processMediaPipeline, resolveOutputFilePaths } from "./pipeline.js";
+import {
+  saveChaptersCache,
+  saveSummaryCache,
+  saveTranscriptionCache,
+  saveTranslationCache,
+} from "./cache.js";
+import {
+  parseBilingualOrder,
+  processChaptersPipeline,
+  processMediaPipeline,
+  processSummaryPipeline,
+  resolveOutputFilePaths,
+  resolveTranscriptEntries,
+} from "./pipeline.js";
+
+vi.mock("./gemini.js", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("./gemini.js")>();
+  return {
+    ...actual,
+    generateChapters: vi.fn().mockResolvedValue([
+      { timestamp: "00:00", seconds: 0, title: "Introduction" },
+      { timestamp: "01:23", seconds: 83, title: "Getting Started" },
+    ]),
+    generateSummary: vi.fn().mockResolvedValue({
+      title: "Sample Title",
+      summary: "Sample Summary Paragraph",
+      keyPoints: ["Point 1", "Point 2"],
+      topics: [{ timestamp: "00:00", title: "Intro", description: "Details" }],
+    }),
+  };
+});
 
 describe("pipeline.ts", () => {
   let tempDir: string;
@@ -326,6 +355,187 @@ describe("pipeline.ts", () => {
 
       expect(txtResult.outputFiles).toEqual([]);
       expect(txtResult.stdoutContent?.trim()).toBe("テスト字幕");
+    });
+  });
+
+  describe("resolveTranscriptEntries", () => {
+    it("should parse .srt file directly without cache or API keys", async () => {
+      const srtPath = path.join(tempDir, "sample.srt");
+      fs.writeFileSync(
+        srtPath,
+        "1\n00:00:00,000 --> 00:00:02,000\nHello\n\n2\n00:00:02,500 --> 00:00:05,000\nWorld\n",
+      );
+
+      const result = await resolveTranscriptEntries({ filePath: srtPath });
+      expect(result.isSubtitleFile).toBe(true);
+      expect(result.fromCache).toBe(false);
+      expect(result.entries).toHaveLength(2);
+      expect(result.entries[0]?.text).toBe("Hello");
+    });
+
+    it("should load from transcription cache for media file", async () => {
+      const mediaPath = path.join(tempDir, "test.mp4");
+      fs.writeFileSync(mediaPath, "dummy video data");
+      const cacheDir = path.join(tempDir, "cache");
+
+      saveTranscriptionCache(
+        mediaPath,
+        {
+          detectedLanguage: "ja",
+          entries: [
+            { id: 1, startTime: "00:00:00,000", endTime: "00:00:02,000", text: "キャッシュ字幕" },
+          ],
+          createdAt: Date.now(),
+        },
+        cacheDir,
+      );
+
+      const result = await resolveTranscriptEntries({ filePath: mediaPath, cacheDir });
+      expect(result.isSubtitleFile).toBe(false);
+      expect(result.fromCache).toBe(true);
+      expect(result.detectedLanguage).toBe("ja");
+      expect(result.entries[0]?.text).toBe("キャッシュ字幕");
+    });
+
+    it("should throw if file does not exist", async () => {
+      await expect(
+        resolveTranscriptEntries({ filePath: path.join(tempDir, "not_found.srt") }),
+      ).rejects.toThrow(/File not found/);
+    });
+  });
+
+  describe("processChaptersPipeline", () => {
+    it("should generate chapters from .srt and write to output file", async () => {
+      const srtPath = path.join(tempDir, "demo.srt");
+      fs.writeFileSync(
+        srtPath,
+        "1\n00:00:00,000 --> 00:00:05,000\nIntro\n\n2\n00:01:23,000 --> 00:01:30,000\nTopic\n",
+      );
+
+      const result = await processChaptersPipeline({
+        inputFile: srtPath,
+        format: "txt",
+      });
+
+      expect(result.chapters).toHaveLength(2);
+      const outPath = result.outputFile ?? "";
+      expect(outPath).toBe(path.join(tempDir, "demo.chapters.txt"));
+      expect(fs.existsSync(outPath)).toBe(true);
+      const content = fs.readFileSync(outPath, "utf-8");
+      expect(content).toContain("00:00 Introduction");
+      expect(content).toContain("01:23 Getting Started");
+    });
+
+    it("should output to stdout when stdout: true", async () => {
+      const srtPath = path.join(tempDir, "stdout_demo.srt");
+      fs.writeFileSync(srtPath, "1\n00:00:00,000 --> 00:00:05,000\nIntro\n");
+
+      const stdoutSpy = vi.spyOn(process.stdout, "write").mockReturnValue(true);
+      const result = await processChaptersPipeline({
+        inputFile: srtPath,
+        stdout: true,
+        format: "json",
+      });
+
+      expect(stdoutSpy).toHaveBeenCalled();
+      expect(result.outputFile).toBeUndefined();
+      const parsed = JSON.parse(result.formattedOutput);
+      expect(parsed).toHaveLength(2);
+      stdoutSpy.mockRestore();
+    });
+
+    it("should use cached chapters if available", async () => {
+      const mediaPath = path.join(tempDir, "cached_video.mp4");
+      fs.writeFileSync(mediaPath, "video bytes");
+      const cacheDir = path.join(tempDir, "cache");
+
+      saveChaptersCache(
+        mediaPath,
+        "ja",
+        {
+          targetLang: "ja",
+          chapters: [{ timestamp: "00:00", seconds: 0, title: "Cached Opening" }],
+          createdAt: Date.now(),
+        },
+        cacheDir,
+      );
+
+      const result = await processChaptersPipeline({
+        inputFile: mediaPath,
+        targetLang: "ja",
+        cacheDir,
+      });
+
+      expect(result.fromCache).toBe(true);
+      expect(result.chapters[0]?.title).toBe("Cached Opening");
+    });
+  });
+
+  describe("processSummaryPipeline", () => {
+    it("should generate summary from .srt and write to markdown file", async () => {
+      const srtPath = path.join(tempDir, "summary_demo.srt");
+      fs.writeFileSync(srtPath, "1\n00:00:00,000 --> 00:00:05,000\nIntro discussion\n");
+
+      const result = await processSummaryPipeline({
+        inputFile: srtPath,
+        format: "md",
+      });
+
+      expect(result.summary.title).toBe("Sample Title");
+      const outPath = result.outputFile ?? "";
+      expect(outPath).toBe(path.join(tempDir, "summary_demo.summary.md"));
+      expect(fs.existsSync(outPath)).toBe(true);
+      const content = fs.readFileSync(outPath, "utf-8");
+      expect(content).toContain("# Sample Title");
+      expect(content).toContain("## Summary");
+    });
+
+    it("should output summary to stdout when stdout: true", async () => {
+      const srtPath = path.join(tempDir, "summary_stdout.srt");
+      fs.writeFileSync(srtPath, "1\n00:00:00,000 --> 00:00:05,000\nIntro\n");
+
+      const stdoutSpy = vi.spyOn(process.stdout, "write").mockReturnValue(true);
+      const result = await processSummaryPipeline({
+        inputFile: srtPath,
+        stdout: true,
+        format: "txt",
+      });
+
+      expect(stdoutSpy).toHaveBeenCalled();
+      expect(result.outputFile).toBeUndefined();
+      expect(result.formattedOutput).toContain("Sample Title");
+      stdoutSpy.mockRestore();
+    });
+
+    it("should use cached summary if available", async () => {
+      const mediaPath = path.join(tempDir, "summary_cached_video.mp4");
+      fs.writeFileSync(mediaPath, "video bytes 2");
+      const cacheDir = path.join(tempDir, "cache");
+
+      saveSummaryCache(
+        mediaPath,
+        "ja",
+        {
+          targetLang: "ja",
+          summary: {
+            title: "Cached Title",
+            summary: "Cached summary text",
+            keyPoints: ["Cached point"],
+            topics: [],
+          },
+          createdAt: Date.now(),
+        },
+        cacheDir,
+      );
+
+      const result = await processSummaryPipeline({
+        inputFile: mediaPath,
+        targetLang: "ja",
+        cacheDir,
+      });
+
+      expect(result.fromCache).toBe(true);
+      expect(result.summary.title).toBe("Cached Title");
     });
   });
 });

@@ -1,10 +1,17 @@
 import { describe, expect, it } from "vitest";
 import {
+  formatChapters,
   formatEntries,
+  formatSummary,
+  parseChaptersFormat,
   parseOutputFormats,
+  parseSummaryFormat,
+  secondsToTimestamp,
+  secondsToVttTimestamp,
   stringifyJson,
   stringifyTxt,
   stringifyVtt,
+  timestampToSeconds,
 } from "./formatter.js";
 import type { SrtEntry } from "./srt.js";
 
@@ -133,6 +140,121 @@ Second line
     it("should delegate to stringifyJson for json format", () => {
       const result = formatEntries(sampleEntries, "json");
       expect(JSON.parse(result)).toEqual(sampleEntries);
+    });
+  });
+
+  describe("timestamp utilities", () => {
+    it("should format seconds to MM:SS and HH:MM:SS correctly", () => {
+      expect(secondsToTimestamp(0)).toBe("00:00");
+      expect(secondsToTimestamp(83)).toBe("01:23");
+      expect(secondsToTimestamp(3599)).toBe("59:59");
+      expect(secondsToTimestamp(3600)).toBe("01:00:00");
+      expect(secondsToTimestamp(5025)).toBe("01:23:45");
+    });
+
+    it("should parse timestamp strings into seconds", () => {
+      expect(timestampToSeconds("00:00")).toBe(0);
+      expect(timestampToSeconds("01:23")).toBe(83);
+      expect(timestampToSeconds("01:23:45")).toBe(5025);
+      expect(timestampToSeconds("1:05:10")).toBe(3910);
+      expect(timestampToSeconds("invalid")).toBe(0);
+    });
+
+    it("should format seconds to WebVTT timestamp (HH:MM:SS.000)", () => {
+      expect(secondsToVttTimestamp(0)).toBe("00:00:00.000");
+      expect(secondsToVttTimestamp(83.5)).toBe("00:01:23.500");
+      expect(secondsToVttTimestamp(3661)).toBe("01:01:01.000");
+    });
+  });
+
+  describe("parseChaptersFormat & parseSummaryFormat", () => {
+    it("should parse valid chapters format and default to txt", () => {
+      expect(parseChaptersFormat()).toBe("txt");
+      expect(parseChaptersFormat("")).toBe("txt");
+      expect(parseChaptersFormat("json")).toBe("json");
+      expect(parseChaptersFormat("VTT")).toBe("vtt");
+      expect(() => parseChaptersFormat("invalid")).toThrow(/Unsupported chapters format/);
+    });
+
+    it("should parse valid summary format and default to md", () => {
+      expect(parseSummaryFormat()).toBe("md");
+      expect(parseSummaryFormat("")).toBe("md");
+      expect(parseSummaryFormat("txt")).toBe("txt");
+      expect(parseSummaryFormat("JSON")).toBe("json");
+      expect(() => parseSummaryFormat("invalid")).toThrow(/Unsupported summary format/);
+    });
+  });
+
+  describe("formatChapters", () => {
+    const sampleChapters = [
+      { timestamp: "00:00", seconds: 0, title: "Introduction" },
+      { timestamp: "01:23", seconds: 83, title: "Getting Started" },
+      { timestamp: "05:10", seconds: 310, title: "Deep Dive & Demo" },
+    ];
+
+    it("should format to YouTube txt format", () => {
+      const txt = formatChapters(sampleChapters, "txt");
+      expect(txt).toBe("00:00 Introduction\n01:23 Getting Started\n05:10 Deep Dive & Demo\n");
+    });
+
+    it("should format to JSON format", () => {
+      const jsonStr = formatChapters(sampleChapters, "json");
+      expect(JSON.parse(jsonStr)).toEqual(sampleChapters);
+    });
+
+    it("should format to WebVTT chapters track format with proper ranges", () => {
+      const vtt = formatChapters(sampleChapters, "vtt", 600);
+      expect(vtt).toContain("WEBVTT");
+      expect(vtt).toContain("00:00:00.000 --> 00:01:23.000\nIntroduction");
+      expect(vtt).toContain("00:01:23.000 --> 00:05:10.000\nGetting Started");
+      expect(vtt).toContain("00:05:10.000 --> 00:10:00.000\nDeep Dive & Demo");
+    });
+
+    it("should handle empty chapters array", () => {
+      expect(formatChapters([], "txt")).toBe("");
+      expect(formatChapters([], "json")).toBe("[]\n");
+      expect(formatChapters([], "vtt")).toBe("WEBVTT\n");
+    });
+  });
+
+  describe("formatSummary", () => {
+    const sampleSummary = {
+      title: "Meeting Overview",
+      summary: "This meeting discussed release schedules and key deliverables.",
+      keyPoints: ["vsub 1.4 will release next week", "All tests passed"],
+      topics: [
+        {
+          timestamp: "00:15",
+          title: "Opening Remarks",
+          description: "Greeting and attendance check.",
+        },
+        {
+          timestamp: "02:30",
+          title: "Roadmap Discussion",
+          description: "Review of milestone progress.",
+        },
+      ],
+    };
+
+    it("should format to Markdown", () => {
+      const md = formatSummary(sampleSummary, "md");
+      expect(md).toContain("# Meeting Overview");
+      expect(md).toContain("## Summary\nThis meeting discussed release schedules");
+      expect(md).toContain("- vsub 1.4 will release next week");
+      expect(md).toContain("- **[00:15] Opening Remarks**: Greeting and attendance check.");
+    });
+
+    it("should format to plain text", () => {
+      const txt = formatSummary(sampleSummary, "txt");
+      expect(txt).toContain("Meeting Overview");
+      expect(txt).toContain("[Summary]\nThis meeting discussed release schedules");
+      expect(txt).toContain("• vsub 1.4 will release next week");
+      expect(txt).toContain("• [00:15] Opening Remarks: Greeting and attendance check.");
+    });
+
+    it("should format to JSON", () => {
+      const jsonStr = formatSummary(sampleSummary, "json");
+      expect(JSON.parse(jsonStr)).toEqual(sampleSummary);
     });
   });
 });

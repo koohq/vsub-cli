@@ -151,6 +151,30 @@ export const ja: typeof en = {
       "--stdout 指定時は複数の言語を指定できません。単一の言語を指定してください。",
     subtitleNotFound: (path: string) => `字幕ファイルが見つかりません: ${path}`,
   },
+  chapters: {
+    started: (file: string) => `vsub-cli chapters - チャプター生成開始: ${file}`,
+    step1Resolve: "文字起こしデータを取得中...",
+    step1Parsed: (count: number) => `字幕データ ${count} 行を解析完了`,
+    step2Generating: (model: string, lang: string) =>
+      `Gemini (${model}) でチャプターを生成中 [${lang}]...`,
+    step2Done: (count: number) => `チャプター ${count} 件を生成完了`,
+    step2Cached: (count: number) => `キャッシュ済みチャプター ${count} 件を適用 [⚡ Cached]`,
+    step3Saving: "チャプターファイルを保存中...",
+    step3Saved: (path: string) => `チャプターファイルを保存完了: ${path}`,
+    noEntries: "チャプター生成対象の字幕データが見つかりませんでした。",
+  },
+  summarize: {
+    started: (file: string) => `vsub-cli summarize - 要約生成開始: ${file}`,
+    step1Resolve: "文字起こしデータを取得中...",
+    step1Parsed: (count: number) => `字幕データ ${count} 行を解析完了`,
+    step2Generating: (model: string, lang: string) =>
+      `Gemini (${model}) で要約を生成中 [${lang}]...`,
+    step2Done: "要約の生成が完了しました",
+    step2Cached: "キャッシュ済み要約を適用 [⚡ Cached]",
+    step3Saving: "要約ファイルを保存中...",
+    step3Saved: (path: string) => `要約ファイルを保存完了: ${path}`,
+    noEntries: "要約生成対象の字幕データが見つかりませんでした。",
+  },
   burn: {
     started: (video: string, sub: string) => `vsub-cli burn - 字幕焼き込み開始: ${video} + ${sub}`,
     videoNotFound: (path: string) => `動画ファイルが見つかりません: ${path}`,

@@ -149,6 +149,30 @@ export const en = {
       "Cannot specify multiple target languages with --stdout. Please specify a single language.",
     subtitleNotFound: (path: string) => `Subtitle file not found: ${path}`,
   },
+  chapters: {
+    started: (file: string) => `vsub-cli chapters - Generating chapters: ${file}`,
+    step1Resolve: "Resolving transcript entries...",
+    step1Parsed: (count: number) => `Parsed ${count} subtitle entries`,
+    step2Generating: (model: string, lang: string) =>
+      `Generating chapters with Gemini (${model}) [${lang}]...`,
+    step2Done: (count: number) => `Generated ${count} chapters`,
+    step2Cached: (count: number) => `Loaded ${count} chapters [⚡ Cached]`,
+    step3Saving: "Saving chapters file...",
+    step3Saved: (path: string) => `Saved chapters to ${path}`,
+    noEntries: "No subtitle entries found to generate chapters.",
+  },
+  summarize: {
+    started: (file: string) => `vsub-cli summarize - Generating summary: ${file}`,
+    step1Resolve: "Resolving transcript entries...",
+    step1Parsed: (count: number) => `Parsed ${count} subtitle entries`,
+    step2Generating: (model: string, lang: string) =>
+      `Generating summary with Gemini (${model}) [${lang}]...`,
+    step2Done: "Generated summary successfully",
+    step2Cached: "Loaded summary [⚡ Cached]",
+    step3Saving: "Saving summary file...",
+    step3Saved: (path: string) => `Saved summary to ${path}`,
+    noEntries: "No subtitle entries found to generate summary.",
+  },
   burn: {
     started: (video: string, sub: string) =>
       `vsub-cli burn - Subtitle burn-in started: ${video} + ${sub}`,

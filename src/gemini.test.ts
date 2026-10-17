@@ -4,6 +4,8 @@ import {
   buildTranslationPrompt,
   DEFAULT_CONTEXT_WINDOW_SIZE,
   formatModelNotFoundError,
+  generateChapters,
+  generateSummary,
   isModelNotFoundError,
   translateSrtEntries,
 } from "./gemini.js";
@@ -618,6 +620,119 @@ describe("gemini.ts", () => {
       );
       expect(message).toContain("https://ai.google.dev/gemini-api/docs/models");
       expect(message).not.toContain("npm install -g vsub-cli");
+    });
+  });
+
+  describe("generateChapters", () => {
+    const sampleEntries: SrtEntry[] = [
+      { id: 1, startTime: "00:00:00,000", endTime: "00:00:10,000", text: "Welcome everyone" },
+      { id: 2, startTime: "00:01:23,000", endTime: "00:01:35,000", text: "Moving to agenda" },
+      { id: 3, startTime: "00:05:40,000", endTime: "00:05:55,000", text: "Now for the demo" },
+    ];
+
+    it("should return empty array for empty entries", async () => {
+      const chapters = await generateChapters([], "fake-key");
+      expect(chapters).toEqual([]);
+      expect(mockGenerateContent).not.toHaveBeenCalled();
+    });
+
+    it("should call Gemini with responseSchema and return formatted chapters", async () => {
+      mockGenerateContent.mockResolvedValueOnce({
+        text: JSON.stringify([
+          { timestamp: "00:00", seconds: 0, title: "オープニング" },
+          { timestamp: "01:23", seconds: 83, title: "本日のアジェンダ" },
+          { timestamp: "05:40", seconds: 340, title: "デモ紹介" },
+        ]),
+      });
+
+      const chapters = await generateChapters(sampleEntries, "fake-key", {
+        targetLang: "ja",
+        prompt: "Concise chapters",
+      });
+
+      expect(mockGenerateContent).toHaveBeenCalledTimes(1);
+      const callArg = (mockGenerateContent.mock.calls[0] as [{ contents: string }])[0];
+      expect(callArg.contents).toContain("Concise chapters");
+      expect(callArg.contents).toContain("[00:00:00] Welcome everyone");
+      expect(chapters).toEqual([
+        { timestamp: "00:00", seconds: 0, title: "オープニング" },
+        { timestamp: "01:23", seconds: 83, title: "本日のアジェンダ" },
+        { timestamp: "05:40", seconds: 340, title: "デモ紹介" },
+      ]);
+    });
+
+    it("should ensure first chapter starts at 00:00 if Gemini returns non-zero start", async () => {
+      mockGenerateContent.mockResolvedValueOnce({
+        text: JSON.stringify([
+          { timestamp: "01:00", seconds: 60, title: "Main Topic" },
+          { timestamp: "05:00", seconds: 300, title: "Summary" },
+        ]),
+      });
+
+      const chapters = await generateChapters(sampleEntries, "fake-key", { targetLang: "ja" });
+      expect(chapters[0]?.timestamp).toBe("00:00");
+      expect(chapters[0]?.seconds).toBe(0);
+      expect(chapters[0]?.title).toBe("イントロダクション");
+      expect(chapters[1]?.timestamp).toBe("01:00");
+    });
+
+    it("should adjust first chapter to 00:00 if it starts <= 30 seconds", async () => {
+      mockGenerateContent.mockResolvedValueOnce({
+        text: JSON.stringify([
+          { timestamp: "00:15", seconds: 15, title: "Welcome & Intro" },
+          { timestamp: "02:00", seconds: 120, title: "Part 2" },
+        ]),
+      });
+
+      const chapters = await generateChapters(sampleEntries, "fake-key", { targetLang: "en" });
+      expect(chapters[0]?.timestamp).toBe("00:00");
+      expect(chapters[0]?.seconds).toBe(0);
+      expect(chapters[0]?.title).toBe("Welcome & Intro");
+    });
+  });
+
+  describe("generateSummary", () => {
+    const sampleEntries: SrtEntry[] = [
+      { id: 1, startTime: "00:00:00,000", endTime: "00:00:15,000", text: "Hello and welcome" },
+      {
+        id: 2,
+        startTime: "00:02:10,000",
+        endTime: "00:02:30,000",
+        text: "Discussing quarterly results",
+      },
+    ];
+
+    it("should return empty summary structure for empty entries", async () => {
+      const summary = await generateSummary([], "fake-key");
+      expect(summary.title).toBe("No Content");
+      expect(summary.keyPoints).toEqual([]);
+      expect(mockGenerateContent).not.toHaveBeenCalled();
+    });
+
+    it("should call Gemini and return parsed summary result", async () => {
+      mockGenerateContent.mockResolvedValueOnce({
+        text: JSON.stringify({
+          title: "Quarterly Review",
+          summary: "Reviewed revenue and upcoming milestones.",
+          keyPoints: ["Revenue up 20%", "Launched vsub-cli"],
+          topics: [
+            { timestamp: "00:00", title: "Intro", description: "Opening remarks" },
+            { timestamp: "02:10", title: "Financials", description: "Detailed charts" },
+          ],
+        }),
+      });
+
+      const summary = await generateSummary(sampleEntries, "fake-key", {
+        targetLang: "ja",
+        prompt: "Focus on finance",
+      });
+
+      expect(mockGenerateContent).toHaveBeenCalledTimes(1);
+      const callArg = (mockGenerateContent.mock.calls[0] as [{ contents: string }])[0];
+      expect(callArg.contents).toContain("Focus on finance");
+      expect(summary.title).toBe("Quarterly Review");
+      expect(summary.keyPoints).toHaveLength(2);
+      expect(summary.topics[1]?.timestamp).toBe("02:10");
     });
   });
 });
