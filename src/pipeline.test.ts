@@ -38,6 +38,10 @@ vi.mock("./ffmpeg.js", async (importOriginal) => {
   const actual = await importOriginal<typeof import("./ffmpeg.js")>();
   return {
     ...actual,
+    burnSubtitlesToVideo: vi.fn().mockImplementation(async (_video, _sub, output) => {
+      fs.writeFileSync(output, "dummy burnt video");
+      return output;
+    }),
     embedSubtitlesToVideo: vi.fn().mockImplementation(async (_video, _subs, output) => {
       fs.writeFileSync(output, "dummy embedded video");
       return output;
@@ -701,6 +705,56 @@ describe("pipeline.ts", () => {
 
       expect(result.outputFiles).toContain(customOut);
       expect(fs.existsSync(customOut)).toBe(true);
+    });
+  });
+
+  describe("processMediaPipeline burn subtitles mode (--burn)", () => {
+    it("should pass burnPosition and burnFontSize to burnSubtitlesToVideo", async () => {
+      const mediaFile = path.join(tempDir, "sample_burn.mp4");
+      fs.writeFileSync(mediaFile, "dummy video data");
+      const cacheDir = path.join(tempDir, "cache");
+
+      saveTranscriptionCache(
+        mediaFile,
+        {
+          detectedLanguage: "ja",
+          entries: [
+            {
+              id: 1,
+              startTime: "00:00:00,000",
+              endTime: "00:00:02,000",
+              text: "テスト",
+            },
+          ],
+          createdAt: Date.now(),
+        },
+        cacheDir,
+      );
+
+      const result = await processMediaPipeline({
+        mediaFile,
+        targetLang: "ja",
+        noTranslate: true,
+        burn: true,
+        burnPosition: "top",
+        burnFontSize: "large",
+        cacheDir,
+      });
+
+      const burntFile = result.outputFiles.find((f) => f.endsWith(".subbed.mp4"));
+      expect(burntFile).toBeDefined();
+      expect(burntFile ? fs.existsSync(burntFile) : false).toBe(true);
+
+      const { burnSubtitlesToVideo } = await import("./ffmpeg.js");
+      expect(burnSubtitlesToVideo).toHaveBeenCalledWith(
+        expect.any(String),
+        expect.any(String),
+        expect.any(String),
+        expect.objectContaining({
+          position: "top",
+          fontSize: "large",
+        }),
+      );
     });
   });
 });

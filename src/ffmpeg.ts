@@ -2,6 +2,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { execa } from "execa";
+import { getI18n } from "./i18n/index.js";
 import { getLanguageDisplayName, toIso6392 } from "./languages.js";
 
 export interface ExtractedAudioResult {
@@ -283,9 +284,107 @@ export function escapeFfmpegFilterPath(filePath: string): string {
   return `'${escaped}'`;
 }
 
+export type BurnPosition = "bottom" | "top" | "center";
+
+export const BURN_POSITIONS: readonly BurnPosition[] = ["bottom", "top", "center"] as const;
+
+export const FONT_SIZE_PRESETS: Record<string, number> = {
+  small: 16,
+  medium: 22,
+  large: 30,
+};
+
+export const ALIGNMENT_MAP: Record<BurnPosition, number> = {
+  bottom: 2,
+  top: 8,
+  center: 5,
+};
+
+/**
+ * Validates and normalizes burn subtitle position ("bottom", "top", "center").
+ */
+export function parseBurnPosition(
+  input?: string | undefined,
+  lang?: string | undefined,
+): BurnPosition | undefined {
+  if (!input) return undefined;
+  const normalized = input.trim().toLowerCase();
+  if (normalized === "bottom" || normalized === "top" || normalized === "center") {
+    return normalized;
+  }
+  const i18n = getI18n(lang);
+  throw new Error(i18n.burn.invalidPosition(input));
+}
+
+/**
+ * Validates and normalizes burn subtitle font size (small, medium, large, or positive number).
+ */
+export function parseBurnFontSize(
+  input?: string | number | undefined,
+  lang?: string | undefined,
+): number | undefined {
+  if (input === undefined || input === null || input === "") return undefined;
+  if (typeof input === "number") {
+    if (Number.isFinite(input) && input > 0) {
+      return Math.round(input);
+    }
+    const i18n = getI18n(lang);
+    throw new Error(i18n.burn.invalidFontSize(String(input)));
+  }
+
+  const trimmed = input.trim().toLowerCase();
+  if (!trimmed) return undefined;
+
+  if (trimmed in FONT_SIZE_PRESETS) {
+    return FONT_SIZE_PRESETS[trimmed];
+  }
+
+  const num = Number(trimmed);
+  if (Number.isFinite(num) && num > 0) {
+    return Math.round(num);
+  }
+
+  const i18n = getI18n(lang);
+  throw new Error(i18n.burn.invalidFontSize(input));
+}
+
+export interface SubtitleFilterOptions {
+  position?: BurnPosition | string | undefined;
+  fontSize?: number | string | undefined;
+  lang?: string | undefined;
+}
+
+/**
+ * Builds the FFmpeg subtitles filter string, applying force_style if styling options are specified.
+ */
+export function buildSubtitlesFilter(
+  subtitlePath: string,
+  options?: SubtitleFilterOptions,
+): string {
+  const escapedSubPath = escapeFfmpegFilterPath(subtitlePath);
+  const position = parseBurnPosition(options?.position, options?.lang);
+  const fontSize = parseBurnFontSize(options?.fontSize, options?.lang);
+
+  const forceStyles: string[] = [];
+  if (position) {
+    forceStyles.push(`Alignment=${ALIGNMENT_MAP[position]}`);
+  }
+  if (fontSize !== undefined) {
+    forceStyles.push(`FontSize=${fontSize}`);
+  }
+
+  if (forceStyles.length > 0) {
+    return `subtitles=${escapedSubPath}:force_style='${forceStyles.join(",")}'`;
+  }
+  return `subtitles=${escapedSubPath}`;
+}
+
 export interface BurnSubtitlesOptions {
-  ffmpegPath?: string;
-  verbose?: boolean;
+  ffmpegPath?: string | undefined;
+  verbose?: boolean | undefined;
+  position?: BurnPosition | string | undefined;
+  fontSize?: number | string | undefined;
+  lang?: string | undefined;
 }
 
 /**
@@ -321,12 +420,17 @@ export async function burnSubtitlesToVideo(
     fs.mkdirSync(outDir, { recursive: true });
   }
 
-  const escapedSubPath = escapeFfmpegFilterPath(resolvedSubtitle);
+  const filterString = buildSubtitlesFilter(resolvedSubtitle, {
+    position: options?.position,
+    fontSize: options?.fontSize,
+    lang: options?.lang,
+  });
+
   const ffmpegArgs = [
     "-i",
     resolvedVideo,
     "-vf",
-    `subtitles=${escapedSubPath}`,
+    filterString,
     "-c:v",
     "libx264",
     "-pix_fmt",

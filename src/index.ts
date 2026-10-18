@@ -25,6 +25,8 @@ import {
   checkFfmpeg,
   embedSubtitlesToVideo,
   isVideoFile,
+  parseBurnFontSize,
+  parseBurnPosition,
   type SubtitleTrackInput,
 } from "./ffmpeg.js";
 import {
@@ -191,6 +193,12 @@ configCmd
     if (resolvedConfig.maxLength) {
       console.log(`Max Length      : ${resolvedConfig.maxLength} chars`);
     }
+    if (resolvedConfig.burnPosition) {
+      console.log(`Burn Position   : ${resolvedConfig.burnPosition}`);
+    }
+    if (resolvedConfig.burnFontSize) {
+      console.log(`Burn Font Size  : ${resolvedConfig.burnFontSize}`);
+    }
     console.log(`Update Check    : ${resolvedConfig.disableUpdateCheck ? "Disabled" : "Enabled"}`);
     console.log("----------------------------------------\n");
   });
@@ -218,6 +226,11 @@ configCmd
   )
   .option("--disable-update-check <boolean>", "Disable periodic update checks (true/false)")
   .option("--max-length <chars>", "Default max characters per subtitle entry (e.g. 60)")
+  .option("--burn-position <position>", "Default subtitle burn position (bottom, top, center)")
+  .option(
+    "--burn-font-size <size>",
+    "Default subtitle burn font size (small, medium, large, or number)",
+  )
   .action(
     (options: {
       lang?: string;
@@ -232,6 +245,8 @@ configCmd
       concurrency?: string;
       disableUpdateCheck?: string;
       maxLength?: string;
+      burnPosition?: string;
+      burnFontSize?: string;
     }) => {
       let concurrencyNum: number | undefined;
       if (options.concurrency) {
@@ -265,6 +280,26 @@ configCmd
         process.exit(1);
       }
 
+      let burnPositionVal: string | undefined;
+      if (options.burnPosition) {
+        try {
+          burnPositionVal = parseBurnPosition(options.burnPosition, normalizedLang);
+        } catch (err) {
+          console.error(pc.red(`\n✖ ${err instanceof Error ? err.message : String(err)}\n`));
+          process.exit(1);
+        }
+      }
+
+      let burnFontSizeVal: number | undefined;
+      if (options.burnFontSize) {
+        try {
+          burnFontSizeVal = parseBurnFontSize(options.burnFontSize, normalizedLang);
+        } catch (err) {
+          console.error(pc.red(`\n✖ ${err instanceof Error ? err.message : String(err)}\n`));
+          process.exit(1);
+        }
+      }
+
       if (
         !options.lang &&
         !options.groqKey &&
@@ -277,7 +312,9 @@ configCmd
         !options.glossary &&
         concurrencyNum === undefined &&
         disableUpdateCheckVal === undefined &&
-        maxLengthNum === undefined
+        maxLengthNum === undefined &&
+        burnPositionVal === undefined &&
+        burnFontSizeVal === undefined
       ) {
         console.log(
           "⚠️ Please specify settings to save. (Example: vsub config set --gemini-model gemini-3.8-flash)",
@@ -300,6 +337,8 @@ configCmd
           ? { disableUpdateCheck: disableUpdateCheckVal }
           : {}),
         ...(maxLengthNum !== undefined ? { maxLength: maxLengthNum } : {}),
+        ...(burnPositionVal ? { burnPosition: burnPositionVal } : {}),
+        ...(burnFontSizeVal !== undefined ? { burnFontSize: burnFontSizeVal } : {}),
       });
 
       console.log(`✅ Configuration updated and saved: ${getGlobalConfigPath()}`);
@@ -979,6 +1018,8 @@ program
     "--ffmpeg-path <path>",
     "Path to ffmpeg executable (searches VSUB_FFMPEG_PATH or PATH if omitted)",
   )
+  .option("--burn-position <position>", "Subtitle position: bottom (default), top, center")
+  .option("--burn-font-size <size>", "Subtitle font size: small, medium, large, or number")
   .option("--verbose", "Output detailed log messages", false)
   .action(
     async (
@@ -992,6 +1033,8 @@ program
         overwrite?: boolean;
         backup?: boolean;
         ffmpegPath?: string;
+        burnPosition?: string;
+        burnFontSize?: string;
         verbose?: boolean;
         lang?: string;
         noUpdateCheck?: boolean;
@@ -1059,6 +1102,9 @@ program
         await burnSubtitlesToVideo(resolvedVideoPath, resolvedSubtitlePath, resolvedOutputPath, {
           ffmpegPath: rawConfig.ffmpegPath,
           verbose,
+          position: options.burnPosition ?? rawConfig.burnPosition,
+          fontSize: options.burnFontSize ?? rawConfig.burnFontSize,
+          lang,
         });
         spinner.succeed(i18n.pipeline.burnDone);
 
@@ -1376,6 +1422,14 @@ program
   )
   .option("--burn", "Burn generated subtitles directly into output video (hardsub)", false)
   .option(
+    "--burn-position <position>",
+    "Subtitle position for --burn: bottom (default), top, center",
+  )
+  .option(
+    "--burn-font-size <size>",
+    "Subtitle font size for --burn: small, medium, large, or number",
+  )
+  .option(
     "--embed",
     "Embed generated subtitles directly as soft subtitle tracks into output video",
     false,
@@ -1492,6 +1546,14 @@ program
     "5",
   )
   .option("--burn", "Burn generated subtitles directly into output video (hardsub)", false)
+  .option(
+    "--burn-position <position>",
+    "Subtitle position for --burn: bottom (default), top, center",
+  )
+  .option(
+    "--burn-font-size <size>",
+    "Subtitle font size for --burn: small, medium, large, or number",
+  )
   .option(
     "--embed",
     "Embed generated subtitles directly as soft subtitle tracks into output video",

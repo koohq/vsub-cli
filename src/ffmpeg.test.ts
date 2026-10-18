@@ -1,6 +1,7 @@
 import fs from "node:fs";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import {
+  buildSubtitlesFilter,
   burnSubtitlesToVideo,
   checkFfmpeg,
   embedSubtitlesToVideo,
@@ -10,6 +11,8 @@ import {
   isAudioFile,
   isSupportedMediaFile,
   isVideoFile,
+  parseBurnFontSize,
+  parseBurnPosition,
   prepareAudio,
   resolveFfprobePath,
   resolveSubtitleCodec,
@@ -220,6 +223,125 @@ describe("ffmpeg.ts", () => {
       expect(args).toContain("copy");
       expect(args).toContain("-y");
       expect(result).toContain("out.mp4");
+    });
+
+    it("should pass force_style with Alignment and FontSize when position and fontSize are specified", async () => {
+      vi.spyOn(fs, "existsSync").mockReturnValue(true);
+      vi.spyOn(fs, "mkdirSync").mockReturnValue(undefined as unknown as string);
+      mockExeca.mockResolvedValueOnce({ stdout: "" });
+
+      await burnSubtitlesToVideo("video.mp4", "sub.srt", "out.mp4", {
+        ffmpegPath: "ffmpeg",
+        position: "top",
+        fontSize: "large",
+      });
+
+      const call = mockExeca.mock.calls[0];
+      expect(call).toBeDefined();
+      const [, args] = call as [string, string[]];
+      const vfIndex = args.indexOf("-vf");
+      expect(vfIndex).toBeGreaterThanOrEqual(0);
+      const filterArg = args[vfIndex + 1];
+      expect(filterArg).toContain("force_style='Alignment=8,FontSize=30'");
+    });
+
+    it("should pass force_style with only FontSize when position is not specified", async () => {
+      vi.spyOn(fs, "existsSync").mockReturnValue(true);
+      vi.spyOn(fs, "mkdirSync").mockReturnValue(undefined as unknown as string);
+      mockExeca.mockResolvedValueOnce({ stdout: "" });
+
+      await burnSubtitlesToVideo("video.mp4", "sub.srt", "out.mp4", {
+        fontSize: 24,
+      });
+
+      const call = mockExeca.mock.calls[0];
+      const [, args] = call as [string, string[]];
+      const vfIndex = args.indexOf("-vf");
+      const filterArg = args[vfIndex + 1];
+      expect(filterArg).toContain("force_style='FontSize=24'");
+    });
+  });
+
+  describe("parseBurnPosition", () => {
+    it("should return undefined for empty or undefined input", () => {
+      expect(parseBurnPosition(undefined)).toBeUndefined();
+      expect(parseBurnPosition("")).toBeUndefined();
+    });
+
+    it("should normalize valid position names", () => {
+      expect(parseBurnPosition("bottom")).toBe("bottom");
+      expect(parseBurnPosition("TOP")).toBe("top");
+      expect(parseBurnPosition("  Center  ")).toBe("center");
+    });
+
+    it("should throw error for invalid position with localized error", () => {
+      expect(() => parseBurnPosition("left")).toThrow(/Invalid subtitle burn position "left"/);
+      expect(() => parseBurnPosition("left", "ja")).toThrow(/無効な字幕焼き込み位置です: "left"/);
+    });
+  });
+
+  describe("parseBurnFontSize", () => {
+    it("should return undefined for empty or undefined input", () => {
+      expect(parseBurnFontSize(undefined)).toBeUndefined();
+      expect(parseBurnFontSize("")).toBeUndefined();
+      expect(parseBurnFontSize(null as unknown as undefined)).toBeUndefined();
+    });
+
+    it("should map presets to corresponding font size numbers", () => {
+      expect(parseBurnFontSize("small")).toBe(16);
+      expect(parseBurnFontSize("MEDIUM")).toBe(22);
+      expect(parseBurnFontSize("  large  ")).toBe(30);
+    });
+
+    it("should parse valid positive numbers (both string and numeric)", () => {
+      expect(parseBurnFontSize("24")).toBe(24);
+      expect(parseBurnFontSize(36)).toBe(36);
+      expect(parseBurnFontSize("18.4")).toBe(18);
+    });
+
+    it("should throw error for invalid font size with localized error", () => {
+      expect(() => parseBurnFontSize("extra-large")).toThrow(
+        /Invalid subtitle font size "extra-large"/,
+      );
+      expect(() => parseBurnFontSize(0)).toThrow(/Invalid subtitle font size "0"/);
+      expect(() => parseBurnFontSize(-10)).toThrow(/Invalid subtitle font size "-10"/);
+      expect(() => parseBurnFontSize("invalid", "ja")).toThrow(
+        /無効な字幕フォントサイズです: "invalid"/,
+      );
+    });
+  });
+
+  describe("buildSubtitlesFilter", () => {
+    it("should return basic filter string when no styling options are specified", () => {
+      const filter = buildSubtitlesFilter("/path/to/sub.srt");
+      expect(filter).toBe("subtitles='/path/to/sub.srt'");
+    });
+
+    it("should include Alignment when position is top or center", () => {
+      expect(buildSubtitlesFilter("/path/to/sub.srt", { position: "top" })).toBe(
+        "subtitles='/path/to/sub.srt':force_style='Alignment=8'",
+      );
+      expect(buildSubtitlesFilter("/path/to/sub.srt", { position: "center" })).toBe(
+        "subtitles='/path/to/sub.srt':force_style='Alignment=5'",
+      );
+      expect(buildSubtitlesFilter("/path/to/sub.srt", { position: "bottom" })).toBe(
+        "subtitles='/path/to/sub.srt':force_style='Alignment=2'",
+      );
+    });
+
+    it("should include FontSize when fontSize is preset or numeric", () => {
+      expect(buildSubtitlesFilter("/path/to/sub.srt", { fontSize: "small" })).toBe(
+        "subtitles='/path/to/sub.srt':force_style='FontSize=16'",
+      );
+      expect(buildSubtitlesFilter("/path/to/sub.srt", { fontSize: 28 })).toBe(
+        "subtitles='/path/to/sub.srt':force_style='FontSize=28'",
+      );
+    });
+
+    it("should combine Alignment and FontSize when both are provided", () => {
+      expect(buildSubtitlesFilter("/path/to/sub.srt", { position: "top", fontSize: "large" })).toBe(
+        "subtitles='/path/to/sub.srt':force_style='Alignment=8,FontSize=30'",
+      );
     });
   });
 

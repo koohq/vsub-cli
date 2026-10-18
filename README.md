@@ -155,6 +155,8 @@ Options:
   --max-duration <seconds>      Max display duration in seconds per subtitle entry (default: 7)
   --no-reflow                   Disable automatic splitting and reflowing of long subtitle segments (default: false)
   --burn                        Burn generated subtitles directly into output video (hardsub) (default: false)
+  --burn-position <pos>         Subtitle position for --burn: bottom (default), top, center
+  --burn-font-size <size>       Subtitle font size for --burn: small, medium, large, or number (default: auto)
   --embed                       Embed generated subtitles directly as soft subtitle tracks into output video (default: false)
   --keep-audio                  Keep intermediate extracted audio files without deleting (default: false)
   --no-translate                Skip translation and output raw transcribed subtitles
@@ -227,8 +229,11 @@ Bake subtitles directly into a `.mp4` video with FFmpeg:
 # Transcribe, translate, and bake subtitles into video in a single command
 pnpm dev video.mp4 -t ja --burn
 
-# Or burn an existing subtitle file into a video directly
-pnpm dev burn video.mp4 video.ja.srt -o video.subbed.mp4
+# Adjust subtitle position (bottom, top, center) and font size (small, medium, large, or number)
+pnpm dev video.mp4 -t ja --burn --burn-position top --burn-font-size large
+
+# Or burn an existing subtitle file into a video directly with custom position and size
+pnpm dev burn video.mp4 video.ja.srt --burn-position top --burn-font-size 28 -o video.subbed.mp4
 ```
 
 ### 6. Fast Soft Subtitle Embedding (`--embed` & `vsub embed`)

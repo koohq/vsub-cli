@@ -184,6 +184,10 @@ export const en = {
     videoNotFound: (path: string) => `Video file not found: ${path}`,
     notVideoFile: (name: string) => `Cannot burn subtitles into non-video format: ${name}`,
     subtitleNotFound: (path: string) => `Subtitle file not found: ${path}`,
+    invalidPosition: (pos: string) =>
+      `Invalid subtitle burn position "${pos}". Valid positions are: bottom (default), top, center.`,
+    invalidFontSize: (size: string) =>
+      `Invalid subtitle font size "${size}". Must be small, medium, large, or a positive number.`,
   },
   embed: {
     started: (video: string, count: number) =>

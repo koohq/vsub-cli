@@ -155,6 +155,8 @@ Options:
   --max-duration <seconds>      字幕1件あたりの目安最大表示秒数 (デフォルト: 7)
   --no-reflow                   長文セグメントのスマート自動分割を無効化 (デフォルト: false)
   --burn                        生成された字幕を動画自体に焼き込んで出力 (hardsub) (デフォルト: false)
+  --burn-position <pos>         焼き込み字幕の配置位置: bottom (デフォルト: 下部), top (上部), center (中央)
+  --burn-font-size <size>       焼き込み字幕のフォントサイズ: small, medium, large, または数値 (デフォルト: auto)
   --embed                       生成された字幕を動画コンテナへ字幕トラックとして埋め込み (softsub) (デフォルト: false)
   --keep-audio                  中間生成した音声ファイルを削除せずに保持する (デフォルト: false)
   --no-translate                Gemini翻訳をスキップし、Groqの文字起こし結果（原語字幕）のみを出力する
@@ -229,8 +231,11 @@ FFmpeg を利用して、字幕が合成された mp4 動画をワンストッ�
 # 文字起こし・翻訳と同時に字幕焼き込み動画を出力
 pnpm dev video.mp4 -t ja --burn
 
-# または既存の字幕ファイルを元動画に直接焼き込み
-pnpm dev burn video.mp4 video.ja.srt -o video.subbed.mp4
+# 字幕の配置位置 (bottom, top, center) や文字サイズ (small, medium, large, または数値) を調整
+pnpm dev video.mp4 -t ja --burn --burn-position top --burn-font-size large
+
+# または既存の字幕ファイルを元動画に直接カスタム配置・サイズで焼き込み
+pnpm dev burn video.mp4 video.ja.srt --burn-position top --burn-font-size 28 -o video.subbed.mp4
 ```
 
 ### 6. 動画へのソフトサブ（字幕トラック）高速埋め込み (`--embed` & `vsub embed`)

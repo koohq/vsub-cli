@@ -141,6 +141,8 @@ export interface ProcessMediaOptions {
   maxLength?: number | string | undefined;
   maxDuration?: number | string | undefined;
   noReflow?: boolean | undefined;
+  burnPosition?: string | undefined;
+  burnFontSize?: number | string | undefined;
 }
 
 export interface ProcessMediaResult {
@@ -732,6 +734,9 @@ export async function processMediaPipeline(
             await burnSubtitlesToVideo(resolvedMediaPath, srtPathToUse, burntVideoPath, {
               ffmpegPath: rawConfig.ffmpegPath,
               verbose,
+              position: options.burnPosition ?? rawConfig.burnPosition,
+              fontSize: options.burnFontSize ?? rawConfig.burnFontSize,
+              lang,
             });
 
             outputFiles.push(burntVideoPath);

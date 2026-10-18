@@ -39,6 +39,8 @@ export interface AppConfig {
   lang?: SupportedLanguage | undefined;
   disableUpdateCheck?: boolean | undefined;
   maxLength?: number | undefined;
+  burnPosition?: string | undefined;
+  burnFontSize?: string | number | undefined;
 }
 
 export function getGlobalConfigDir(): string {
@@ -173,6 +175,12 @@ export function getConfig(cliFfmpegPath?: string, cliLang?: string): AppConfig {
     maxLength = Math.floor(Number(globalConfig.maxLength));
   }
 
+  const burnPosition =
+    process.env["VSUB_BURN_POSITION"]?.trim() || globalConfig.burnPosition?.trim() || undefined;
+
+  const envBurnFontSize = process.env["VSUB_BURN_FONT_SIZE"]?.trim();
+  const burnFontSize = envBurnFontSize || globalConfig.burnFontSize || undefined;
+
   return {
     groqApiKey,
     geminiApiKey,
@@ -187,6 +195,8 @@ export function getConfig(cliFfmpegPath?: string, cliLang?: string): AppConfig {
     lang,
     disableUpdateCheck,
     maxLength,
+    burnPosition,
+    burnFontSize,
   };
 }
 

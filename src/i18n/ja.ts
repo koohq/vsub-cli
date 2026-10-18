@@ -186,6 +186,10 @@ export const ja: typeof en = {
     videoNotFound: (path: string) => `動画ファイルが見つかりません: ${path}`,
     notVideoFile: (name: string) => `動画ファイル以外の形式には字幕を焼き込めません: ${name}`,
     subtitleNotFound: (path: string) => `字幕ファイルが見つかりません: ${path}`,
+    invalidPosition: (pos: string) =>
+      `無効な字幕焼き込み位置です: "${pos}"。有効な位置: bottom (デフォルト: 下部), top (上部), center (中央)`,
+    invalidFontSize: (size: string) =>
+      `無効な字幕フォントサイズです: "${size}"。small, medium, large, または正の数値を指定してください。`,
   },
   embed: {
     started: (video: string, count: number) =>

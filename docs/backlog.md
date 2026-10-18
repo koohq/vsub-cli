@@ -39,7 +39,7 @@
 | **Completed** | 27. 標準出力モード (`--stdout`) & AI エージェント / パイプ連携強化 | CLI UX / Agentic DX | 低〜中 | 一時ファイルなしで字幕・文字起こしを直接 `stdout` へ出力しパイプ・AI連携を容易化 | **完了** |
 | **Completed** | 28. AI チャプター生成 & 要約サブコマンド (`vsub chapters` / `vsub summarize`) | 機能拡張 / Agentic DX | 中 | 既存の文字起こし＆キャッシュ資産を活かし、YouTubeチャプターや要約を即時生成 | **完了** |
 | **Completed** | 29. 動画へのソフトサブ（字幕トラック）高速埋め込み (`--embed` / `vsub embed`) | 機能拡張/メディア処理 | 中 | 映像の再エンコードなし（無劣化・数秒）で複数言語のON/OFF可能な字幕トラックを格納 | **完了** |
-| **Low** | 30. 字幕焼き込み (`--burn`) の位置・フォントサイズ調整オプション | CLI UX / メディア処理 | 低 | 既存テロップとの被り回避（上/中央配置）やスマホ視聴向けの文字サイズ変更に対応 | **未着手** |
+| **Completed** | 30. 字幕焼き込み (`--burn`) の位置・フォントサイズ調整オプション | CLI UX / メディア処理 | 低 | 既存テロップとの被り回避（上/中央配置）やスマホ視聴向けの文字サイズ変更に対応 | **完了** |
 
 
 ---
@@ -322,20 +322,25 @@
   * 既存の動画と 1 つ以上の `.srt` ファイルを指定して即座にソフトサブ動画を合成。ファイル名から言語タグを自動推測してメタデータを設定。
 * **対応ファイル**: `src/languages.ts`, `src/languages.test.ts`, `src/ffmpeg.ts`, `src/ffmpeg.test.ts`, `src/pipeline.ts`, `src/pipeline.test.ts`, `src/batch.ts`, `src/batch.test.ts`, `src/index.ts`, `src/i18n/en.ts`, `src/i18n/ja.ts`, `docs/backlog.md`
 
+### 1.29 字幕焼き込み (`--burn`) の位置・フォントサイズ調整オプション (#30)
+* **位置調整 (`--burn-position <position>`)**:
+  * `bottom`（デフォルト: 画面下部）、`top`（画面上部: 既存テロップ被り回避）、`center`（画面中央: ショート動画・SNS向け）を指定可能。
+  * FFmpeg `subtitles` フィルタの `force_style` における ASS `Alignment` 値（`2`, `8`, `5`）へ自動マッピング。
+* **フォントサイズ調整 (`--burn-font-size <size>`)**:
+  * プリセット名（`small` -> 16, `medium` -> 22, `large` -> 30）および正の数値（pt/px）による直接指定をサポート。
+  * `force_style='FontSize=...'` に安全に適用。
+* **一貫した CLI・設定連携**:
+  * `vsub <media> --burn`、`vsub burn <video> <srt>`、`vsub batch <targets...> --burn` のすべてで同オプションを利用可能。
+  * `vsub config set --burn-position <pos> --burn-font-size <size>` および環境変数 `VSUB_BURN_POSITION`, `VSUB_BURN_FONT_SIZE` によるデフォルト設定の永続化に対応。
+  * 未指定時は `force_style` なしの従来動作を維持し、完全な後方互換性を担保。
+* **対応ファイル**: `src/ffmpeg.ts`, `src/ffmpeg.test.ts`, `src/pipeline.ts`, `src/pipeline.test.ts`, `src/batch.ts`, `src/config.ts`, `src/config.test.ts`, `src/index.ts`, `src/i18n/en.ts`, `src/i18n/ja.ts`, `docs/backlog.md`
+
 ---
+
 ## 2. 次期イテレーション・未着手バックログ (Next Candidates)
 
-コードベースの構造分析および AI エージェント連携（Agentic DX）の観点から抽出した、次期アップデート候補（30）の設計・実装指針です。
-
-### 2.1 字幕焼き込み (`--burn`) の位置・フォントサイズ調整オプション (#30) 【優先度: Low】
-* **背景/課題**:
-  * 現在の `--burn` / `vsub burn` は FFmpeg デフォルトの字幕スタイルで画面下部に焼き込まれるため、「元動画の下部に既にテロップがあって被る」「スマホ視聴向けに文字を大きくしたい」といった調整ができない。
-  * 一方で、色コードや余白等を細かく指定させるオプション群はプレビューのない CLI では扱いづらいため、実需の高い「配置位置」と「文字サイズ」の 2 点に絞ってシンプルに提供する。
-* **提案内容**:
-  * `--burn-position <pos>`: `bottom`（デフォルト）、`top`（上部配置：下部テロップ回避用）、`center`（中央配置：ショート動画等）を指定可能にし、FFmpeg `subtitles` フィルタの `force_style='Alignment=...'` へマッピング。
-  * `--burn-font-size <size>`: フォントサイズ（数値または `small` / `medium` / `large`）を指定可能にし、`force_style='FontSize=...'` へ安全にエスケープして適用。
-  * `vsub <media> --burn` および `vsub burn <video> <srt>` の双方でサポート。
-* **対応スコープ**: `src/ffmpeg.ts`, `src/ffmpeg.test.ts`, `src/pipeline.ts`, `src/index.ts`
+🎉 **バックログに計画されたすべてのタスク（全 30 タスク）が完了しました！**
+未着手タスクは現在 0 件です。今後は実運用（ドッグフーディング）およびユーザーフィードバックに基づく機能改善・保守運用フェーズへ移行します。
 
 ---
 
@@ -344,6 +349,8 @@
 * **Phase 1: 初期コア & DevOps / 配布ロードマップ (タスク 1〜24)**:
   * コア機能（音声抽出・分割・Groq 文字起こし・Gemini 並列翻訳・キャッシュ・用語集・バイリンガル・バッチ処理・ハードサブ焼き込み）、CI/CD 自動リリース、Node.js SEA スタンドアロンバイナリ配布、および `vsub update` 自己更新機構まで **全 24 項目完了**。
 * **Phase 2: 品質深化 & Agentic DX 拡張ロードマップ (タスク 25〜30)**:
-  * 翻訳・字幕品質のさらなる向上（#25 文脈引き継ぎ【完了】、#26 スマート分割【完了】）、AI エージェント・パイプ連携（#27 `--stdout`【完了】、#28 `chapters` / `summarize`【完了】）、およびメディア処理拡張（#29 `--embed` ソフトサブ【完了】、#30 `--burn` 位置・サイズ指定）を順次推進中。全 30 タスク中 **29 項目完了** (進捗率 96.7%)。
+  * 翻訳・字幕品質のさらなる向上（#25 文脈引き継ぎ【完了】、#26 スマート分割【完了】）、AI エージェント・パイプ連携（#27 `--stdout`【完了】、#28 `chapters` / `summarize`【完了】）、およびメディア処理拡張（#29 `--embed` ソフトサブ【完了】、#30 `--burn` 位置・サイズ指定【完了】）まで全タスク完了。
+* **総合進捗**:
+  * **全 30 タスク完了 (進捗率 100.0%)** 🎉
 
 

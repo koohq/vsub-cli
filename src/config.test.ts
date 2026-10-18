@@ -39,6 +39,8 @@ describe("config.ts", () => {
     delete process.env["VSUB_GLOSSARY"];
     delete process.env["GLOSSARY"];
     delete process.env["VSUB_CONCURRENCY"];
+    delete process.env["VSUB_BURN_POSITION"];
+    delete process.env["VSUB_BURN_FONT_SIZE"];
   });
 
   afterEach(() => {
@@ -303,6 +305,22 @@ describe("config.ts", () => {
     it("should be undefined when not configured", () => {
       const config = getConfig();
       expect(config.maxLength).toBeUndefined();
+    });
+  });
+
+  describe("burnPosition and burnFontSize", () => {
+    it("should parse VSUB_BURN_POSITION and VSUB_BURN_FONT_SIZE from environment variables", () => {
+      process.env["VSUB_BURN_POSITION"] = "top";
+      process.env["VSUB_BURN_FONT_SIZE"] = "large";
+      const config = getConfig();
+      expect(config.burnPosition).toBe("top");
+      expect(config.burnFontSize).toBe("large");
+    });
+
+    it("should be undefined when not set in env or config", () => {
+      const config = getConfig();
+      expect(config.burnPosition).toBeUndefined();
+      expect(config.burnFontSize).toBeUndefined();
     });
   });
 });
