@@ -121,6 +121,8 @@ export const ja: typeof en = {
     stdoutCannotBurn: "--stdout と --burn (字幕焼き込み) を同時に指定することはできません。",
     stdoutCannotEmbed:
       "--stdout と --embed (ソフトサブ埋め込み) を同時に指定することはできません。",
+    savedOriginal: (files: string) => `📄 原文字幕を保存: ${files}`,
+    keptAudio: (files: string) => `ℹ️ [--keep-audio] 中間音声ファイルを保持: ${files}`,
     errorOccurred: (err: string) => `処理中にエラーが発生しました: ${err}`,
   },
 
@@ -164,7 +166,8 @@ export const ja: typeof en = {
     step2Generating: (model: string, lang: string) =>
       `Gemini (${model}) でチャプターを生成中 [${lang}]...`,
     step2Done: (count: number) => `チャプター ${count} 件を生成完了`,
-    step2Cached: (count: number) => `キャッシュ済みチャプター ${count} 件を適用 [⚡ Cached]`,
+    step2Cached: (count: number) =>
+      `キャッシュ済みチャプター ${count} 件を適用 [⚡ キャッシュ利用]`,
     step3Saving: "チャプターファイルを保存中...",
     step3Saved: (path: string) => `チャプターファイルを保存完了: ${path}`,
     noEntries: "チャプター生成対象の字幕データが見つかりませんでした。",
@@ -176,7 +179,7 @@ export const ja: typeof en = {
     step2Generating: (model: string, lang: string) =>
       `Gemini (${model}) で要約を生成中 [${lang}]...`,
     step2Done: "要約の生成が完了しました",
-    step2Cached: "キャッシュ済み要約を適用 [⚡ Cached]",
+    step2Cached: "キャッシュ済み要約を適用 [⚡ キャッシュ利用]",
     step3Saving: "要約ファイルを保存中...",
     step3Saved: (path: string) => `要約ファイルを保存完了: ${path}`,
     noEntries: "要約生成対象の字幕データが見つかりませんでした。",

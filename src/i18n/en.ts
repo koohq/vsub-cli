@@ -119,6 +119,8 @@ export const en = {
       "Cannot specify multiple target languages with --stdout. Please specify a single language.",
     stdoutCannotBurn: "Cannot use --burn with --stdout.",
     stdoutCannotEmbed: "Cannot use --embed with --stdout.",
+    savedOriginal: (files: string) => `📄 Saved original subtitles: ${files}`,
+    keptAudio: (files: string) => `ℹ️ [--keep-audio] Kept intermediate audio file(s): ${files}`,
     errorOccurred: (err: string) => `An error occurred during processing: ${err}`,
   },
 

@@ -292,9 +292,9 @@
   * ディスクへのファイル書き込み（`fs.writeFileSync`）およびファイル上書き確認（`ensureWritableTargets`）をスキップ。
   * キャッシュ機構は透過的に機能するため、2 回目の `--stdout` 呼び出し時は API 呼び出しなしで即座に結果をストリーミング。
 * **安全性とバリデーション**:
-  * 複数フォーマット指定時、複数ターゲット言語指定時、および `--burn`（動画焼き込み）併用時に明確なエラーメッセージを出して不正な出力を防止。
+  * 複数フォーマット指定時、複数ターゲット言語指定時、および `--burn`（動画焼き込み）・`--embed`（ソフトサブ埋め込み）併用時に明確なエラーメッセージを出して不正な出力を防止。
   * `vsub <media>` メインコマンドおよび `vsub translate <srt>` サブコマンドの双方で完全サポート。
-* **対応ファイル**: `src/pipeline.ts`, `src/pipeline.test.ts`, `src/index.ts`, `src/ui.ts`, `src/i18n/en.ts`, `src/i18n/ja.ts`, `docs/backlog.md`
+* **対応ファイル**: `src/pipeline.ts`, `src/pipeline.test.ts`, `src/index.ts`, `src/ui.ts`, `src/i18n/en.ts`, `src/i18n/ja.ts`, `README.md`, `README.ja.md`, `docs/prd.md`, `docs/backlog.md`
 
 ### 1.27 AI チャプター生成 & 要約サブコマンド (`vsub chapters` / `vsub summarize`) (#28)
 * **`vsub chapters <media-or-srt>` サブコマンド**:
@@ -310,7 +310,7 @@
   * 生成されたチャプターおよび要約結果も中間キャッシュ（`chapters`, `summaries`）に保存し、再実行時は 0 ms で即時返却。
 * **UNIX パイプ・エージェント連携 (`--stdout` / `-o -`)**:
   * 生成結果を直接標準出力へストリーミング可能。パイプ（`| jq`, `| pbcopy`）やリダイレクト（`> out.md`）とシームレスに結合。
-* **対応ファイル**: `src/formatter.ts`, `src/formatter.test.ts`, `src/gemini.ts`, `src/gemini.test.ts`, `src/cache.ts`, `src/cache.test.ts`, `src/pipeline.ts`, `src/pipeline.test.ts`, `src/index.ts`, `src/i18n/en.ts`, `src/i18n/ja.ts`, `docs/backlog.md`
+* **対応ファイル**: `src/formatter.ts`, `src/formatter.test.ts`, `src/gemini.ts`, `src/gemini.test.ts`, `src/cache.ts`, `src/cache.test.ts`, `src/pipeline.ts`, `src/pipeline.test.ts`, `src/index.ts`, `src/i18n/en.ts`, `src/i18n/ja.ts`, `README.md`, `README.ja.md`, `docs/prd.md`, `docs/backlog.md`
 
 ### 1.28 動画へのソフトサブ（字幕トラック）高速埋め込み (`--embed` / `vsub embed`) (#29)
 * **無劣化・高速ストリームコピー (`-c:v copy -c:a copy`)**:
@@ -320,7 +320,7 @@
   * 各トラックに ISO 639-2 言語コード（`jpn`, `eng`, `chi` 等）およびトラックタイトル（`Japanese`, `English` 等）を自動付与し、動画プレイヤーで自由に ON/OFF および言語切り替えが可能。
 * **単体サブコマンド `vsub embed <video-file> <subtitle-files...>`**:
   * 既存の動画と 1 つ以上の `.srt` ファイルを指定して即座にソフトサブ動画を合成。ファイル名から言語タグを自動推測してメタデータを設定。
-* **対応ファイル**: `src/languages.ts`, `src/languages.test.ts`, `src/ffmpeg.ts`, `src/ffmpeg.test.ts`, `src/pipeline.ts`, `src/pipeline.test.ts`, `src/batch.ts`, `src/batch.test.ts`, `src/index.ts`, `src/i18n/en.ts`, `src/i18n/ja.ts`, `docs/backlog.md`
+* **対応ファイル**: `src/languages.ts`, `src/languages.test.ts`, `src/ffmpeg.ts`, `src/ffmpeg.test.ts`, `src/pipeline.ts`, `src/pipeline.test.ts`, `src/batch.ts`, `src/batch.test.ts`, `src/index.ts`, `src/i18n/en.ts`, `src/i18n/ja.ts`, `README.md`, `README.ja.md`, `docs/prd.md`, `docs/backlog.md`
 
 ### 1.29 字幕焼き込み (`--burn`) の位置・フォントサイズ調整オプション (#30)
 * **位置調整 (`--burn-position <position>`)**:
@@ -333,7 +333,7 @@
   * `vsub <media> --burn`、`vsub burn <video> <srt>`、`vsub batch <targets...> --burn` のすべてで同オプションを利用可能。
   * `vsub config set --burn-position <pos> --burn-font-size <size>` および環境変数 `VSUB_BURN_POSITION`, `VSUB_BURN_FONT_SIZE` によるデフォルト設定の永続化に対応。
   * 未指定時は `force_style` なしの従来動作を維持し、完全な後方互換性を担保。
-* **対応ファイル**: `src/ffmpeg.ts`, `src/ffmpeg.test.ts`, `src/pipeline.ts`, `src/pipeline.test.ts`, `src/batch.ts`, `src/config.ts`, `src/config.test.ts`, `src/index.ts`, `src/i18n/en.ts`, `src/i18n/ja.ts`, `docs/backlog.md`
+* **対応ファイル**: `src/ffmpeg.ts`, `src/ffmpeg.test.ts`, `src/pipeline.ts`, `src/pipeline.test.ts`, `src/batch.ts`, `src/config.ts`, `src/config.test.ts`, `src/index.ts`, `src/i18n/en.ts`, `src/i18n/ja.ts`, `README.md`, `README.ja.md`, `docs/prd.md`, `docs/backlog.md`
 
 ---
 

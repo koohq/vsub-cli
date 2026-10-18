@@ -165,7 +165,7 @@ export async function runBatchPipeline(options: BatchPipelineOptions): Promise<B
     console.log(
       `${pc.cyan(fileIndexStr)} ${i18n.batch.processingItem(
         pc.bold(path.basename(file)),
-        pc.dim(`(${path.dirname(file)})`),
+        pc.dim(path.dirname(file)),
       )}`,
     );
 

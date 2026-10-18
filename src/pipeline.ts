@@ -348,7 +348,7 @@ export async function processMediaPipeline(
 
   if (!options.silentSummary && !isStdout) {
     console.log(
-      `\n${mediaIcon} ${pc.bold("vsub-cli")} - ${m.startProcessing(pc.cyan(path.basename(resolvedMediaPath)))}`,
+      `\n${mediaIcon} ${pc.bold(m.startProcessing(pc.cyan(path.basename(resolvedMediaPath))))}`,
     );
   }
 
@@ -490,7 +490,7 @@ export async function processMediaPipeline(
         outputFiles.push(originalPath);
         savedOriginalNames.push(originalFilename);
       }
-      spinner.info(`${prefix}📄 原文字幕を保存: ${savedOriginalNames.join(", ")}`);
+      spinner.info(`${prefix}${m.savedOriginal(savedOriginalNames.join(", "))}`);
     }
 
     // 3. Gemini Translation for each target language
@@ -854,7 +854,7 @@ export async function processMediaPipeline(
       if (!options.keepAudio) {
         await cleanupAudio();
       } else {
-        spinner.info(`${prefix}ℹ️ [--keep-audio] 中間音声ファイルを保持: ${audioPaths.join(", ")}`);
+        spinner.info(`${prefix}${m.keptAudio(audioPaths.join(", "))}`);
       }
     }
   }
