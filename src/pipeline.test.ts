@@ -51,12 +51,19 @@ vi.mock("./ffmpeg.js", async (importOriginal) => {
 
 describe("pipeline.ts", () => {
   let tempDir: string;
+  const originalEnv = process.env;
 
   beforeEach(() => {
     tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "vsub-pipeline-test-"));
+    process.env = {
+      ...originalEnv,
+      VSUB_GEMINI_API_KEY: "test-gemini-api-key",
+      VSUB_GROQ_API_KEY: "test-groq-api-key",
+    };
   });
 
   afterEach(() => {
+    process.env = originalEnv;
     try {
       fs.rmSync(tempDir, { recursive: true, force: true });
     } catch {
