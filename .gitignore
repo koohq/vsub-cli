@@ -202,5 +202,9 @@ $RECYCLE.BIN/
 # Git Worktrees
 .worktrees/
 
+# Local AI Agent Configurations & Internal Docs
+.agents/
+docs/
+
 # Test Fixtures & Outputs
 fixtures/

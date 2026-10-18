@@ -5,8 +5,8 @@ allowBuilds:
   protobufjs: true
 minimumReleaseAge: 4320
 update:
-  # GitHub Actions の更新は minimumReleaseAge（冷却期間）が効かず、
-  # 乗っ取りや悪性コミットの即時取り込みを防ぐため意図的に無効化。
-  # ワークフローの更新は Dependabot 等の PR 経由でリリースノート・差分を確認して管理する。
+  # Intentionally disabled because minimumReleaseAge cooldown does not apply to GitHub Actions,
+  # preventing immediate ingestion of compromised or malicious action updates.
+  # Workflow action updates are managed via Dependabot PRs after reviewing release notes and diffs.
   githubActions: false
 
