@@ -301,7 +301,10 @@ export async function buildStandaloneBinary(
       console.log(`   --version: ${pc.green(verResult.stdout.trim())}`);
 
       const licResult = await execa(finalBinaryPath, ["licenses"]);
-      if (licResult.stdout.includes("サードパーティライセンス")) {
+      if (
+        licResult.stdout.includes("Third-Party Software Licenses") ||
+        licResult.stdout.includes("サードパーティライセンス")
+      ) {
         console.log(pc.green("   ✔ vsub licenses command verified"));
       }
 

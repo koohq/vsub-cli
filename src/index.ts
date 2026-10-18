@@ -144,8 +144,11 @@ program
   .command("licenses")
   .description("Display third-party open source licenses and legal notices")
   .option("--full", "Display full license text for all bundled dependencies")
-  .action((options: { full?: boolean }) => {
-    printLicenses({ full: options.full });
+  .action((options: { full?: boolean }, cmd: Command) => {
+    const globals = cmd.optsWithGlobals<{ lang?: string }>();
+    const rawConfig = getConfig(undefined, globals.lang);
+    const lang = globals.lang ?? rawConfig.lang ?? "en";
+    printLicenses({ full: options.full, lang });
   });
 
 // Subcommand: config
@@ -669,8 +672,8 @@ program
     const outputFiles: string[] = [];
 
     try {
-      const outputFormats = parseOutputFormats(options.format);
-      const targetLanguages = parseTargetLanguages(options.targetLang);
+      const outputFormats = parseOutputFormats(options.format, lang);
+      const targetLanguages = parseTargetLanguages(options.targetLang, lang);
 
       if (isStdout) {
         if (outputFormats.length > 1) {

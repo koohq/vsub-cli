@@ -52,8 +52,11 @@ describe("formatter.ts", () => {
       expect(parseOutputFormats("srt,vtt,srt,vtt,json")).toEqual(["srt", "vtt", "json"]);
     });
 
-    it("should throw an error for unsupported formats", () => {
+    it("should throw an error for unsupported formats in English by default and Japanese when specified", () => {
       expect(() => parseOutputFormats("srt,invalid,txt")).toThrow(
+        /Unsupported output format: "invalid"/,
+      );
+      expect(() => parseOutputFormats("srt,invalid,txt", "ja")).toThrow(
         /サポートされていない出力フォーマットです: "invalid"/,
       );
     });

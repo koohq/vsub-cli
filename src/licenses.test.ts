@@ -29,7 +29,7 @@ describe("licenses", () => {
     expect(text).toContain("Apache License");
   });
 
-  it("should print licenses summary with custom output stream", () => {
+  it("should print licenses summary in English by default with custom output stream", () => {
     const chunks: string[] = [];
     const customOutput = {
       write: (text: string) => {
@@ -39,9 +39,23 @@ describe("licenses", () => {
 
     printLicenses({ output: customOutput });
     const output = chunks.join("");
-    expect(output).toContain("vsub-cli サードパーティライセンス一覧");
+    expect(output).toContain("vsub-cli Third-Party Software Licenses");
     expect(output).toContain("commander");
     expect(output).toContain("MIT");
+  });
+
+  it("should print licenses summary in Japanese when lang is 'ja'", () => {
+    const chunks: string[] = [];
+    const customOutput = {
+      write: (text: string) => {
+        chunks.push(text);
+      },
+    };
+
+    printLicenses({ output: customOutput, lang: "ja" });
+    const output = chunks.join("");
+    expect(output).toContain("vsub-cli サードパーティライセンス一覧");
+    expect(output).toContain("commander");
   });
 
   it("should print full license text when full option is true", () => {

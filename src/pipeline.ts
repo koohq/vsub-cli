@@ -194,8 +194,8 @@ export async function processMediaPipeline(
   const i18n = getI18n(lang);
   const m = i18n.pipeline;
 
-  const outputFormats = parseOutputFormats(options.format || "srt");
-  const targetLanguages = parseTargetLanguages(options.targetLang || "ja");
+  const outputFormats = parseOutputFormats(options.format || "srt", lang);
+  const targetLanguages = parseTargetLanguages(options.targetLang || "ja", lang);
 
   if (isStdout) {
     if (outputFormats.length > 1) {

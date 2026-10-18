@@ -1,3 +1,4 @@
+import { getI18n, type SupportedLanguage } from "./i18n/index.js";
 import { type SrtEntry, stringifySrt } from "./srt.js";
 
 export type OutputFormat = "srt" | "vtt" | "txt" | "json";
@@ -226,7 +227,10 @@ export function formatSummary(summary: SummaryResult, format: SummaryFormat): st
  * Validates and parses a comma-separated format string into an array of OutputFormat.
  * Example: "srt,vtt,txt" -> ["srt", "vtt", "txt"]
  */
-export function parseOutputFormats(input?: string): OutputFormat[] {
+export function parseOutputFormats(
+  input?: string,
+  lang?: SupportedLanguage | string,
+): OutputFormat[] {
   if (!input?.trim()) {
     return ["srt"];
   }
@@ -245,9 +249,8 @@ export function parseOutputFormats(input?: string): OutputFormat[] {
 
   for (const token of rawTokens) {
     if (!SUPPORTED_FORMATS.includes(token as OutputFormat)) {
-      throw new Error(
-        `サポートされていない出力フォーマットです: "${token}". 利用可能なフォーマット: ${SUPPORTED_FORMATS.join(", ")}`,
-      );
+      const i18n = getI18n(lang);
+      throw new Error(i18n.pipeline.unsupportedFormat(token, SUPPORTED_FORMATS.join(", ")));
     }
     if (!seen.has(token)) {
       seen.add(token);

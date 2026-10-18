@@ -68,6 +68,10 @@ export const ja: typeof en = {
       "音声ファイルには字幕を焼き込めません。--burn オプションは動画ファイル（.mp4, .mkv, .mov 等）でのみ使用できます。",
     invalidBilingualOrder: (input: string) =>
       `サポートされていないバイリンガル順序です: "${input}". 利用可能な順序: "original-first", "target-first"`,
+    unsupportedFormat: (token: string, supported: string) =>
+      `サポートされていない出力フォーマットです: "${token}". 利用可能なフォーマット: ${supported}`,
+    invalidTargetLang: (token: string) =>
+      `無効なターゲット言語コードです: "${token}". 有効な形式の例: "ja", "en", "zh", "zh-CN", "pt-BR"`,
     step1SkipCache:
       "🔊 [1/4] 文字起こしキャッシュが存在するため音声抽出をスキップ [⚡ キャッシュ利用]",
     step2UseCached: (lang: string, count: number) =>
@@ -274,6 +278,8 @@ export const ja: typeof en = {
     intro1: "本ツール（単体実行バイナリおよび npm パッケージ）は以下の OSS ライブラリを含みます。",
     intro2: "各ライブラリの権利表示およびライセンス条文は以下の通りです。",
     repository: "リポジトリ:",
+    footerHint:
+      "※ 全文テキストは `vsub licenses --full` または配布同梱の `THIRD_PARTY_LICENSES.txt` で確認できます。",
   },
   update: {
     available: (current: string, latest: string) =>

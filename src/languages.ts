@@ -2,6 +2,8 @@
  * Language parsing and validation utilities for multi-language translation.
  */
 
+import { getI18n, type SupportedLanguage } from "./i18n/index.js";
+
 // Regex for standard BCP-47 / ISO-639 language codes (e.g. "ja", "en", "zh-CN", "zh-TW", "pt-BR", "es-419")
 const LANGUAGE_CODE_REGEX = /^[a-zA-Z]{2,3}(-[a-zA-Z0-9]{2,4})?$/;
 
@@ -15,10 +17,11 @@ const LANGUAGE_CODE_REGEX = /^[a-zA-Z]{2,3}(-[a-zA-Z0-9]{2,4})?$/;
  * - " JA , en, ZH-TW, ja " -> ["ja", "en", "zh-tw"]
  *
  * @param input Comma-separated language code string
+ * @param lang Optional UI display language for error messages ("en" or "ja")
  * @returns Deduplicated array of lowercase language codes
  * @throws Error if any language code is invalid
  */
-export function parseTargetLanguages(input?: string): string[] {
+export function parseTargetLanguages(input?: string, lang?: SupportedLanguage | string): string[] {
   if (!input?.trim()) {
     return ["ja"];
   }
@@ -37,9 +40,8 @@ export function parseTargetLanguages(input?: string): string[] {
 
   for (const token of rawTokens) {
     if (!LANGUAGE_CODE_REGEX.test(token)) {
-      throw new Error(
-        `無効なターゲット言語コードです: "${token}". 有効な形式の例: "ja", "en", "zh", "zh-CN", "pt-BR"`,
-      );
+      const i18n = getI18n(lang);
+      throw new Error(i18n.pipeline.invalidTargetLang(token));
     }
     if (!seen.has(token)) {
       seen.add(token);

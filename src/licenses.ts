@@ -1,4 +1,5 @@
 import pc from "picocolors";
+import { getI18n, type SupportedLanguage } from "./i18n/index.js";
 import {
   EMBEDDED_LICENSES,
   type EmbeddedLicense,
@@ -8,6 +9,7 @@ import {
 export interface PrintLicensesOptions {
   output?: { write: (text: string) => void } | undefined;
   full?: boolean | undefined;
+  lang?: SupportedLanguage | string | undefined;
 }
 
 /**
@@ -37,15 +39,15 @@ export function printLicenses(options: PrintLicensesOptions = {}): void {
     return;
   }
 
+  const m = getI18n(options.lang).licenses;
+
   out("");
   out(pc.bold(pc.cyan("================================================================")));
-  out(
-    pc.bold(pc.cyan("                  vsub-cli サードパーティライセンス一覧                  ")),
-  );
+  out(pc.bold(pc.cyan(m.bannerTitle)));
   out(pc.bold(pc.cyan("================================================================")));
   out("");
-  out("本ツール（単体実行バイナリおよび npm パッケージ）は以下の OSS ライブラリを含みます。");
-  out("各ライブラリの権利表示およびライセンス条文は以下の通りです。");
+  out(m.intro1);
+  out(m.intro2);
   out("");
 
   for (const item of EMBEDDED_LICENSES) {
@@ -53,7 +55,7 @@ export function printLicenses(options: PrintLicensesOptions = {}): void {
       `${pc.bold(pc.green(item.name))} ${pc.dim(`v${item.version}`)}  [${pc.yellow(item.license)}]`,
     );
     if (item.repository) {
-      out(`  ${pc.dim("リポジトリ:")} ${pc.cyan(item.repository)}`);
+      out(`  ${pc.dim(m.repository)} ${pc.cyan(item.repository)}`);
     }
     out("");
     // Indent license text
@@ -65,10 +67,6 @@ export function printLicenses(options: PrintLicensesOptions = {}): void {
     out(`\n${pc.dim("----------------------------------------------------------------")}\n`);
   }
 
-  out(
-    pc.dim(
-      "※ 全文テキストは `vsub licenses --full` または配布同梱の `THIRD_PARTY_LICENSES.txt` で確認できます。",
-    ),
-  );
+  out(pc.dim(m.footerHint));
   out("");
 }

@@ -35,10 +35,13 @@ describe("languages.ts", () => {
 
     it("should throw an error on invalid language codes", () => {
       expect(() => parseTargetLanguages("ja,invalid_lang!")).toThrow(
+        /Invalid target language code/,
+      );
+      expect(() => parseTargetLanguages("ja,12345")).toThrow(/Invalid target language code/);
+      expect(() => parseTargetLanguages("ja/en")).toThrow(/Invalid target language code/);
+      expect(() => parseTargetLanguages("ja,invalid_lang!", "ja")).toThrow(
         /無効なターゲット言語コードです/,
       );
-      expect(() => parseTargetLanguages("ja,12345")).toThrow(/無効なターゲット言語コードです/);
-      expect(() => parseTargetLanguages("ja/en")).toThrow(/無効なターゲット言語コードです/);
     });
   });
 

@@ -65,6 +65,10 @@ export const en = {
       "Cannot burn subtitles into audio files. The --burn option is only available for video files (.mp4, .mkv, .mov, etc.).",
     invalidBilingualOrder: (input: string) =>
       `Unsupported bilingual order: "${input}". Available orders: "original-first", "target-first"`,
+    unsupportedFormat: (token: string, supported: string) =>
+      `Unsupported output format: "${token}". Available formats: ${supported}`,
+    invalidTargetLang: (token: string) =>
+      `Invalid target language code: "${token}". Valid examples: "ja", "en", "zh", "zh-CN", "pt-BR"`,
     step1SkipCache:
       "🔊 [1/4] Audio extraction skipped because transcription cache exists [⚡ Cached]",
     step2UseCached: (lang: string, count: number) =>
@@ -272,6 +276,8 @@ export const en = {
       "This tool (standalone executables and npm package) bundles the following OSS libraries.",
     intro2: "Copyright notices and license terms for each library are listed below.",
     repository: "Repository:",
+    footerHint:
+      "* Full license text is available via `vsub licenses --full` or in the bundled `THIRD_PARTY_LICENSES.txt`.",
   },
   update: {
     available: (current: string, latest: string) => `Update available: v${current} ➔ v${latest}`,
