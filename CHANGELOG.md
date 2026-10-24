@@ -2,6 +2,23 @@
 
 All notable changes to this project will be documented in this file. See [standard-version](https://github.com/conventional-changelog/standard-version) for commit guidelines.
 
+## [1.5.0](https://github.com/koohq/vsub-cli/compare/vsub-cli-v1.4.0...vsub-cli-v1.5.0) (2026-10-24)
+
+
+### Features
+
+* add chapters and summarize subcommands ([957fba3](https://github.com/koohq/vsub-cli/commit/957fba35dc4456ad63dfdf189b9e1891ab8571d2))
+* add soft subtitle embedding (--embed and vsub embed subcommand) ([32d41df](https://github.com/koohq/vsub-cli/commit/32d41dfbacd524cf2c1f069dbd5897e9a7ee8c71))
+* add subtitle burn styling options (--burn-position and --burn-font-size) ([7165cd6](https://github.com/koohq/vsub-cli/commit/7165cd6a159eae51c047f2f4a2a2478d83df18ae))
+* **cli:** support standard output mode (--stdout) for streaming and piping ([865e4be](https://github.com/koohq/vsub-cli/commit/865e4becaf25b380395d6f33a876563ef8eb4c39))
+* **gemini:** implement sliding window context and structured outputs for chunk translation ([598ce65](https://github.com/koohq/vsub-cli/commit/598ce651426a0328bd2c88295f8f24f0ca5e7919))
+* **srt:** implement smart subtitle reflow and segment splitting ([ff7abc2](https://github.com/koohq/vsub-cli/commit/ff7abc2585879045eea4fe0922dc8a8f08b54c2e))
+
+
+### Bug Fixes
+
+* **i18n:** localize license summary and option validation errors to English default ([9400d60](https://github.com/koohq/vsub-cli/commit/9400d6094496b2ffdc292e4f7ed1f9b1d3fef9a5))
+
 ## [1.4.0](https://github.com/koohq/vsub-cli/compare/vsub-cli-v1.3.0...vsub-cli-v1.4.0) (2026-10-15)
 
 
