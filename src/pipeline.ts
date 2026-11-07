@@ -477,20 +477,26 @@ export async function processMediaPipeline(
       const rawSafety = await ensureWritableTargets(originalTargets, {
         overwrite: options.overwrite,
         backup: options.backup,
+        lang,
       });
       if (rawSafety.backedUp.length > 0) {
         safetyCheck.backedUp.push(...rawSafety.backedUp);
       }
 
-      const savedOriginalNames: string[] = [];
-      for (const fmt of outputFormats) {
-        const originalFilename = `${baseOriginalName}.${fmt}`;
-        const originalPath = path.join(effectiveOutputDir, originalFilename);
-        fs.writeFileSync(originalPath, formatEntries(srtEntries, fmt), "utf-8");
-        outputFiles.push(originalPath);
-        savedOriginalNames.push(originalFilename);
+      if (!rawSafety.proceed) {
+        const skippedOriginalNames = outputFormats.map((fmt) => `${baseOriginalName}.${fmt}`);
+        spinner.info(`${prefix}${m.skippedOriginal(skippedOriginalNames.join(", "))}`);
+      } else {
+        const savedOriginalNames: string[] = [];
+        for (const fmt of outputFormats) {
+          const originalFilename = `${baseOriginalName}.${fmt}`;
+          const originalPath = path.join(effectiveOutputDir, originalFilename);
+          fs.writeFileSync(originalPath, formatEntries(srtEntries, fmt), "utf-8");
+          outputFiles.push(originalPath);
+          savedOriginalNames.push(originalFilename);
+        }
+        spinner.info(`${prefix}${m.savedOriginal(savedOriginalNames.join(", "))}`);
       }
-      spinner.info(`${prefix}${m.savedOriginal(savedOriginalNames.join(", "))}`);
     }
 
     // 3. Gemini Translation for each target language

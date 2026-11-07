@@ -126,6 +126,7 @@ export const ja: typeof en = {
     stdoutCannotEmbed:
       "--stdout と --embed (ソフトサブ埋め込み) を同時に指定することはできません。",
     savedOriginal: (files: string) => `📄 原文字幕を保存: ${files}`,
+    skippedOriginal: (files: string) => `📄 原語字幕の保存をスキップ: ${files}`,
     keptAudio: (files: string) => `ℹ️ [--keep-audio] 中間音声ファイルを保持: ${files}`,
     errorOccurred: (err: string) => `処理中にエラーが発生しました: ${err}`,
   },
