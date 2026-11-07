@@ -85,6 +85,29 @@ function inferLanguageFromSubtitlePath(filePath: string): { language?: string; t
   return { title: cleanName };
 }
 
+interface NormalizedNegativeFlags {
+  noTranslate: boolean;
+  noCache: boolean;
+  noReflow: boolean;
+  noUpdateCheck: boolean;
+}
+
+/**
+ * Reads options with globals from Commander and normalizes negative flag names.
+ * Commander exposes negative options (`--no-foo`) as positive properties (`raw["foo"] = false` when flag is passed).
+ * This helper maps them to internal boolean names (`noFoo: true` only when the flag was passed).
+ */
+function readActionOptions<T>(cmd: Command): T & NormalizedNegativeFlags {
+  const raw = cmd.optsWithGlobals<Record<string, unknown>>();
+  return {
+    ...(raw as unknown as T),
+    noTranslate: raw["translate"] === false,
+    noCache: raw["cache"] === false,
+    noReflow: raw["reflow"] === false,
+    noUpdateCheck: raw["updateCheck"] === false,
+  };
+}
+
 export function createProgram(): Command {
   const program = new Command();
 
@@ -95,7 +118,7 @@ export function createProgram(): Command {
       "CLI tool to extract audio from video/audio files, transcribe speech via Groq API, and generate multilingual subtitles (.srt, .vtt, .txt, .json) via Gemini API.",
     )
     .option("-l, --lang <lang>", "UI display language (en, ja)")
-    .option("--no-update-check", "Disable checking for new version updates", false);
+    .option("--no-update-check", "Disable checking for new version updates");
 
   // Subcommand: update / upgrade
   program
@@ -449,7 +472,7 @@ export function createProgram(): Command {
     .option("--whisper-prompt <text>", "Groq Whisper recognition prompt hint")
     .option("-w, --overwrite", "Overwrite existing output file without confirmation prompt", false)
     .option("--backup", "Create backup (.bak) of existing output file before overwriting", false)
-    .option("--no-cache", "Do not use or save intermediate cache", false)
+    .option("--no-cache", "Do not use or save intermediate cache")
     .option(
       "--fresh",
       "Ignore existing cache and generate fresh chapters, overwriting cache",
@@ -458,7 +481,7 @@ export function createProgram(): Command {
     .option("--cache-dir <dir>", "Custom cache directory path")
     .option("--verbose", "Output detailed log messages", false)
     .action(async (file: string, _actionOpts: Record<string, unknown>, cmd: Command) => {
-      const options = cmd.optsWithGlobals<{
+      const options = readActionOptions<{
         targetLang?: string;
         format?: string;
         output?: string;
@@ -475,7 +498,7 @@ export function createProgram(): Command {
         verbose?: boolean;
         lang?: string;
         noUpdateCheck?: boolean;
-      }>();
+      }>(cmd);
 
       const rawConfig = getConfig(undefined, options.lang);
       const lang = options.lang ?? rawConfig.lang ?? "en";
@@ -532,12 +555,12 @@ export function createProgram(): Command {
     .option("--whisper-prompt <text>", "Groq Whisper recognition prompt hint")
     .option("-w, --overwrite", "Overwrite existing output file without confirmation prompt", false)
     .option("--backup", "Create backup (.bak) of existing output file before overwriting", false)
-    .option("--no-cache", "Do not use or save intermediate cache", false)
+    .option("--no-cache", "Do not use or save intermediate cache")
     .option("--fresh", "Ignore existing cache and generate fresh summary, overwriting cache", false)
     .option("--cache-dir <dir>", "Custom cache directory path")
     .option("--verbose", "Output detailed log messages", false)
     .action(async (file: string, _actionOpts: Record<string, unknown>, cmd: Command) => {
-      const options = cmd.optsWithGlobals<{
+      const options = readActionOptions<{
         targetLang?: string;
         format?: string;
         output?: string;
@@ -554,7 +577,7 @@ export function createProgram(): Command {
         verbose?: boolean;
         lang?: string;
         noUpdateCheck?: boolean;
-      }>();
+      }>(cmd);
 
       const rawConfig = getConfig(undefined, options.lang);
       const lang = options.lang ?? rawConfig.lang ?? "en";
@@ -631,7 +654,7 @@ export function createProgram(): Command {
     )
     .option("--concurrency <number>", "Number of concurrent translation requests to Gemini API")
     .option("--gemini-model <model>", "Gemini model to use for translation")
-    .option("--no-cache", "Do not use or save intermediate translation cache", false)
+    .option("--no-cache", "Do not use or save intermediate translation cache")
     .option(
       "--fresh",
       "Ignore existing cache and generate fresh translations, overwriting cache",
@@ -648,11 +671,7 @@ export function createProgram(): Command {
       "--max-duration <seconds>",
       "Max display duration in seconds per subtitle entry (default: 7)",
     )
-    .option(
-      "--no-reflow",
-      "Disable automatic splitting and reflowing of long subtitle segments",
-      false,
-    )
+    .option("--no-reflow", "Disable automatic splitting and reflowing of long subtitle segments")
     .option(
       "--stdout",
       "Output translated subtitles directly to stdout instead of saving to file",
@@ -660,7 +679,7 @@ export function createProgram(): Command {
     )
     .option("--verbose", "Output detailed log messages", false)
     .action(async (subtitleFile: string, _actionOptions: Record<string, unknown>, cmd: Command) => {
-      const options = cmd.optsWithGlobals<{
+      const options = readActionOptions<{
         targetLang: string;
         format: string;
         output?: string;
@@ -684,7 +703,7 @@ export function createProgram(): Command {
         verbose?: boolean;
         lang?: string;
         noUpdateCheck?: boolean;
-      }>();
+      }>(cmd);
       const startTime = Date.now();
       const verbose = Boolean(options.verbose);
       const isStdout = Boolean(options.stdout || options.output === "-");
@@ -1064,7 +1083,7 @@ export function createProgram(): Command {
         _actionOptions: Record<string, unknown>,
         cmd: Command,
       ) => {
-        const options = cmd.optsWithGlobals<{
+        const options = readActionOptions<{
           output?: string;
           overwrite?: boolean;
           backup?: boolean;
@@ -1074,7 +1093,7 @@ export function createProgram(): Command {
           verbose?: boolean;
           lang?: string;
           noUpdateCheck?: boolean;
-        }>();
+        }>(cmd);
         const startTime = Date.now();
         const verbose = Boolean(options.verbose);
         const rawConfig = getConfig(options.ffmpegPath, options.lang);
@@ -1224,7 +1243,7 @@ export function createProgram(): Command {
         _actionOptions: Record<string, unknown>,
         cmd: Command,
       ) => {
-        const options = cmd.optsWithGlobals<{
+        const options = readActionOptions<{
           output?: string;
           overwrite?: boolean;
           backup?: boolean;
@@ -1232,7 +1251,7 @@ export function createProgram(): Command {
           verbose?: boolean;
           lang?: string;
           noUpdateCheck?: boolean;
-        }>();
+        }>(cmd);
         const startTime = Date.now();
         const verbose = Boolean(options.verbose);
         const rawConfig = getConfig(options.ffmpegPath, options.lang);
@@ -1420,7 +1439,7 @@ export function createProgram(): Command {
     .option("--concurrency <number>", "Number of concurrent translation requests to Gemini API")
     .option("--gemini-model <model>", "Gemini model to use for translation")
     .option("--groq-model <model>", "Groq Whisper model to use for transcription")
-    .option("--no-cache", "Do not use or save intermediate transcription/translation cache", false)
+    .option("--no-cache", "Do not use or save intermediate transcription/translation cache")
     .option(
       "--fresh",
       "Ignore existing cache and generate fresh transcription/translations, overwriting cache",
@@ -1447,7 +1466,7 @@ export function createProgram(): Command {
       false,
     )
     .option("--keep-audio", "Keep intermediate extracted audio files without deleting", false)
-    .option("--no-translate", "Skip translation and output raw transcribed subtitles", false)
+    .option("--no-translate", "Skip translation and output raw transcribed subtitles")
     .option(
       "--save-original",
       "Save original transcription subtitle file alongside the result",
@@ -1463,21 +1482,17 @@ export function createProgram(): Command {
       "--max-duration <seconds>",
       "Max display duration in seconds per subtitle entry (default: 7)",
     )
-    .option(
-      "--no-reflow",
-      "Disable automatic splitting and reflowing of long subtitle segments",
-      false,
-    )
+    .option("--no-reflow", "Disable automatic splitting and reflowing of long subtitle segments")
     .option("--verbose", "Output detailed log messages", false)
     .action(async (targets: string[], _actionOptions: Record<string, unknown>, cmd: Command) => {
-      const options = cmd.optsWithGlobals<
+      const options = readActionOptions<
         BatchPipelineOptions & {
           format: string;
           targetLang: string;
           lang?: string;
           noUpdateCheck?: boolean;
         }
-      >();
+      >(cmd);
       const rawConfig = getConfig(options.ffmpegPath, options.lang);
       const lang = options.lang ?? rawConfig.lang ?? "en";
       const i18n = getI18n(lang);
@@ -1548,7 +1563,7 @@ export function createProgram(): Command {
     .option("--concurrency <number>", "Number of concurrent translation requests to Gemini API")
     .option("--gemini-model <model>", "Gemini model to use for translation")
     .option("--groq-model <model>", "Groq Whisper model to use for transcription")
-    .option("--no-cache", "Do not use or save intermediate transcription/translation cache", false)
+    .option("--no-cache", "Do not use or save intermediate transcription/translation cache")
     .option(
       "--fresh",
       "Ignore existing cache and generate fresh transcription/translations, overwriting cache",
@@ -1575,7 +1590,7 @@ export function createProgram(): Command {
       false,
     )
     .option("--keep-audio", "Keep intermediate extracted audio files without deleting", false)
-    .option("--no-translate", "Skip translation and output raw transcribed subtitles", false)
+    .option("--no-translate", "Skip translation and output raw transcribed subtitles")
     .option(
       "--save-original",
       "Save original transcription subtitle file alongside the result",
@@ -1591,11 +1606,7 @@ export function createProgram(): Command {
       "--max-duration <seconds>",
       "Max display duration in seconds per subtitle entry (default: 7)",
     )
-    .option(
-      "--no-reflow",
-      "Disable automatic splitting and reflowing of long subtitle segments",
-      false,
-    )
+    .option("--no-reflow", "Disable automatic splitting and reflowing of long subtitle segments")
     .option("--stdout", "Output subtitles directly to stdout instead of saving to file", false)
     .option("--verbose", "Output detailed log messages", false)
     .action(
@@ -1604,9 +1615,9 @@ export function createProgram(): Command {
         _actionOptions: Record<string, unknown>,
         cmd: Command,
       ) => {
-        const options = cmd.optsWithGlobals<
+        const options = readActionOptions<
           ProcessMediaOptions & { lang?: string; noUpdateCheck?: boolean }
-        >();
+        >(cmd);
         const rawConfig = getConfig(options.ffmpegPath, options.lang);
         const lang = options.lang ?? rawConfig.lang ?? "en";
         const i18n = getI18n(lang);
