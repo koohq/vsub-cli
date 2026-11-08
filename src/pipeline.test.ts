@@ -8,6 +8,7 @@ import {
   saveTranscriptionCache,
   saveTranslationCache,
 } from "./cache.js";
+import { translateSrtEntries } from "./gemini.js";
 import {
   parseBilingualOrder,
   processChaptersPipeline,
@@ -21,6 +22,7 @@ vi.mock("./gemini.js", async (importOriginal) => {
   const actual = await importOriginal<typeof import("./gemini.js")>();
   return {
     ...actual,
+    translateSrtEntries: vi.fn().mockImplementation(async (entries: unknown[]) => entries),
     generateChapters: vi.fn().mockResolvedValue([
       { timestamp: "00:00", seconds: 0, title: "Introduction" },
       { timestamp: "01:23", seconds: 83, title: "Getting Started" },
@@ -763,5 +765,110 @@ describe("pipeline.ts", () => {
         }),
       );
     });
+  });
+
+  describe("processMediaPipeline default target language", () => {
+    let configHome: string;
+    let cacheDir: string;
+    let mediaFile: string;
+
+    beforeEach(() => {
+      vi.clearAllMocks();
+      configHome = path.join(tempDir, "config-home");
+      cacheDir = path.join(tempDir, "cache");
+      mediaFile = path.join(tempDir, "sample.mp4");
+      fs.mkdirSync(configHome, { recursive: true });
+      fs.writeFileSync(mediaFile, "dummy video data");
+
+      process.env["APPDATA"] = configHome;
+      process.env["XDG_CONFIG_HOME"] = configHome;
+      delete process.env["VSUB_TARGET_LANG"];
+      delete process.env["TARGET_LANG"];
+
+      saveTranscriptionCache(
+        mediaFile,
+        {
+          detectedLanguage: "en",
+          entries: [
+            {
+              id: 1,
+              startTime: "00:00:00,000",
+              endTime: "00:00:02,000",
+              text: "Hello world",
+            },
+          ],
+          createdAt: Date.now(),
+        },
+        cacheDir,
+      );
+    });
+
+    it.each([
+      {
+        envTargetLang: "es",
+        configFileTargetLang: undefined,
+        optionTargetLang: undefined,
+        expectedTargetLanguages: ["es"],
+        expectedCallLang: "es",
+      },
+      {
+        envTargetLang: undefined,
+        configFileTargetLang: "es",
+        optionTargetLang: undefined,
+        expectedTargetLanguages: ["es"],
+        expectedCallLang: "es",
+      },
+      {
+        envTargetLang: "es",
+        configFileTargetLang: undefined,
+        optionTargetLang: "fr",
+        expectedTargetLanguages: ["fr"],
+        expectedCallLang: "fr",
+      },
+      {
+        envTargetLang: undefined,
+        configFileTargetLang: undefined,
+        optionTargetLang: undefined,
+        expectedTargetLanguages: ["ja"],
+        expectedCallLang: "ja",
+      },
+    ])(
+      "resolves to $expectedTargetLanguages (env: $envTargetLang, config: $configFileTargetLang, option: $optionTargetLang)",
+      async ({
+        envTargetLang,
+        configFileTargetLang,
+        optionTargetLang,
+        expectedTargetLanguages,
+        expectedCallLang,
+      }) => {
+        if (envTargetLang) {
+          process.env["VSUB_TARGET_LANG"] = envTargetLang;
+        }
+        if (configFileTargetLang) {
+          const configDir = path.join(configHome, "vsub");
+          fs.mkdirSync(configDir, { recursive: true });
+          fs.writeFileSync(
+            path.join(configDir, "config.json"),
+            JSON.stringify({ targetLang: configFileTargetLang }),
+            "utf-8",
+          );
+        }
+
+        const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+        try {
+          const result = await processMediaPipeline({
+            mediaFile,
+            targetLang: optionTargetLang,
+            stdout: true,
+            cacheDir,
+          });
+
+          expect(result.targetLanguages).toEqual(expectedTargetLanguages);
+          expect(vi.mocked(translateSrtEntries).mock.calls[0]?.[1]).toBe(expectedCallLang);
+        } finally {
+          logSpy.mockRestore();
+        }
+      },
+    );
   });
 });

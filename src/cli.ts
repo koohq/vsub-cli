@@ -37,7 +37,7 @@ import { translateSrtEntries } from "./gemini.js";
 import { computeGlossaryHash, parseGlossary } from "./glossary.js";
 import { getI18n, normalizeLanguage } from "./i18n/index.js";
 import { runInitWizard } from "./init.js";
-import { getLanguageDisplayName, parseTargetLanguages } from "./languages.js";
+import { getLanguageDisplayName, parseTargetLanguages, resolveTargetLang } from "./languages.js";
 
 import { printLicenses } from "./licenses.js";
 import {
@@ -688,8 +688,7 @@ export function createProgram(): Command {
     .argument("<subtitle-file>", "Input subtitle file path (.srt)")
     .option(
       "-t, --target-lang <langs>",
-      "Target language code(s), comma-separated (e.g., ja, en, es, zh-TW)",
-      "ja",
+      "Target language code(s), comma-separated (e.g., ja, en, es, zh-TW) (default: config or ja)",
     )
     .option(
       "-f, --format <formats>",
@@ -742,7 +741,7 @@ export function createProgram(): Command {
     .option("--verbose", "Output detailed log messages", false)
     .action(async (subtitleFile: string, _actionOptions: Record<string, unknown>, cmd: Command) => {
       const options = readActionOptions<{
-        targetLang: string;
+        targetLang?: string;
         format: string;
         output?: string;
         stdout?: boolean;
@@ -782,7 +781,10 @@ export function createProgram(): Command {
 
       try {
         const outputFormats = parseOutputFormats(options.format, lang);
-        const targetLanguages = parseTargetLanguages(options.targetLang, lang);
+        const targetLanguages = parseTargetLanguages(
+          resolveTargetLang(options.targetLang, rawConfig.targetLang),
+          lang,
+        );
 
         if (isStdout) {
           if (outputFormats.length > 1) {
@@ -1468,8 +1470,7 @@ export function createProgram(): Command {
     .option("--fail-fast", "Abort remaining batch jobs immediately on first error", false)
     .option(
       "-t, --target-lang <langs>",
-      "Target language code(s), comma-separated (e.g., ja, en, es, zh-TW)",
-      "ja",
+      "Target language code(s), comma-separated (e.g., ja, en, es, zh-TW) (default: config or ja)",
     )
     .option(
       "-f, --format <formats>",
@@ -1550,7 +1551,6 @@ export function createProgram(): Command {
       const options = readActionOptions<
         BatchPipelineOptions & {
           format: string;
-          targetLang: string;
           lang?: string;
           noUpdateCheck?: boolean;
         }
@@ -1591,8 +1591,7 @@ export function createProgram(): Command {
     )
     .option(
       "-t, --target-lang <langs>",
-      "Target language code(s), comma-separated (e.g., ja, en, es, zh-TW)",
-      "ja",
+      "Target language code(s), comma-separated (e.g., ja, en, es, zh-TW) (default: config or ja)",
     )
     .option(
       "-f, --format <formats>",

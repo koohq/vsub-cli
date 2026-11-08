@@ -52,6 +52,13 @@ export function parseTargetLanguages(input?: string, lang?: SupportedLanguage | 
   return targetLangs.length > 0 ? targetLangs : ["ja"];
 }
 
+/**
+ * Resolves the target language(s): CLI value, then config (env / config file), then "ja".
+ */
+export function resolveTargetLang(cliValue?: string, configValue?: string): string {
+  return cliValue?.trim() || configValue?.trim() || "ja";
+}
+
 // Common ISO 639-1 to ISO 639-2 (3-letter) mapping for FFmpeg subtitle tracks
 const ISO_639_1_TO_639_2: Record<string, string> = {
   ja: "jpn",

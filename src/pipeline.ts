@@ -38,7 +38,7 @@ import { generateChapters, generateSummary, translateSrtEntries } from "./gemini
 import { computeGlossaryHash, extractWhisperPromptHints, parseGlossary } from "./glossary.js";
 import { transcribeAudioSegments } from "./groq.js";
 import { getI18n, type SupportedLanguage } from "./i18n/index.js";
-import { getLanguageDisplayName, parseTargetLanguages } from "./languages.js";
+import { getLanguageDisplayName, parseTargetLanguages, resolveTargetLang } from "./languages.js";
 
 import { type EnsureWritableResult, ensureWritableTargets } from "./safety.js";
 import {
@@ -195,7 +195,10 @@ export async function processMediaPipeline(
   const m = i18n.pipeline;
 
   const outputFormats = parseOutputFormats(options.format || "srt", lang);
-  const targetLanguages = parseTargetLanguages(options.targetLang || "ja", lang);
+  const targetLanguages = parseTargetLanguages(
+    resolveTargetLang(options.targetLang, rawConfig.targetLang),
+    lang,
+  );
 
   if (isStdout) {
     if (outputFormats.length > 1) {
@@ -1026,7 +1029,7 @@ export async function processChaptersPipeline(
 
   const format = options.format || "txt";
   const rawConfig = getConfig(undefined, lang);
-  const targetLang = options.targetLang?.trim() || rawConfig.targetLang || "ja";
+  const targetLang = resolveTargetLang(options.targetLang, rawConfig.targetLang);
   const geminiModel = options.geminiModel?.trim() || rawConfig.geminiModel || DEFAULT_GEMINI_MODEL;
   const groqModel = options.groqModel?.trim() || rawConfig.groqModel || DEFAULT_GROQ_MODEL;
 
@@ -1213,7 +1216,7 @@ export async function processSummaryPipeline(
 
   const format = options.format || "md";
   const rawConfig = getConfig(undefined, lang);
-  const targetLang = options.targetLang?.trim() || rawConfig.targetLang || "ja";
+  const targetLang = resolveTargetLang(options.targetLang, rawConfig.targetLang);
   const geminiModel = options.geminiModel?.trim() || rawConfig.geminiModel || DEFAULT_GEMINI_MODEL;
   const groqModel = options.groqModel?.trim() || rawConfig.groqModel || DEFAULT_GROQ_MODEL;
 

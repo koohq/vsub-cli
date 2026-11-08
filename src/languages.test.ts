@@ -1,5 +1,10 @@
 import { describe, expect, it } from "vitest";
-import { getLanguageDisplayName, parseTargetLanguages, toIso6392 } from "./languages.js";
+import {
+  getLanguageDisplayName,
+  parseTargetLanguages,
+  resolveTargetLang,
+  toIso6392,
+} from "./languages.js";
 
 describe("languages.ts", () => {
   describe("parseTargetLanguages", () => {
@@ -87,5 +92,20 @@ describe("languages.ts", () => {
       expect(getLanguageDisplayName("fr-CA")).toBe("French");
       expect(getLanguageDisplayName("xyz")).toBe("XYZ");
     });
+  });
+
+  describe("resolveTargetLang", () => {
+    it.each([
+      { cliValue: "fr", configValue: "es", expected: "fr" },
+      { cliValue: undefined, configValue: "es", expected: "es" },
+      { cliValue: "  ", configValue: "es", expected: "es" },
+      { cliValue: "fr", configValue: undefined, expected: "fr" },
+      { cliValue: undefined, configValue: undefined, expected: "ja" },
+    ])(
+      "resolves to $expected (cliValue: $cliValue, configValue: $configValue)",
+      ({ cliValue, configValue, expected }) => {
+        expect(resolveTargetLang(cliValue, configValue)).toBe(expected);
+      },
+    );
   });
 });

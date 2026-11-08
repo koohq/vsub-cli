@@ -5,7 +5,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { runBatchPipeline } from "./batch.js";
 import { getCacheStats, loadMediaCache, saveTranslationCache } from "./cache.js";
 import { createProgram } from "./cli.js";
-import { saveGlobalConfig } from "./config.js";
+import { getConfig, saveGlobalConfig } from "./config.js";
 import { translateSrtEntries } from "./gemini.js";
 import {
   processChaptersPipeline,
@@ -15,17 +15,21 @@ import {
 import { reflowSrtEntries } from "./srt.js";
 import { notifyUpdateIfAvailable } from "./updater.js";
 
+const { mockConfig } = vi.hoisted(() => ({
+  mockConfig: {
+    groqApiKey: "test-groq-key",
+    geminiApiKey: "test-gemini-key",
+    ffmpegPath: "ffmpeg",
+    lang: "en" as const,
+    disableUpdateCheck: false,
+  },
+}));
+
 vi.mock("./config.js", () => {
   return {
     DEFAULT_GEMINI_MODEL: "gemini-3.8-flash",
     DEFAULT_GROQ_MODEL: "whisper-large-v3-turbo",
-    getConfig: vi.fn().mockReturnValue({
-      groqApiKey: "test-groq-key",
-      geminiApiKey: "test-gemini-key",
-      ffmpegPath: "ffmpeg",
-      lang: "en",
-      disableUpdateCheck: false,
-    }),
+    getConfig: vi.fn().mockReturnValue(mockConfig),
     ensureApiKeys: vi.fn().mockResolvedValue({
       groqApiKey: "test-groq-key",
       geminiApiKey: "test-gemini-key",
@@ -201,6 +205,56 @@ describe("CLI integration harness", () => {
       expect(getMock()).toHaveBeenCalledWith(expect.objectContaining(expected));
       expect(exitSpy).not.toHaveBeenCalled();
     });
+  });
+
+  describe.each([
+    {
+      command: "main",
+      args: ["video.mp4"],
+      getMock: () => processMediaPipeline,
+    },
+    {
+      command: "batch",
+      args: ["batch", "./videos"],
+      getMock: () => runBatchPipeline,
+    },
+  ])("$command default targetLang", ({ args, getMock }) => {
+    it("passes undefined targetLang when -t is omitted", async () => {
+      await runCli(...args);
+      expect(getMock()).toHaveBeenCalledTimes(1);
+      expect(vi.mocked(getMock()).mock.calls[0]?.[0]?.targetLang).toBeUndefined();
+      expect(exitSpy).not.toHaveBeenCalled();
+    });
+  });
+
+  describe("translate default target language", () => {
+    afterEach(() => {
+      vi.mocked(getConfig).mockReturnValue(mockConfig);
+    });
+
+    it.each([
+      { configTargetLang: "es", args: ["translate", "sample.srt"], expected: "es" },
+      { configTargetLang: "es", args: ["translate", "sample.srt", "-t", "fr"], expected: "fr" },
+      { configTargetLang: undefined, args: ["translate", "sample.srt"], expected: "ja" },
+    ])(
+      "passes $expected to translateSrtEntries (config: $configTargetLang, args: $args)",
+      async ({ configTargetLang, args, expected }) => {
+        if (configTargetLang) {
+          vi.mocked(getConfig).mockReturnValue({
+            ...mockConfig,
+            targetLang: configTargetLang,
+          });
+        } else {
+          vi.mocked(getConfig).mockReturnValue(mockConfig);
+        }
+
+        const resolvedArgs = args.map((arg) => (arg === "sample.srt" ? dummySrtPath : arg));
+        await runCli(...resolvedArgs);
+
+        expect(vi.mocked(translateSrtEntries).mock.calls[0]?.[1]).toBe(expected);
+        expect(exitSpy).not.toHaveBeenCalled();
+      },
+    );
   });
 
   const subcommandOptionCases = [
