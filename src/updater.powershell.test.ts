@@ -25,6 +25,7 @@ vi.mock("execa", async (importOriginal) => {
 });
 
 import { resolveTarCommand } from "../scripts/package-release.js";
+import { REAL_PROCESS_TEST_TIMEOUT_MS } from "./test-support/real-process-timeout.js";
 import { extractArchive } from "./updater.js";
 
 describe.skipIf(process.platform !== "win32")(
@@ -65,37 +66,45 @@ describe.skipIf(process.platform !== "win32")(
       return { specialDir, specialZipPath };
     }
 
-    it("should successfully extract archive using PowerShell Expand-Archive in path with quotes and brackets", async () => {
-      const { specialDir, specialZipPath } = await createSpecialZipFixture();
+    it(
+      "should successfully extract archive using PowerShell Expand-Archive in path with quotes and brackets",
+      async () => {
+        const { specialDir, specialZipPath } = await createSpecialZipFixture();
 
-      // Extract archive using Expand-Archive fallback
-      const destDir = path.join(specialDir, "extracted");
-      const extractedBinary = await extractArchive(specialZipPath, destDir, "win32");
+        // Extract archive using Expand-Archive fallback
+        const destDir = path.join(specialDir, "extracted");
+        const extractedBinary = await extractArchive(specialZipPath, destDir, "win32");
 
-      expect(fs.existsSync(extractedBinary)).toBe(true);
-      expect(fs.readFileSync(extractedBinary, "utf-8")).toBe("dummy vsub executable content");
-    }, 30000);
+        expect(fs.existsSync(extractedBinary)).toBe(true);
+        expect(fs.readFileSync(extractedBinary, "utf-8")).toBe("dummy vsub executable content");
+      },
+      REAL_PROCESS_TEST_TIMEOUT_MS,
+    );
 
-    it("should successfully extract archive using PowerShell Expand-Archive when tar fails after writing partial files", async () => {
-      tarHandler.current = (_cmd, args) => {
-        const cIndex = args.indexOf("-C");
-        const targetDir = cIndex !== -1 ? args[cIndex + 1] : undefined;
-        if (targetDir !== undefined) {
-          fs.mkdirSync(targetDir, { recursive: true });
-          fs.writeFileSync(path.join(targetDir, "vsub.exe"), "partial binary from tar");
-          fs.writeFileSync(path.join(targetDir, "leftover.txt"), "leftover junk from tar");
-        }
-        throw new Error("Simulated tar failure mid-extraction");
-      };
+    it(
+      "should successfully extract archive using PowerShell Expand-Archive when tar fails after writing partial files",
+      async () => {
+        tarHandler.current = (_cmd, args) => {
+          const cIndex = args.indexOf("-C");
+          const targetDir = cIndex !== -1 ? args[cIndex + 1] : undefined;
+          if (targetDir !== undefined) {
+            fs.mkdirSync(targetDir, { recursive: true });
+            fs.writeFileSync(path.join(targetDir, "vsub.exe"), "partial binary from tar");
+            fs.writeFileSync(path.join(targetDir, "leftover.txt"), "leftover junk from tar");
+          }
+          throw new Error("Simulated tar failure mid-extraction");
+        };
 
-      const { specialDir, specialZipPath } = await createSpecialZipFixture();
+        const { specialDir, specialZipPath } = await createSpecialZipFixture();
 
-      const destDir = path.join(specialDir, "extracted");
-      const extractedBinary = await extractArchive(specialZipPath, destDir, "win32");
+        const destDir = path.join(specialDir, "extracted");
+        const extractedBinary = await extractArchive(specialZipPath, destDir, "win32");
 
-      expect(fs.existsSync(extractedBinary)).toBe(true);
-      expect(fs.readFileSync(extractedBinary, "utf-8")).toBe("dummy vsub executable content");
-      expect(fs.readdirSync(destDir)).toEqual(["vsub.exe"]);
-    }, 30000);
+        expect(fs.existsSync(extractedBinary)).toBe(true);
+        expect(fs.readFileSync(extractedBinary, "utf-8")).toBe("dummy vsub executable content");
+        expect(fs.readdirSync(destDir)).toEqual(["vsub.exe"]);
+      },
+      REAL_PROCESS_TEST_TIMEOUT_MS,
+    );
   },
 );

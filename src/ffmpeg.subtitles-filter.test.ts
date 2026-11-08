@@ -4,6 +4,7 @@ import path from "node:path";
 import { execa } from "execa";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { type BurnPosition, buildSubtitlesFilter, burnSubtitlesToVideo } from "./ffmpeg.js";
+import { REAL_PROCESS_TEST_TIMEOUT_MS } from "./test-support/real-process-timeout.js";
 
 async function checkFfmpegSupport(): Promise<boolean> {
   try {
@@ -116,40 +117,44 @@ describe.skipIf(!hasFfmpeg)("subtitles filter with real ffmpeg", () => {
         );
         expect(result.exitCode).toBe(0);
       },
-      30000,
+      REAL_PROCESS_TEST_TIMEOUT_MS,
     );
   });
 
   describe("burnSubtitlesToVideo with real ffmpeg", () => {
-    it("should burn subtitles into video with single quotes in folder and file name", async () => {
-      const srtPath = writeSrt("Bob's videos", "Let's Talk.ja.srt");
-      const dir = path.dirname(srtPath);
-      const videoPath = path.join(dir, "Let's Talk.mp4");
-      const outPath = path.join(dir, "output.mp4");
+    it(
+      "should burn subtitles into video with single quotes in folder and file name",
+      async () => {
+        const srtPath = writeSrt("Bob's videos", "Let's Talk.ja.srt");
+        const dir = path.dirname(srtPath);
+        const videoPath = path.join(dir, "Let's Talk.mp4");
+        const outPath = path.join(dir, "output.mp4");
 
-      const createVideoResult = await execa(
-        "ffmpeg",
-        [
-          "-y",
-          "-hide_banner",
-          "-f",
-          "lavfi",
-          "-i",
-          "color=c=black:s=64x64:d=1",
-          "-c:v",
-          "libx264",
-          "-pix_fmt",
-          "yuv420p",
-          videoPath,
-        ],
-        { reject: false },
-      );
-      expect(createVideoResult.exitCode).toBe(0);
+        const createVideoResult = await execa(
+          "ffmpeg",
+          [
+            "-y",
+            "-hide_banner",
+            "-f",
+            "lavfi",
+            "-i",
+            "color=c=black:s=64x64:d=1",
+            "-c:v",
+            "libx264",
+            "-pix_fmt",
+            "yuv420p",
+            videoPath,
+          ],
+          { reject: false },
+        );
+        expect(createVideoResult.exitCode).toBe(0);
 
-      const result = await burnSubtitlesToVideo(videoPath, srtPath, outPath);
-      expect(result).toBe(outPath);
-      expect(fs.existsSync(outPath)).toBe(true);
-    }, 60000);
+        const result = await burnSubtitlesToVideo(videoPath, srtPath, outPath);
+        expect(result).toBe(outPath);
+        expect(fs.existsSync(outPath)).toBe(true);
+      },
+      REAL_PROCESS_TEST_TIMEOUT_MS,
+    );
   });
 
   describe("subtitle position with real ffmpeg", () => {
@@ -242,7 +247,7 @@ describe.skipIf(!hasFfmpeg)("subtitles filter with real ffmpeg", () => {
         expect(yRatio).toBeGreaterThan(minYRatio);
         expect(yRatio).toBeLessThan(maxYRatio);
       },
-      30000,
+      REAL_PROCESS_TEST_TIMEOUT_MS,
     );
   });
 });
