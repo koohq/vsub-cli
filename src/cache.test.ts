@@ -3,9 +3,15 @@ import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import {
+  type CachedChapters,
+  type CachedSummary,
   clearCache,
   computeEntriesHash,
+  createCachedChapters,
+  createCachedSummary,
+  createCachedTranscription,
   createCachedTranslation,
+  type GeneratedCacheContext,
   getCacheDir,
   getCacheStats,
   getFileCacheKey,
@@ -18,8 +24,11 @@ import {
   saveSummaryCache,
   saveTranscriptionCache,
   saveTranslationCache,
+  type TranscriptionCacheContext,
   type TranslationCacheContext,
 } from "./cache.js";
+import { DEFAULT_GROQ_MODEL } from "./config.js";
+import { DEFAULT_CONTEXT_WINDOW_SIZE } from "./gemini.js";
 import type { SrtEntry } from "./srt.js";
 
 describe("cache module", () => {
@@ -271,21 +280,74 @@ describe("cache module", () => {
   });
 
   describe("isTranscriptionCacheValid and isTranslationCacheValid", () => {
-    it("should check transcription cache prompt and model match", () => {
-      const cached = {
-        entries: [],
-        prompt: "MyWhisperPrompt",
-        model: "whisper-large-v3-turbo",
-        createdAt: Date.now(),
-      };
-      expect(isTranscriptionCacheValid(cached)).toBe(true);
-      expect(isTranscriptionCacheValid(cached, "MyWhisperPrompt")).toBe(true);
-      expect(isTranscriptionCacheValid(cached, "MyWhisperPrompt", "whisper-large-v3-turbo")).toBe(
-        true,
+    describe("isTranscriptionCacheValid", () => {
+      const table: Array<{
+        name: string;
+        savedContext: { prompt?: string | undefined; model?: string | undefined };
+        currentContext: TranscriptionCacheContext;
+        isUndefinedCached?: boolean | undefined;
+        expected: boolean;
+      }> = [
+        {
+          name: "all identical",
+          savedContext: { prompt: "MyPrompt", model: "whisper-large-v3-turbo" },
+          currentContext: { prompt: "MyPrompt", model: "whisper-large-v3-turbo" },
+          expected: true,
+        },
+        {
+          name: "prompt attached first, then detached",
+          savedContext: { prompt: "MyPrompt", model: "whisper-large-v3-turbo" },
+          currentContext: { prompt: undefined, model: "whisper-large-v3-turbo" },
+          expected: false,
+        },
+        {
+          name: "prompt omitted first, then attached",
+          savedContext: { prompt: undefined, model: "whisper-large-v3-turbo" },
+          currentContext: { prompt: "MyPrompt", model: "whisper-large-v3-turbo" },
+          expected: false,
+        },
+        {
+          name: "prompt differing only in leading/trailing whitespace",
+          savedContext: { prompt: "  MyPrompt  ", model: "whisper-large-v3-turbo" },
+          currentContext: { prompt: "MyPrompt", model: "whisper-large-v3-turbo" },
+          expected: true,
+        },
+        {
+          name: "model differs",
+          savedContext: { prompt: "MyPrompt", model: "whisper-large-v3-turbo" },
+          currentContext: { prompt: "MyPrompt", model: "whisper-large-v3" },
+          expected: false,
+        },
+        {
+          name: "cached has no model and current is DEFAULT_GROQ_MODEL",
+          savedContext: { prompt: "MyPrompt", model: undefined },
+          currentContext: { prompt: "MyPrompt", model: DEFAULT_GROQ_MODEL },
+          expected: true,
+        },
+        {
+          name: "cached has no model and current is different model",
+          savedContext: { prompt: "MyPrompt", model: undefined },
+          currentContext: { prompt: "MyPrompt", model: "whisper-large-v3" },
+          expected: false,
+        },
+        {
+          name: "cached is undefined",
+          savedContext: { prompt: "MyPrompt", model: "whisper-large-v3-turbo" },
+          currentContext: { prompt: "MyPrompt", model: "whisper-large-v3-turbo" },
+          isUndefinedCached: true,
+          expected: false,
+        },
+      ];
+
+      it.each(table)(
+        "$name -> $expected",
+        ({ savedContext, currentContext, isUndefinedCached, expected }) => {
+          const cached = isUndefinedCached
+            ? undefined
+            : createCachedTranscription(savedContext, []);
+          expect(isTranscriptionCacheValid(cached, currentContext)).toBe(expected);
+        },
       );
-      expect(isTranscriptionCacheValid(cached, "DifferentPrompt")).toBe(false);
-      expect(isTranscriptionCacheValid(cached, "MyWhisperPrompt", "whisper-large-v3")).toBe(false);
-      expect(isTranscriptionCacheValid(undefined)).toBe(false);
     });
 
     describe("isTranslationCacheValid", () => {
@@ -300,6 +362,7 @@ describe("cache module", () => {
         prompt: "Base prompt",
         glossaryHash: "glossary123",
         model: "gemini-3.7-flash",
+        contextWindowSize: DEFAULT_CONTEXT_WINDOW_SIZE,
       };
 
       const table: Array<{
@@ -379,6 +442,12 @@ describe("cache module", () => {
           expected: false,
         },
         {
+          name: "contextWindowSize differs",
+          savedContext: { ...baseContext, contextWindowSize: 2 },
+          currentContext: { ...baseContext, contextWindowSize: 5 },
+          expected: false,
+        },
+        {
           name: "prompt differing only in leading/trailing whitespace",
           savedContext: { ...baseContext, prompt: "  Base prompt  " },
           currentContext: { ...baseContext, prompt: "Base prompt" },
@@ -391,6 +460,17 @@ describe("cache module", () => {
           transformCached: (cached) => {
             const copy = { ...cached };
             delete copy.sourceHash;
+            return copy;
+          },
+          expected: false,
+        },
+        {
+          name: "legacy format without contextWindowSize",
+          savedContext: baseContext,
+          currentContext: baseContext,
+          transformCached: (cached) => {
+            const copy = { ...cached };
+            delete copy.contextWindowSize;
             return copy;
           },
           expected: false,
@@ -421,41 +501,120 @@ describe("cache module", () => {
       );
     });
 
-    it("should check chapters cache prompt and model match", () => {
-      const cached = {
-        targetLang: "ja",
-        chapters: [{ timestamp: "00:00", seconds: 0, title: "Intro" }],
+    describe.each([
+      {
+        target: "chapters",
+        createFn: (context: GeneratedCacheContext) =>
+          createCachedChapters("ja", context, [{ timestamp: "00:00", seconds: 0, title: "Intro" }]),
+        validateFn: isChaptersCacheValid,
+      },
+      {
+        target: "summary",
+        createFn: (context: GeneratedCacheContext) =>
+          createCachedSummary("ja", context, {
+            title: "Title",
+            summary: "Summary text",
+            keyPoints: ["Point 1"],
+            topics: [],
+          }),
+        validateFn: isSummaryCacheValid,
+      },
+    ])("isChaptersCacheValid and isSummaryCacheValid ($target)", ({ createFn, validateFn }) => {
+      const defaultSource: SrtEntry[] = [
+        { id: 1, startTime: "00:00:00,000", endTime: "00:00:02,000", text: "Hello" },
+      ];
+      const baseContext: GeneratedCacheContext = {
+        sourceEntries: defaultSource,
+        prompt: "Base prompt",
         model: "gemini-3.8-flash",
-        prompt: "ChapterPrompt",
-        createdAt: Date.now(),
       };
-      expect(isChaptersCacheValid(cached)).toBe(true);
-      expect(isChaptersCacheValid(cached, "ChapterPrompt")).toBe(true);
-      expect(isChaptersCacheValid(cached, "ChapterPrompt", "gemini-3.8-flash")).toBe(true);
-      expect(isChaptersCacheValid(cached, "DifferentPrompt")).toBe(false);
-      expect(isChaptersCacheValid(cached, "ChapterPrompt", "gemini-2.5-flash")).toBe(false);
-      expect(isChaptersCacheValid(undefined)).toBe(false);
-    });
 
-    it("should check summary cache prompt and model match", () => {
-      const cached = {
-        targetLang: "ja",
-        summary: {
-          title: "Title",
-          summary: "Summary text",
-          keyPoints: ["Point 1"],
-          topics: [],
+      type GeneratedCacheItem = CachedChapters | CachedSummary;
+
+      const table: Array<{
+        name: string;
+        savedContext: GeneratedCacheContext;
+        currentContext: GeneratedCacheContext;
+        transformCached?: ((cached: GeneratedCacheItem) => GeneratedCacheItem) | undefined;
+        isUndefinedCached?: boolean | undefined;
+        expected: boolean;
+      }> = [
+        {
+          name: "all identical",
+          savedContext: baseContext,
+          currentContext: baseContext,
+          expected: true,
         },
-        model: "gemini-3.8-flash",
-        prompt: "SummaryPrompt",
-        createdAt: Date.now(),
-      };
-      expect(isSummaryCacheValid(cached)).toBe(true);
-      expect(isSummaryCacheValid(cached, "SummaryPrompt")).toBe(true);
-      expect(isSummaryCacheValid(cached, "SummaryPrompt", "gemini-3.8-flash")).toBe(true);
-      expect(isSummaryCacheValid(cached, "DifferentPrompt")).toBe(false);
-      expect(isSummaryCacheValid(cached, "SummaryPrompt", "gemini-2.5-flash")).toBe(false);
-      expect(isSummaryCacheValid(undefined)).toBe(false);
+        {
+          name: "sourceEntries different text",
+          savedContext: baseContext,
+          currentContext: {
+            ...baseContext,
+            sourceEntries: [
+              { id: 1, startTime: "00:00:00,000", endTime: "00:00:02,000", text: "Different" },
+            ],
+          },
+          expected: false,
+        },
+        {
+          name: "prompt attached first, then detached",
+          savedContext: { ...baseContext, prompt: "Chapter prompt" },
+          currentContext: { ...baseContext, prompt: undefined },
+          expected: false,
+        },
+        {
+          name: "prompt omitted first, then attached",
+          savedContext: { ...baseContext, prompt: undefined },
+          currentContext: { ...baseContext, prompt: "Chapter prompt" },
+          expected: false,
+        },
+        {
+          name: "model attached first, then detached",
+          savedContext: { ...baseContext, model: "gemini-3.8-flash" },
+          currentContext: { ...baseContext, model: undefined },
+          expected: false,
+        },
+        {
+          name: "model omitted first, then attached",
+          savedContext: { ...baseContext, model: undefined },
+          currentContext: { ...baseContext, model: "gemini-3.8-flash" },
+          expected: false,
+        },
+        {
+          name: "legacy format without sourceHash",
+          savedContext: baseContext,
+          currentContext: baseContext,
+          transformCached: (cached) => {
+            const copy = { ...cached };
+            delete (copy as { sourceHash?: string | undefined }).sourceHash;
+            return copy;
+          },
+          expected: false,
+        },
+        {
+          name: "cached is undefined",
+          savedContext: baseContext,
+          currentContext: baseContext,
+          isUndefinedCached: true,
+          expected: false,
+        },
+      ];
+
+      it.each(table)(
+        "$name -> $expected",
+        ({ savedContext, currentContext, transformCached, isUndefinedCached, expected }) => {
+          let cached: GeneratedCacheItem | undefined;
+          if (isUndefinedCached) {
+            cached = undefined;
+          } else {
+            cached = createFn(savedContext);
+            if (transformCached) {
+              cached = transformCached(cached);
+            }
+          }
+          expect(validateFn(cached as never, currentContext)).toBe(expected);
+        },
+      );
     });
   });
 

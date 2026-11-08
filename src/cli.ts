@@ -35,7 +35,7 @@ import {
   parseOutputFormats,
   parseSummaryFormat,
 } from "./formatter.js";
-import { translateSrtEntries } from "./gemini.js";
+import { DEFAULT_CONTEXT_WINDOW_SIZE, translateSrtEntries } from "./gemini.js";
 import { computeGlossaryHash, parseGlossary } from "./glossary.js";
 import { getI18n, normalizeLanguage } from "./i18n/index.js";
 import { runInitWizard } from "./init.js";
@@ -948,7 +948,7 @@ export function createProgram(): Command {
         const resolvedContextWindow =
           contextWindowVal !== undefined && !Number.isNaN(contextWindowVal)
             ? Math.max(0, Math.floor(contextWindowVal))
-            : undefined;
+            : DEFAULT_CONTEXT_WINDOW_SIZE;
         let totalGlossaryTerms = 0;
 
         for (let i = 0; i < targetLanguages.length; i++) {
@@ -964,6 +964,7 @@ export function createProgram(): Command {
             prompt: translationPrompt,
             glossaryHash,
             model: geminiModel,
+            contextWindowSize: resolvedContextWindow,
           };
 
           const cachedTranslation = subtitleCache?.translations?.[tLang.toLowerCase()];

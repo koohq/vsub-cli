@@ -12,7 +12,7 @@ import {
 } from "./cache.js";
 import { createProgram } from "./cli.js";
 import { getConfig, saveGlobalConfig } from "./config.js";
-import { translateSrtEntries } from "./gemini.js";
+import { DEFAULT_CONTEXT_WINDOW_SIZE, translateSrtEntries } from "./gemini.js";
 import { runInitWizard } from "./init.js";
 import {
   processChaptersPipeline,
@@ -505,7 +505,7 @@ describe("CLI integration harness", () => {
       it("does not call translateSrtEntries when matching cache exists", async () => {
         const cached = createCachedTranslation(
           "ja",
-          { sourceEntries },
+          { sourceEntries, contextWindowSize: DEFAULT_CONTEXT_WINDOW_SIZE },
           sourceEntries.map((e) => ({ ...e, text: `訳: ${e.text}` })),
         );
         mockCacheWithTranslation(cached);
@@ -519,7 +519,25 @@ describe("CLI integration harness", () => {
       it("calls translateSrtEntries when prompt was specified in cache but omitted in CLI run", async () => {
         const cached = createCachedTranslation(
           "ja",
-          { sourceEntries, prompt: "Polite prompt" },
+          {
+            sourceEntries,
+            prompt: "Polite prompt",
+            contextWindowSize: DEFAULT_CONTEXT_WINDOW_SIZE,
+          },
+          sourceEntries.map((e) => ({ ...e, text: `訳: ${e.text}` })),
+        );
+        mockCacheWithTranslation(cached);
+
+        await runCli("translate", dummySrtPath, "-t", "ja");
+
+        expect(translateSrtEntries).toHaveBeenCalledTimes(1);
+        expect(exitSpy).not.toHaveBeenCalled();
+      });
+
+      it("calls translateSrtEntries when contextWindow was specified in cache but omitted in CLI run", async () => {
+        const cached = createCachedTranslation(
+          "ja",
+          { sourceEntries, contextWindowSize: 2 },
           sourceEntries.map((e) => ({ ...e, text: `訳: ${e.text}` })),
         );
         mockCacheWithTranslation(cached);

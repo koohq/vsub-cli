@@ -4,6 +4,7 @@ import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { createCachedTranslation, saveTranscriptionCache, saveTranslationCache } from "./cache.js";
 import { DEFAULT_GEMINI_MODEL } from "./config.js";
+import { DEFAULT_CONTEXT_WINDOW_SIZE } from "./gemini.js";
 import { processMediaPipeline } from "./pipeline.js";
 import { ensureWritableTargets } from "./safety.js";
 
@@ -102,7 +103,11 @@ describe("pipeline.ts --save-original overwrite confirmation", () => {
       targetLang,
       createCachedTranslation(
         targetLang,
-        { sourceEntries: rawEntries, model: DEFAULT_GEMINI_MODEL },
+        {
+          sourceEntries: rawEntries,
+          model: DEFAULT_GEMINI_MODEL,
+          contextWindowSize: DEFAULT_CONTEXT_WINDOW_SIZE,
+        },
         [
           {
             id: 1,

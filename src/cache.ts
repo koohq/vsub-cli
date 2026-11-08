@@ -2,6 +2,7 @@ import crypto from "node:crypto";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
+import { DEFAULT_GROQ_MODEL } from "./config.js";
 import type { ChapterItem, SummaryResult } from "./formatter.js";
 import type { SrtEntry } from "./srt.js";
 
@@ -19,6 +20,7 @@ export interface CachedTranslation {
   prompt?: string | undefined;
   glossaryHash?: string | undefined;
   sourceHash?: string | undefined;
+  contextWindowSize?: number | undefined;
   entries: SrtEntry[];
   createdAt: number;
 }
@@ -27,6 +29,7 @@ export interface CachedChapters {
   targetLang: string;
   model?: string | undefined;
   prompt?: string | undefined;
+  sourceHash?: string | undefined;
   chapters: ChapterItem[];
   createdAt: number;
 }
@@ -35,8 +38,23 @@ export interface CachedSummary {
   targetLang: string;
   model?: string | undefined;
   prompt?: string | undefined;
+  sourceHash?: string | undefined;
   summary: SummaryResult;
   createdAt: number;
+}
+
+export interface TranscriptionCacheContext {
+  prompt?: string | undefined;
+  model?: string | undefined;
+}
+
+function normalizeCacheString(value?: string): string {
+  return value === undefined ? "" : value.trim();
+}
+
+function normalizeGroqModel(model?: string): string {
+  const norm = normalizeCacheString(model);
+  return norm === "" ? DEFAULT_GROQ_MODEL : norm;
 }
 
 /**
@@ -44,21 +62,33 @@ export interface CachedSummary {
  */
 export function isTranscriptionCacheValid(
   cached: CachedTranscription | undefined,
-  currentPrompt?: string,
-  currentModel?: string,
+  context: TranscriptionCacheContext,
 ): boolean {
   if (!cached) return false;
-  if (currentPrompt !== undefined && (cached.prompt ?? "") !== currentPrompt.trim()) {
+  if (normalizeCacheString(cached.prompt) !== normalizeCacheString(context.prompt)) {
     return false;
   }
-  if (
-    currentModel !== undefined &&
-    cached.model !== undefined &&
-    cached.model !== currentModel.trim()
-  ) {
+  if (normalizeGroqModel(cached.model) !== normalizeGroqModel(context.model)) {
     return false;
   }
   return true;
+}
+
+/**
+ * Creates a CachedTranscription object bound to the given context and entries.
+ */
+export function createCachedTranscription(
+  context: TranscriptionCacheContext,
+  entries: SrtEntry[],
+  detectedLanguage?: string | undefined,
+): CachedTranscription {
+  return {
+    detectedLanguage,
+    model: context.model,
+    prompt: context.prompt,
+    entries,
+    createdAt: Date.now(),
+  };
 }
 
 /**
@@ -74,10 +104,7 @@ export interface TranslationCacheContext {
   prompt?: string | undefined;
   glossaryHash?: string | undefined;
   model?: string | undefined;
-}
-
-function normalizeCacheString(value?: string): string {
-  return value === undefined ? "" : value.trim();
+  contextWindowSize: number;
 }
 
 /**
@@ -103,6 +130,9 @@ export function isTranslationCacheValid(
   if (normalizeCacheString(cached.model) !== normalizeCacheString(context.model)) {
     return false;
   }
+  if (cached.contextWindowSize !== context.contextWindowSize) {
+    return false;
+  }
   return true;
 }
 
@@ -120,53 +150,95 @@ export function createCachedTranslation(
     prompt: context.prompt,
     glossaryHash: context.glossaryHash,
     sourceHash: computeEntriesHash(context.sourceEntries),
+    contextWindowSize: context.contextWindowSize,
     entries: translatedEntries,
     createdAt: Date.now(),
   };
 }
 
-/**
- * Checks if cached chapters match current prompt and model requirements.
- */
-export function isChaptersCacheValid(
-  cached: CachedChapters | undefined,
-  currentPrompt?: string,
-  currentModel?: string,
+export interface GeneratedCacheContext {
+  sourceEntries: SrtEntry[];
+  prompt?: string | undefined;
+  model?: string | undefined;
+}
+
+function isGeneratedCacheValid(
+  cached:
+    | {
+        sourceHash?: string | undefined;
+        prompt?: string | undefined;
+        model?: string | undefined;
+      }
+    | undefined,
+  context: GeneratedCacheContext,
 ): boolean {
   if (!cached) return false;
-  if (currentPrompt !== undefined && (cached.prompt ?? "") !== currentPrompt.trim()) {
+  if (!cached.sourceHash || cached.sourceHash !== computeEntriesHash(context.sourceEntries)) {
     return false;
   }
-  if (
-    currentModel !== undefined &&
-    cached.model !== undefined &&
-    cached.model !== currentModel.trim()
-  ) {
+  if (normalizeCacheString(cached.prompt) !== normalizeCacheString(context.prompt)) {
+    return false;
+  }
+  if (normalizeCacheString(cached.model) !== normalizeCacheString(context.model)) {
     return false;
   }
   return true;
 }
 
 /**
- * Checks if cached summary matches current prompt and model requirements.
+ * Checks if cached chapters match current prompt, model, and source entries requirements.
+ */
+export function isChaptersCacheValid(
+  cached: CachedChapters | undefined,
+  context: GeneratedCacheContext,
+): boolean {
+  return isGeneratedCacheValid(cached, context);
+}
+
+/**
+ * Checks if cached summary matches current prompt, model, and source entries requirements.
  */
 export function isSummaryCacheValid(
   cached: CachedSummary | undefined,
-  currentPrompt?: string,
-  currentModel?: string,
+  context: GeneratedCacheContext,
 ): boolean {
-  if (!cached) return false;
-  if (currentPrompt !== undefined && (cached.prompt ?? "") !== currentPrompt.trim()) {
-    return false;
-  }
-  if (
-    currentModel !== undefined &&
-    cached.model !== undefined &&
-    cached.model !== currentModel.trim()
-  ) {
-    return false;
-  }
-  return true;
+  return isGeneratedCacheValid(cached, context);
+}
+
+/**
+ * Creates a CachedChapters object bound to the given context and chapters.
+ */
+export function createCachedChapters(
+  targetLang: string,
+  context: GeneratedCacheContext,
+  chapters: ChapterItem[],
+): CachedChapters {
+  return {
+    targetLang,
+    model: context.model,
+    prompt: context.prompt,
+    sourceHash: computeEntriesHash(context.sourceEntries),
+    chapters,
+    createdAt: Date.now(),
+  };
+}
+
+/**
+ * Creates a CachedSummary object bound to the given context and summary.
+ */
+export function createCachedSummary(
+  targetLang: string,
+  context: GeneratedCacheContext,
+  summary: SummaryResult,
+): CachedSummary {
+  return {
+    targetLang,
+    model: context.model,
+    prompt: context.prompt,
+    sourceHash: computeEntriesHash(context.sourceEntries),
+    summary,
+    createdAt: Date.now(),
+  };
 }
 
 export interface MediaCacheData {

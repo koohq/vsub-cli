@@ -3,6 +3,8 @@ import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
+  createCachedChapters,
+  createCachedSummary,
   createCachedTranslation,
   loadMediaCache,
   saveChaptersCache,
@@ -10,8 +12,14 @@ import {
   saveTranscriptionCache,
   saveTranslationCache,
 } from "./cache.js";
-import { DEFAULT_GEMINI_MODEL } from "./config.js";
-import { translateSrtEntries } from "./gemini.js";
+import { DEFAULT_GEMINI_MODEL, DEFAULT_GROQ_MODEL } from "./config.js";
+import {
+  DEFAULT_CONTEXT_WINDOW_SIZE,
+  generateChapters,
+  generateSummary,
+  translateSrtEntries,
+} from "./gemini.js";
+import { transcribeAudioSegments } from "./groq.js";
 import {
   parseBilingualOrder,
   processChaptersPipeline,
@@ -44,6 +52,8 @@ vi.mock("./ffmpeg.js", async (importOriginal) => {
   const actual = await importOriginal<typeof import("./ffmpeg.js")>();
   return {
     ...actual,
+    checkFfmpeg: vi.fn().mockResolvedValue(undefined),
+    extractAudio: vi.fn().mockResolvedValue({ audioPaths: [], cleanup: async () => {} }),
     burnSubtitlesToVideo: vi.fn().mockImplementation(async (_video, _sub, output) => {
       fs.writeFileSync(output, "dummy burnt video");
       return output;
@@ -54,6 +64,47 @@ vi.mock("./ffmpeg.js", async (importOriginal) => {
     }),
   };
 });
+
+vi.mock("./groq.js", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("./groq.js")>();
+  return {
+    ...actual,
+    transcribeAudioSegments: vi.fn().mockResolvedValue({
+      entries: [
+        { id: 1, startTime: "00:00:00,000", endTime: "00:00:02,000", text: "Hello mock groq" },
+      ],
+      detectedLanguage: "en",
+    }),
+  };
+});
+
+const ENV_VARS_TO_CLEAR = [
+  "VSUB_PROMPT",
+  "VSUB_GEMINI_PROMPT",
+  "GEMINI_PROMPT",
+  "VSUB_GLOSSARY",
+  "GLOSSARY",
+  "VSUB_GEMINI_MODEL",
+  "GEMINI_MODEL",
+  "VSUB_WHISPER_PROMPT",
+  "WHISPER_PROMPT",
+  "VSUB_GROQ_MODEL",
+  "GROQ_MODEL",
+  "VSUB_MAX_LENGTH",
+  "VSUB_TARGET_LANG",
+  "TARGET_LANG",
+];
+
+function isolateConfigAndEnv(baseTempDir: string, suffix = "config-home"): { configHome: string } {
+  const configHome = path.join(baseTempDir, suffix);
+  fs.mkdirSync(configHome, { recursive: true });
+  process.env["APPDATA"] = configHome;
+  process.env["XDG_CONFIG_HOME"] = configHome;
+  for (const envVar of ENV_VARS_TO_CLEAR) {
+    delete process.env[envVar];
+  }
+  return { configHome };
+}
 
 describe("pipeline.ts", () => {
   let tempDir: string;
@@ -334,14 +385,22 @@ describe("pipeline.ts", () => {
       saveTranslationCache(
         mediaFile,
         "ja",
-        createCachedTranslation("ja", { sourceEntries: mockEntries, model: DEFAULT_GEMINI_MODEL }, [
+        createCachedTranslation(
+          "ja",
           {
-            id: 1,
-            startTime: "00:00:01,000",
-            endTime: "00:00:03,000",
-            text: "こんにちは世界",
+            sourceEntries: mockEntries,
+            model: DEFAULT_GEMINI_MODEL,
+            contextWindowSize: DEFAULT_CONTEXT_WINDOW_SIZE,
           },
-        ]),
+          [
+            {
+              id: 1,
+              startTime: "00:00:01,000",
+              endTime: "00:00:03,000",
+              text: "こんにちは世界",
+            },
+          ],
+        ),
         cacheDir,
       );
 
@@ -516,14 +575,25 @@ describe("pipeline.ts", () => {
       fs.writeFileSync(mediaPath, "video bytes");
       const cacheDir = path.join(tempDir, "cache");
 
+      const sourceEntries: SrtEntry[] = [
+        { id: 1, startTime: "00:00:00,000", endTime: "00:00:02,000", text: "Cached source" },
+      ];
+      saveTranscriptionCache(
+        mediaPath,
+        {
+          detectedLanguage: "en",
+          entries: sourceEntries,
+          createdAt: Date.now(),
+        },
+        cacheDir,
+      );
+
       saveChaptersCache(
         mediaPath,
         "ja",
-        {
-          targetLang: "ja",
-          chapters: [{ timestamp: "00:00", seconds: 0, title: "Cached Opening" }],
-          createdAt: Date.now(),
-        },
+        createCachedChapters("ja", { sourceEntries, model: DEFAULT_GEMINI_MODEL }, [
+          { timestamp: "00:00", seconds: 0, title: "Cached Opening" },
+        ]),
         cacheDir,
       );
 
@@ -579,19 +649,32 @@ describe("pipeline.ts", () => {
       fs.writeFileSync(mediaPath, "video bytes 2");
       const cacheDir = path.join(tempDir, "cache");
 
+      const sourceEntries: SrtEntry[] = [
+        { id: 1, startTime: "00:00:00,000", endTime: "00:00:02,000", text: "Cached source" },
+      ];
+      saveTranscriptionCache(
+        mediaPath,
+        {
+          detectedLanguage: "en",
+          entries: sourceEntries,
+          createdAt: Date.now(),
+        },
+        cacheDir,
+      );
+
       saveSummaryCache(
         mediaPath,
         "ja",
-        {
-          targetLang: "ja",
-          summary: {
+        createCachedSummary(
+          "ja",
+          { sourceEntries, model: DEFAULT_GEMINI_MODEL },
+          {
             title: "Cached Title",
             summary: "Cached summary text",
             keyPoints: ["Cached point"],
             topics: [],
           },
-          createdAt: Date.now(),
-        },
+        ),
         cacheDir,
       );
 
@@ -634,28 +717,44 @@ describe("pipeline.ts", () => {
       saveTranslationCache(
         mediaFile,
         "ja",
-        createCachedTranslation("ja", { sourceEntries: mockEntries, model: DEFAULT_GEMINI_MODEL }, [
+        createCachedTranslation(
+          "ja",
           {
-            id: 1,
-            startTime: "00:00:01,000",
-            endTime: "00:00:03,000",
-            text: "こんにちは",
+            sourceEntries: mockEntries,
+            model: DEFAULT_GEMINI_MODEL,
+            contextWindowSize: DEFAULT_CONTEXT_WINDOW_SIZE,
           },
-        ]),
+          [
+            {
+              id: 1,
+              startTime: "00:00:01,000",
+              endTime: "00:00:03,000",
+              text: "こんにちは",
+            },
+          ],
+        ),
         cacheDir,
       );
 
       saveTranslationCache(
         mediaFile,
         "es",
-        createCachedTranslation("es", { sourceEntries: mockEntries, model: DEFAULT_GEMINI_MODEL }, [
+        createCachedTranslation(
+          "es",
           {
-            id: 1,
-            startTime: "00:00:01,000",
-            endTime: "00:00:03,000",
-            text: "Hola",
+            sourceEntries: mockEntries,
+            model: DEFAULT_GEMINI_MODEL,
+            contextWindowSize: DEFAULT_CONTEXT_WINDOW_SIZE,
           },
-        ]),
+          [
+            {
+              id: 1,
+              startTime: "00:00:01,000",
+              endTime: "00:00:03,000",
+              text: "Hola",
+            },
+          ],
+        ),
         cacheDir,
       );
 
@@ -865,38 +964,15 @@ describe("pipeline.ts", () => {
   });
 
   describe("processMediaPipeline translation cache binding", () => {
-    let configHome: string;
     let cacheDir: string;
     let mediaFile: string;
 
-    const envVarsToClear = [
-      "VSUB_PROMPT",
-      "VSUB_GEMINI_PROMPT",
-      "GEMINI_PROMPT",
-      "VSUB_GLOSSARY",
-      "GLOSSARY",
-      "VSUB_GEMINI_MODEL",
-      "GEMINI_MODEL",
-      "VSUB_WHISPER_PROMPT",
-      "WHISPER_PROMPT",
-      "VSUB_MAX_LENGTH",
-      "VSUB_TARGET_LANG",
-      "TARGET_LANG",
-    ];
-
     beforeEach(() => {
       vi.clearAllMocks();
-      configHome = path.join(tempDir, "config-home-binding");
+      isolateConfigAndEnv(tempDir, "config-home-binding");
       cacheDir = path.join(tempDir, "cache-binding");
       mediaFile = path.join(tempDir, "sample-binding.mp4");
-      fs.mkdirSync(configHome, { recursive: true });
       fs.writeFileSync(mediaFile, "dummy video data");
-
-      process.env["APPDATA"] = configHome;
-      process.env["XDG_CONFIG_HOME"] = configHome;
-      for (const envVar of envVarsToClear) {
-        delete process.env[envVar];
-      }
     });
 
     async function runPipelineTwice(params: {
@@ -1134,6 +1210,263 @@ describe("pipeline.ts", () => {
       });
 
       expect(translateSrtEntries).toHaveBeenCalledTimes(1);
+    });
+
+    it("retranslates when contextWindow changes (2 first, then omitted)", async () => {
+      const transcription: SrtEntry[] = [
+        { id: 1, startTime: "00:00:00,000", endTime: "00:00:02,000", text: "Context test" },
+      ];
+
+      await runPipelineTwice({
+        initialTranscription: transcription,
+        firstOptions: { contextWindow: 2 },
+        secondOptions: { contextWindow: undefined },
+      });
+
+      expect(translateSrtEntries).toHaveBeenCalledTimes(2);
+    });
+
+    it("reuses translation cache when contextWindow explicitly matches default 5 and is omitted on second run", async () => {
+      const transcription: SrtEntry[] = [
+        { id: 1, startTime: "00:00:00,000", endTime: "00:00:02,000", text: "Context default test" },
+      ];
+
+      await runPipelineTwice({
+        initialTranscription: transcription,
+        firstOptions: { contextWindow: 5 },
+        secondOptions: { contextWindow: undefined },
+      });
+
+      expect(translateSrtEntries).toHaveBeenCalledTimes(1);
+    });
+  });
+
+  describe("transcription, chapters and summary cache binding", () => {
+    let configHome: string;
+    let cacheDir: string;
+    let mediaFile: string;
+
+    beforeEach(() => {
+      vi.clearAllMocks();
+      configHome = isolateConfigAndEnv(tempDir, "config-home-rest").configHome;
+      cacheDir = path.join(tempDir, "cache-rest");
+      mediaFile = path.join(tempDir, "sample-rest.mp4");
+      fs.writeFileSync(mediaFile, "dummy video data");
+      // Output is silenced for the whole describe; the outer afterEach restores the spies.
+      vi.spyOn(console, "log").mockImplementation(() => {});
+      vi.spyOn(process.stdout, "write").mockReturnValue(true);
+    });
+
+    function runMain(options: Partial<Parameters<typeof processMediaPipeline>[0]> = {}) {
+      return processMediaPipeline({
+        mediaFile,
+        noTranslate: true,
+        cacheDir,
+        stdout: true,
+        ...options,
+      });
+    }
+
+    function runChapters(options: Partial<Parameters<typeof processChaptersPipeline>[0]> = {}) {
+      return processChaptersPipeline({ inputFile: mediaFile, cacheDir, stdout: true, ...options });
+    }
+
+    function runSummary(options: Partial<Parameters<typeof processSummaryPipeline>[0]> = {}) {
+      return processSummaryPipeline({ inputFile: mediaFile, cacheDir, stdout: true, ...options });
+    }
+
+    const generatorTargets = [
+      { target: "chapters", run: () => runChapters(), getMock: () => generateChapters },
+      { target: "summary", run: () => runSummary(), getMock: () => generateSummary },
+    ];
+
+    it.each([
+      {
+        name: "env VSUB_WHISPER_PROMPT",
+        setup: () => {
+          process.env["VSUB_WHISPER_PROMPT"] = "prompt from env";
+        },
+      },
+      {
+        name: "config file whisperPrompt",
+        setup: () => {
+          const configDir = path.join(configHome, "vsub");
+          fs.mkdirSync(configDir, { recursive: true });
+          fs.writeFileSync(
+            path.join(configDir, "config.json"),
+            JSON.stringify({ whisperPrompt: "prompt from config" }),
+            "utf-8",
+          );
+        },
+      },
+      {
+        name: "env VSUB_GLOSSARY inline",
+        setup: () => {
+          process.env["VSUB_GLOSSARY"] = "AI=人工知能";
+        },
+      },
+      {
+        name: "env VSUB_GROQ_MODEL",
+        setup: () => {
+          process.env["VSUB_GROQ_MODEL"] = "whisper-large-v3";
+        },
+      },
+      {
+        name: "no settings",
+        setup: () => {},
+      },
+    ])(
+      "transcribes only once when executing main -> chapters -> summarize -> main ($name)",
+      async ({ setup }) => {
+        setup();
+
+        await runMain();
+        await runChapters();
+        await runSummary();
+        await runMain();
+
+        expect(transcribeAudioSegments).toHaveBeenCalledTimes(1);
+      },
+    );
+
+    it.each([
+      {
+        name: "main whisperPrompt: attached then detached",
+        run1: () => runMain({ whisperPrompt: "custom prompt" }),
+        run2: () => runMain({ whisperPrompt: undefined }),
+      },
+      {
+        name: "main whisperPrompt: detached then attached",
+        run1: () => runMain({ whisperPrompt: undefined }),
+        run2: () => runMain({ whisperPrompt: "custom prompt" }),
+      },
+      {
+        name: "main groqModel: attached then detached",
+        run1: () => runMain({ groqModel: "whisper-large-v3" }),
+        run2: () => runMain({ groqModel: undefined }),
+      },
+      {
+        name: "chapters whisperPrompt: attached then detached",
+        run1: () => runChapters({ whisperPrompt: "custom prompt" }),
+        run2: () => runChapters({ whisperPrompt: undefined }),
+      },
+    ])("retranscribes on second run when $name", async ({ run1, run2 }) => {
+      await run1();
+      expect(transcribeAudioSegments).toHaveBeenCalledTimes(1);
+      await run2();
+      expect(transcribeAudioSegments).toHaveBeenCalledTimes(2);
+    });
+
+    it("reuses transcription cache when groqModel explicitly matches DEFAULT_GROQ_MODEL and is omitted on second run", async () => {
+      await runMain({ groqModel: DEFAULT_GROQ_MODEL });
+      expect(transcribeAudioSegments).toHaveBeenCalledTimes(1);
+      await runMain({ groqModel: undefined });
+      expect(transcribeAudioSegments).toHaveBeenCalledTimes(1);
+    });
+
+    it.each(generatorTargets)(
+      "regenerates $target when transcription entries change in cache",
+      async ({ run, getMock }) => {
+        const mockFn = getMock();
+        const transcriptionA: SrtEntry[] = [
+          { id: 1, startTime: "00:00:00,000", endTime: "00:00:02,000", text: "Entry A" },
+        ];
+        const transcriptionB: SrtEntry[] = [
+          { id: 1, startTime: "00:00:00,000", endTime: "00:00:02,000", text: "Entry B" },
+        ];
+
+        saveTranscriptionCache(
+          mediaFile,
+          { detectedLanguage: "en", entries: transcriptionA, createdAt: Date.now() },
+          cacheDir,
+        );
+
+        await run();
+        expect(mockFn).toHaveBeenCalledTimes(1);
+        expect(mockFn).toHaveBeenLastCalledWith(
+          transcriptionA,
+          expect.anything(),
+          expect.anything(),
+        );
+
+        saveTranscriptionCache(
+          mediaFile,
+          { detectedLanguage: "en", entries: transcriptionB, createdAt: Date.now() },
+          cacheDir,
+        );
+
+        await run();
+        expect(mockFn).toHaveBeenCalledTimes(2);
+        expect(mockFn).toHaveBeenLastCalledWith(
+          transcriptionB,
+          expect.anything(),
+          expect.anything(),
+        );
+      },
+    );
+
+    it.each(generatorTargets)(
+      "reuses $target cache when transcription entries are identical",
+      async ({ run, getMock }) => {
+        const mockFn = getMock();
+        await run();
+        expect(mockFn).toHaveBeenCalledTimes(1);
+        await run();
+        expect(mockFn).toHaveBeenCalledTimes(1);
+      },
+    );
+
+    it.each([
+      {
+        name: "chapters prompt: attached then detached",
+        run1: () => runChapters({ prompt: "Focus on intro" }),
+        run2: () => runChapters({ prompt: undefined }),
+        getMock: () => generateChapters,
+      },
+      {
+        name: "chapters geminiModel: attached then detached",
+        run1: () => runChapters({ geminiModel: "gemini-2.5-flash" }),
+        run2: () => runChapters({ geminiModel: undefined }),
+        getMock: () => generateChapters,
+      },
+      {
+        name: "summary prompt: attached then detached",
+        run1: () => runSummary({ prompt: "Short bullets" }),
+        run2: () => runSummary({ prompt: undefined }),
+        getMock: () => generateSummary,
+      },
+      {
+        name: "summary geminiModel: attached then detached",
+        run1: () => runSummary({ geminiModel: "gemini-2.5-flash" }),
+        run2: () => runSummary({ geminiModel: undefined }),
+        getMock: () => generateSummary,
+      },
+    ])("regenerates when $name", async ({ run1, run2, getMock }) => {
+      const mockFn = getMock();
+      await run1();
+      expect(mockFn).toHaveBeenCalledTimes(1);
+      await run2();
+      expect(mockFn).toHaveBeenCalledTimes(2);
+    });
+
+    it("reuses legacy transcription cache without model for both main and chapters", async () => {
+      const transcription: SrtEntry[] = [
+        { id: 1, startTime: "00:00:00,000", endTime: "00:00:02,000", text: "Legacy Hello" },
+      ];
+      saveTranscriptionCache(
+        mediaFile,
+        {
+          detectedLanguage: "en",
+          entries: transcription,
+          createdAt: Date.now(),
+        },
+        cacheDir,
+      );
+
+      await runMain();
+      await runChapters();
+
+      expect(transcribeAudioSegments).not.toHaveBeenCalled();
     });
   });
 });

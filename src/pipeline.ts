@@ -3,6 +3,9 @@ import os from "node:os";
 import path from "node:path";
 import pc from "picocolors";
 import {
+  createCachedChapters,
+  createCachedSummary,
+  createCachedTranscription,
   createCachedTranslation,
   isChaptersCacheValid,
   isSummaryCacheValid,
@@ -13,9 +16,16 @@ import {
   saveSummaryCache,
   saveTranscriptionCache,
   saveTranslationCache,
+  type TranscriptionCacheContext,
   type TranslationCacheContext,
 } from "./cache.js";
-import { DEFAULT_GEMINI_MODEL, DEFAULT_GROQ_MODEL, ensureApiKeys, getConfig } from "./config.js";
+import {
+  type AppConfig,
+  DEFAULT_GEMINI_MODEL,
+  DEFAULT_GROQ_MODEL,
+  ensureApiKeys,
+  getConfig,
+} from "./config.js";
 import {
   burnSubtitlesToVideo,
   checkFfmpeg,
@@ -36,7 +46,12 @@ import {
   type SummaryFormat,
   type SummaryResult,
 } from "./formatter.js";
-import { generateChapters, generateSummary, translateSrtEntries } from "./gemini.js";
+import {
+  DEFAULT_CONTEXT_WINDOW_SIZE,
+  generateChapters,
+  generateSummary,
+  translateSrtEntries,
+} from "./gemini.js";
 import { computeGlossaryHash, extractWhisperPromptHints, parseGlossary } from "./glossary.js";
 import { transcribeAudioSegments } from "./groq.js";
 import { getI18n, type SupportedLanguage } from "./i18n/index.js";
@@ -173,6 +188,29 @@ export interface ProcessMediaResult {
         cachedLanguages?: string[] | undefined;
       }
     | undefined;
+}
+
+/**
+ * Resolves transcription cache context according to CLI options, raw config, and glossary hints.
+ */
+export function resolveTranscriptionContext(
+  rawConfig: Pick<AppConfig, "whisperPrompt" | "groqModel" | "glossary">,
+  overrides: {
+    whisperPrompt?: string | undefined;
+    groqModel?: string | undefined;
+    glossary?: string | undefined;
+  },
+): TranscriptionCacheContext {
+  const groqModel = overrides.groqModel?.trim() || rawConfig.groqModel || DEFAULT_GROQ_MODEL;
+  const glossaryInput = overrides.glossary?.trim() || rawConfig.glossary;
+  let whisperPrompt = overrides.whisperPrompt?.trim() || rawConfig.whisperPrompt;
+  if (!whisperPrompt && glossaryInput) {
+    whisperPrompt = extractWhisperPromptHints(glossaryInput);
+  }
+  return {
+    prompt: whisperPrompt,
+    model: groqModel,
+  };
 }
 
 /**
@@ -316,14 +354,13 @@ export async function processMediaPipeline(
     }
   }
 
-  const groqModel = options.groqModel?.trim() || rawConfig.groqModel;
   const geminiModel = options.geminiModel?.trim() || rawConfig.geminiModel;
-
   const glossaryInput = options.glossary?.trim() || rawConfig.glossary;
-  let whisperPrompt = options.whisperPrompt?.trim() || rawConfig.whisperPrompt;
-  if (!whisperPrompt && glossaryInput) {
-    whisperPrompt = extractWhisperPromptHints(glossaryInput);
-  }
+  const transcriptionContext = resolveTranscriptionContext(rawConfig, {
+    whisperPrompt: options.whisperPrompt,
+    groqModel: options.groqModel,
+    glossary: glossaryInput,
+  });
 
   const maxLengthVal = options.maxLength !== undefined ? Number(options.maxLength) : undefined;
   const resolvedMaxLength =
@@ -368,7 +405,7 @@ export async function processMediaPipeline(
   let cleanupAudio: (() => Promise<void>) | null = null;
 
   const isTranscriptionCacheMatch =
-    useCache && isTranscriptionCacheValid(mediaCache?.transcription, whisperPrompt, groqModel);
+    useCache && isTranscriptionCacheValid(mediaCache?.transcription, transcriptionContext);
 
   if (isTranscriptionCacheMatch && mediaCache?.transcription) {
     transcriptionCacheHit = true;
@@ -406,7 +443,7 @@ export async function processMediaPipeline(
     spinner.succeed(`${prefix}${audioDoneMsg}`);
 
     // 2. Transcription with Groq
-    const effectiveGroqModel = groqModel || DEFAULT_GROQ_MODEL;
+    const effectiveGroqModel = transcriptionContext.model || DEFAULT_GROQ_MODEL;
     const initialGroqText = `${prefix}${m.step2Transcribing(
       effectiveGroqModel,
       audioPaths.length > 1 ? 1 : undefined,
@@ -424,8 +461,8 @@ export async function processMediaPipeline(
         }
       },
       {
-        model: groqModel,
-        ...(whisperPrompt ? { prompt: whisperPrompt } : {}),
+        model: transcriptionContext.model,
+        ...(transcriptionContext.prompt ? { prompt: transcriptionContext.prompt } : {}),
         ...(extractResult.durations ? { durations: extractResult.durations } : {}),
       },
     );
@@ -442,13 +479,7 @@ export async function processMediaPipeline(
       if (!options.noCache) {
         saveTranscriptionCache(
           resolvedMediaPath,
-          {
-            detectedLanguage,
-            model: groqModel,
-            prompt: whisperPrompt,
-            entries: srtEntries,
-            createdAt: Date.now(),
-          },
+          createCachedTranscription(transcriptionContext, srtEntries, detectedLanguage),
           options.cacheDir,
         );
       }
@@ -543,11 +574,19 @@ export async function processMediaPipeline(
         totalGlossaryTerms = Math.max(totalGlossaryTerms, Object.keys(glossaryMap).length);
       }
 
+      const contextWindowVal =
+        options.contextWindow !== undefined ? Number(options.contextWindow) : undefined;
+      const resolvedContextWindow =
+        contextWindowVal !== undefined && !Number.isNaN(contextWindowVal)
+          ? Math.max(0, Math.floor(contextWindowVal))
+          : DEFAULT_CONTEXT_WINDOW_SIZE;
+
       const cacheContext: TranslationCacheContext = {
         sourceEntries: srtEntries,
         prompt: translationPrompt,
         glossaryHash,
         model: geminiModel,
+        contextWindowSize: resolvedContextWindow,
       };
 
       const cachedTranslation = mediaCache?.translations?.[targetL.toLowerCase()];
@@ -582,12 +621,6 @@ export async function processMediaPipeline(
           : undefined;
 
       const effectiveGeminiModel = geminiModel || DEFAULT_GEMINI_MODEL;
-      const contextWindowVal =
-        options.contextWindow !== undefined ? Number(options.contextWindow) : undefined;
-      const resolvedContextWindow =
-        contextWindowVal !== undefined && !Number.isNaN(contextWindowVal)
-          ? Math.max(0, Math.floor(contextWindowVal))
-          : undefined;
 
       const initialText = isMultiLang
         ? `${prefix}${m.step3TranslatingMulti(effectiveGeminiModel, i + 1, targetLanguages.length, targetL.toUpperCase(), 1, totalChunks)}`
@@ -838,10 +871,10 @@ export async function processMediaPipeline(
       outputFiles,
       stdoutContent,
       skippedTranslation: skippedLanguages.length === targetLanguages.length,
-      whisperPrompt,
+      whisperPrompt: transcriptionContext.prompt,
       prompt: translationPrompt,
       glossaryTermsCount: totalGlossaryTerms > 0 ? totalGlossaryTerms : undefined,
-      groqModel: groqModel || DEFAULT_GROQ_MODEL,
+      groqModel: transcriptionContext.model,
       geminiModel: geminiModel || DEFAULT_GEMINI_MODEL,
       cacheStatus:
         transcriptionCacheHit || cachedLanguages.length > 0
@@ -913,9 +946,12 @@ export async function resolveTranscriptEntries(
 
   const useCache = !options.noCache && !options.fresh;
   const mediaCache = useCache ? loadMediaCache(resolvedPath, options.cacheDir) : null;
+  const transcriptionContext: TranscriptionCacheContext = {
+    prompt: options.whisperPrompt,
+    model: options.groqModel,
+  };
   const isMatch =
-    useCache &&
-    isTranscriptionCacheValid(mediaCache?.transcription, options.whisperPrompt, options.groqModel);
+    useCache && isTranscriptionCacheValid(mediaCache?.transcription, transcriptionContext);
 
   if (isMatch && mediaCache?.transcription) {
     return {
@@ -955,13 +991,11 @@ export async function resolveTranscriptEntries(
     if (!options.noCache) {
       saveTranscriptionCache(
         resolvedPath,
-        {
-          detectedLanguage: transcriptResult.detectedLanguage,
-          model: options.groqModel,
-          prompt: options.whisperPrompt,
-          entries: transcriptResult.entries,
-          createdAt: Date.now(),
-        },
+        createCachedTranscription(
+          transcriptionContext,
+          transcriptResult.entries,
+          transcriptResult.detectedLanguage,
+        ),
         options.cacheDir,
       );
     }
@@ -1030,7 +1064,10 @@ export async function processChaptersPipeline(
   const rawConfig = getConfig(undefined, lang);
   const targetLang = resolveTargetLang(options.targetLang, rawConfig.targetLang);
   const geminiModel = options.geminiModel?.trim() || rawConfig.geminiModel || DEFAULT_GEMINI_MODEL;
-  const groqModel = options.groqModel?.trim() || rawConfig.groqModel || DEFAULT_GROQ_MODEL;
+  const transcriptionContext = resolveTranscriptionContext(rawConfig, {
+    whisperPrompt: options.whisperPrompt,
+    groqModel: options.groqModel,
+  });
 
   let outputPath: string | undefined;
   if (!isStdout) {
@@ -1064,11 +1101,19 @@ export async function processChaptersPipeline(
   const mediaCache = useCache && !isSrt ? loadMediaCache(resolvedInput, options.cacheDir) : null;
   const cachedChapters = mediaCache?.chapters?.[targetLang.toLowerCase()];
 
-  if (
+  const isTranscriptionValid =
+    !isSrt && isTranscriptionCacheValid(mediaCache?.transcription, transcriptionContext);
+  const isChaptersValid =
     useCache &&
-    isChaptersCacheValid(cachedChapters, options.prompt, geminiModel) &&
-    cachedChapters
-  ) {
+    isTranscriptionValid &&
+    mediaCache?.transcription &&
+    isChaptersCacheValid(cachedChapters, {
+      sourceEntries: mediaCache.transcription.entries,
+      prompt: options.prompt,
+      model: geminiModel,
+    });
+
+  if (isChaptersValid && cachedChapters) {
     const chapters = cachedChapters.chapters;
     spinner.succeed(cm.step2Cached(chapters.length));
 
@@ -1102,8 +1147,8 @@ export async function processChaptersPipeline(
   spinner.start(cm.step1Resolve);
   const transcriptResult = await resolveTranscriptEntries({
     filePath: resolvedInput,
-    groqModel,
-    whisperPrompt: options.whisperPrompt,
+    groqModel: transcriptionContext.model,
+    whisperPrompt: transcriptionContext.prompt,
     noCache: options.noCache,
     fresh: options.fresh,
     cacheDir: options.cacheDir,
@@ -1134,13 +1179,15 @@ export async function processChaptersPipeline(
     saveChaptersCache(
       resolvedInput,
       targetLang,
-      {
+      createCachedChapters(
         targetLang,
-        model: geminiModel,
-        prompt: options.prompt,
+        {
+          sourceEntries: transcriptResult.entries,
+          prompt: options.prompt,
+          model: geminiModel,
+        },
         chapters,
-        createdAt: Date.now(),
-      },
+      ),
       options.cacheDir,
     );
   }
@@ -1217,7 +1264,10 @@ export async function processSummaryPipeline(
   const rawConfig = getConfig(undefined, lang);
   const targetLang = resolveTargetLang(options.targetLang, rawConfig.targetLang);
   const geminiModel = options.geminiModel?.trim() || rawConfig.geminiModel || DEFAULT_GEMINI_MODEL;
-  const groqModel = options.groqModel?.trim() || rawConfig.groqModel || DEFAULT_GROQ_MODEL;
+  const transcriptionContext = resolveTranscriptionContext(rawConfig, {
+    whisperPrompt: options.whisperPrompt,
+    groqModel: options.groqModel,
+  });
 
   let outputPath: string | undefined;
   if (!isStdout) {
@@ -1251,11 +1301,19 @@ export async function processSummaryPipeline(
   const mediaCache = useCache && !isSrt ? loadMediaCache(resolvedInput, options.cacheDir) : null;
   const cachedSummary = mediaCache?.summaries?.[targetLang.toLowerCase()];
 
-  if (
+  const isTranscriptionValid =
+    !isSrt && isTranscriptionCacheValid(mediaCache?.transcription, transcriptionContext);
+  const isSummaryValid =
     useCache &&
-    isSummaryCacheValid(cachedSummary, options.prompt, geminiModel) &&
-    cachedSummary
-  ) {
+    isTranscriptionValid &&
+    mediaCache?.transcription &&
+    isSummaryCacheValid(cachedSummary, {
+      sourceEntries: mediaCache.transcription.entries,
+      prompt: options.prompt,
+      model: geminiModel,
+    });
+
+  if (isSummaryValid && cachedSummary) {
     const summary = cachedSummary.summary;
     spinner.succeed(sm.step2Cached);
 
@@ -1289,8 +1347,8 @@ export async function processSummaryPipeline(
   spinner.start(sm.step1Resolve);
   const transcriptResult = await resolveTranscriptEntries({
     filePath: resolvedInput,
-    groqModel,
-    whisperPrompt: options.whisperPrompt,
+    groqModel: transcriptionContext.model,
+    whisperPrompt: transcriptionContext.prompt,
     noCache: options.noCache,
     fresh: options.fresh,
     cacheDir: options.cacheDir,
@@ -1321,13 +1379,15 @@ export async function processSummaryPipeline(
     saveSummaryCache(
       resolvedInput,
       targetLang,
-      {
+      createCachedSummary(
         targetLang,
-        model: geminiModel,
-        prompt: options.prompt,
+        {
+          sourceEntries: transcriptResult.entries,
+          prompt: options.prompt,
+          model: geminiModel,
+        },
         summary,
-        createdAt: Date.now(),
-      },
+      ),
       options.cacheDir,
     );
   }
