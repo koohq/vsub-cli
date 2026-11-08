@@ -13,6 +13,7 @@ import {
   saveTranslationCache,
 } from "./cache.js";
 import { DEFAULT_GEMINI_MODEL, DEFAULT_GROQ_MODEL } from "./config.js";
+import { embedSubtitlesToVideo } from "./ffmpeg.js";
 import {
   DEFAULT_CONTEXT_WINDOW_SIZE,
   generateChapters,
@@ -25,6 +26,7 @@ import {
   processChaptersPipeline,
   processMediaPipeline,
   processSummaryPipeline,
+  resolveEmbeddedVideoPath,
   resolveOutputFilePaths,
   resolveTranscriptEntries,
 } from "./pipeline.js";
@@ -805,6 +807,163 @@ describe("pipeline.ts", () => {
 
       expect(result.outputFiles).toContain(customOut);
       expect(fs.existsSync(customOut)).toBe(true);
+    });
+  });
+
+  describe("resolveEmbeddedVideoPath", () => {
+    it.each([
+      { media: "clip.mp4", out: undefined, outDir: undefined, expected: "clip.embedded.mp4" },
+      { media: "clip.avi", out: undefined, outDir: undefined, expected: "clip.embedded.avi" },
+      { media: "clip.mp3", out: undefined, outDir: undefined, expected: "clip.embedded.mp4" },
+      { media: "clip.avi", out: "out.mkv", outDir: undefined, expected: "out.mkv" },
+      { media: "clip.mp4", out: "out.srt", outDir: undefined, expected: "out.embedded.mp4" },
+      { media: "clip.avi", out: "out", outDir: undefined, expected: "out.embedded.avi" },
+      {
+        media: "clip.mp4",
+        out: undefined,
+        outDir: "dist",
+        expected: path.join("dist", "clip.embedded.mp4"),
+      },
+      { media: "clip.mp4", out: "out.mov", outDir: "dist", expected: "out.mov" },
+    ])(
+      "resolves $media (out: $out, outDir: $outDir) -> $expected",
+      ({ media, out, outDir, expected }) => {
+        const mediaPath = path.join(tempDir, media);
+        const outputOption = out ? path.join(tempDir, out) : undefined;
+        const outputDir = outDir ? path.join(tempDir, outDir) : undefined;
+        const expectedPath = path.join(tempDir, expected);
+        expect(resolveEmbeddedVideoPath(mediaPath, outputOption, outputDir)).toBe(expectedPath);
+      },
+    );
+  });
+
+  describe("processMediaPipeline --embed container pre-check", () => {
+    beforeEach(() => {
+      vi.clearAllMocks();
+      isolateConfigAndEnv(tempDir, "config-home-embed");
+      vi.spyOn(console, "log").mockImplementation(() => {});
+    });
+
+    const runEmbed = (
+      mediaName: string,
+      options: Partial<Parameters<typeof processMediaPipeline>[0]> = {},
+    ) => {
+      const mediaFile = path.join(tempDir, mediaName);
+      if (!fs.existsSync(mediaFile)) {
+        fs.writeFileSync(mediaFile, "dummy media bytes");
+      }
+      return processMediaPipeline({
+        mediaFile,
+        targetLang: "ja",
+        embed: true,
+        noCache: true,
+        ...options,
+      });
+    };
+
+    it.each([
+      { media: "sample.avi", output: undefined, expectedFile: "sample.embedded.avi" },
+      { media: "sample.ts", output: undefined, expectedFile: "sample.embedded.ts" },
+      { media: "sample.avi", output: "out.avi", expectedFile: "out.avi" },
+      { media: "sample.avi", output: "out.srt", expectedFile: "out.embedded.avi" },
+      { media: "sample.mp4", output: "out.flv", expectedFile: "out.flv" },
+    ])(
+      "rejects unsupported container before calling APIs ($media, output: $output)",
+      async ({ media, output, expectedFile }) => {
+        const outOption = output ? path.join(tempDir, output) : undefined;
+        await expect(runEmbed(media, { output: outOption })).rejects.toThrow(
+          `Cannot embed subtitle tracks into "${expectedFile}"`,
+        );
+
+        expect(transcribeAudioSegments).not.toHaveBeenCalled();
+        expect(translateSrtEntries).not.toHaveBeenCalled();
+        expect(embedSubtitlesToVideo).not.toHaveBeenCalled();
+      },
+    );
+
+    it.each([
+      {
+        lang: "en" as const,
+        expected:
+          'Cannot embed subtitle tracks into "sample.embedded.avi": the .avi container does not support soft subtitles (supported: .mp4, .m4v, .mov, .mkv, .webm). Generate the subtitles without --embed, then run "vsub embed <video> <subtitle-file> -o <name>.mkv".',
+      },
+      {
+        lang: "ja" as const,
+        expected:
+          "「sample.embedded.avi」には字幕トラックを埋め込めません。.avi のコンテナはソフトサブに対応していません（対応: .mp4, .m4v, .mov, .mkv, .webm）。--embed を付けずに字幕を作ってから、「vsub embed <動画> <字幕ファイル> -o <名前>.mkv」を実行してください。",
+      },
+    ])("formats error message correctly in $lang", async ({ lang, expected }) => {
+      await expect(runEmbed("sample.avi", { lang })).rejects.toThrow(expected);
+    });
+
+    it.each([
+      {
+        media: "sample.mp4",
+        output: undefined,
+        targetLang: "ja",
+        expectedFile: "sample.embedded.mp4",
+      },
+      {
+        media: "sample.avi",
+        output: "out.mkv",
+        targetLang: "ja,es",
+        expectedFile: "out.mkv",
+      },
+    ])(
+      "proceeds to embed when container is supported ($media, output: $output)",
+      async ({ media, output, targetLang, expectedFile }) => {
+        const outOption = output ? path.join(tempDir, output) : undefined;
+        const expectedPath = path.join(tempDir, expectedFile);
+
+        const result = await runEmbed(media, { output: outOption, targetLang });
+
+        expect(transcribeAudioSegments).toHaveBeenCalledTimes(1);
+        expect(embedSubtitlesToVideo).toHaveBeenCalledWith(
+          expect.anything(),
+          expect.anything(),
+          expectedPath,
+          expect.anything(),
+        );
+        expect(result.outputFiles).toContain(expectedPath);
+      },
+    );
+
+    it.each([
+      { media: "sample.avi", options: { embed: true }, error: /Cannot embed subtitle tracks into/ },
+      {
+        media: "sample.mp3",
+        options: { embed: true },
+        error: /Cannot embed subtitles into an audio file/,
+      },
+      {
+        media: "sample.mp3",
+        options: { burn: true, embed: false },
+        error: /Cannot burn subtitles into audio files/,
+      },
+    ])(
+      "does not create backup files when aborted early ($media, $options)",
+      async ({ media, options, error }) => {
+        const baseName = path.basename(media, path.extname(media));
+        const existingSub = path.join(tempDir, `${baseName}.ja.srt`);
+        fs.writeFileSync(existingSub, "existing subtitle content");
+
+        const mediaExt = path.extname(media);
+        const filesBefore = fs.readdirSync(tempDir).filter((f) => !f.endsWith(mediaExt));
+
+        await expect(runEmbed(media, { ...options, backup: true })).rejects.toThrow(error);
+
+        const filesAfter = fs.readdirSync(tempDir).filter((f) => !f.endsWith(mediaExt));
+        expect(filesAfter).toEqual(filesBefore);
+        expect(filesAfter.some((f) => f.endsWith(".bak"))).toBe(false);
+      },
+    );
+
+    it("does not create outputDir when aborted early for unsupported container", async () => {
+      const outDir = path.join(tempDir, "out-dir");
+      await expect(runEmbed("sample.avi", { outputDir: outDir })).rejects.toThrow(
+        /Cannot embed subtitle tracks into "sample.embedded.avi"/,
+      );
+      expect(fs.existsSync(outDir)).toBe(false);
     });
   });
 

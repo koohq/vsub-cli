@@ -497,6 +497,14 @@ export const CONTAINER_SUBTITLE_CODECS: Record<string, string> = {
 };
 
 /**
+ * Returns true when the container of the given extension or path supports soft subtitle embedding.
+ */
+export function supportsSoftSubtitles(extOrPath: string): boolean {
+  const ext = (path.extname(extOrPath) || extOrPath).toLowerCase();
+  return Object.hasOwn(CONTAINER_SUBTITLE_CODECS, ext);
+}
+
+/**
  * Resolves the appropriate subtitle codec for a given video file extension.
  * Throws an error if the container is not supported for soft subtitle embedding.
  */

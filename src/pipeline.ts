@@ -28,12 +28,14 @@ import {
 } from "./config.js";
 import {
   burnSubtitlesToVideo,
+  CONTAINER_SUBTITLE_CODECS,
   checkFfmpeg,
   embedSubtitlesToVideo,
   extractAudio,
   isAudioFile,
   isVideoFile,
   type SubtitleTrackInput,
+  supportsSoftSubtitles,
 } from "./ffmpeg.js";
 import {
   type ChapterItem,
@@ -121,6 +123,34 @@ export function resolveOutputFilePaths(
     format: fmt,
     filePath: path.join(effectiveBaseDir, `${baseName}.${langTag}.${fmt}`),
   }));
+}
+
+/**
+ * Resolves the destination path for embedded soft subtitles video output.
+ */
+export function resolveEmbeddedVideoPath(
+  mediaPath: string,
+  outputOption?: string | undefined,
+  outputDir?: string | undefined,
+): string {
+  const resolvedMedia = path.resolve(process.cwd(), mediaPath);
+  const mediaExt = path.extname(resolvedMedia);
+  const mediaBaseName = path.basename(resolvedMedia, mediaExt);
+  const effectiveDir = outputDir
+    ? path.resolve(process.cwd(), outputDir)
+    : path.dirname(resolvedMedia);
+  const targetExt = isVideoFile(resolvedMedia) ? mediaExt : ".mp4";
+
+  if (outputOption) {
+    const resolvedOut = path.resolve(process.cwd(), outputOption);
+    if (isVideoFile(resolvedOut)) {
+      return resolvedOut;
+    }
+    const parsedOut = path.parse(resolvedOut);
+    return path.join(parsedOut.dir, `${parsedOut.name}.embedded${targetExt}`);
+  }
+
+  return path.join(effectiveDir, `${mediaBaseName}.embedded${targetExt}`);
 }
 
 export interface ProcessMediaOptions {
@@ -264,6 +294,23 @@ export async function processMediaPipeline(
     throw new Error(m.mediaNotFound(resolvedMediaPath));
   }
 
+  const isAudio = isAudioFile(resolvedMediaPath);
+  if (options.burn && isAudio) {
+    throw new Error(m.cannotBurnAudio);
+  }
+  if (options.embed && isAudio) {
+    throw new Error(m.cannotEmbedAudio);
+  }
+
+  const embeddedVideoPath = options.embed
+    ? resolveEmbeddedVideoPath(resolvedMediaPath, options.output, options.outputDir)
+    : undefined;
+  if (embeddedVideoPath && !supportsSoftSubtitles(embeddedVideoPath)) {
+    const ext = path.extname(embeddedVideoPath).toLowerCase();
+    const supported = Object.keys(CONTAINER_SUBTITLE_CODECS).join(", ");
+    throw new Error(m.embedUnsupportedContainer(path.basename(embeddedVideoPath), ext, supported));
+  }
+
   const mediaDir = path.dirname(resolvedMediaPath);
   const mediaExt = path.extname(resolvedMediaPath);
   const mediaBaseName = path.basename(resolvedMediaPath, mediaExt);
@@ -316,20 +363,7 @@ export async function processMediaPipeline(
       }
     }
 
-    if (options.embed) {
-      let embeddedVideoPath: string;
-      const targetExt = isVideoFile(resolvedMediaPath) ? mediaExt : ".mp4";
-      if (options.output) {
-        const resolvedOut = path.resolve(process.cwd(), options.output);
-        const parsedOut = path.parse(resolvedOut);
-        if (isVideoFile(resolvedOut)) {
-          embeddedVideoPath = resolvedOut;
-        } else {
-          embeddedVideoPath = path.join(parsedOut.dir, `${parsedOut.name}.embedded${targetExt}`);
-        }
-      } else {
-        embeddedVideoPath = path.join(effectiveOutputDir, `${mediaBaseName}.embedded${targetExt}`);
-      }
+    if (embeddedVideoPath) {
       predictedTargets.push(embeddedVideoPath);
     }
   }
@@ -376,14 +410,6 @@ export async function processMediaPipeline(
       : undefined;
 
   const noReflow = Boolean(options.noReflow);
-
-  const isAudio = isAudioFile(resolvedMediaPath);
-  if (options.burn && isAudio) {
-    throw new Error(m.cannotBurnAudio);
-  }
-  if (options.embed && isAudio) {
-    throw new Error(m.cannotEmbedAudio);
-  }
 
   const mediaTypeName = isAudio ? "audio" : "video";
   const mediaIcon = isAudio ? "🎵" : "🎬";
@@ -811,27 +837,7 @@ export async function processMediaPipeline(
             });
           }
 
-          if (subtitleTracks.length > 0) {
-            let embeddedVideoPath: string;
-            const targetExt = isVideoFile(resolvedMediaPath) ? mediaExt : ".mp4";
-            if (options.output) {
-              const resolvedOut = path.resolve(process.cwd(), options.output);
-              const parsedOut = path.parse(resolvedOut);
-              if (isVideoFile(resolvedOut)) {
-                embeddedVideoPath = resolvedOut;
-              } else {
-                embeddedVideoPath = path.join(
-                  parsedOut.dir,
-                  `${parsedOut.name}.embedded${targetExt}`,
-                );
-              }
-            } else {
-              embeddedVideoPath = path.join(
-                effectiveOutputDir,
-                `${mediaBaseName}.embedded${targetExt}`,
-              );
-            }
-
+          if (embeddedVideoPath && subtitleTracks.length > 0) {
             await embedSubtitlesToVideo(resolvedMediaPath, subtitleTracks, embeddedVideoPath, {
               ffmpegPath: rawConfig.ffmpegPath,
               verbose,

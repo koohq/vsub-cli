@@ -118,6 +118,8 @@ export const ja: typeof en = {
     embedStarting: "🎬 FFmpeg で字幕トラックを動画に埋め込み中 (ソフトサブ)...",
     embedDone: "🎬 動画への字幕トラック埋め込みが完了しました",
     cannotEmbedAudio: "音声ファイルに字幕トラックを埋め込むことはできません",
+    embedUnsupportedContainer: (file: string, ext: string, supported: string) =>
+      `「${file}」には字幕トラックを埋め込めません。${ext} のコンテナはソフトサブに対応していません（対応: ${supported}）。--embed を付けずに字幕を作ってから、「vsub embed <動画> <字幕ファイル> -o <名前>.mkv」を実行してください。`,
     stdoutSingleFormatOnly:
       "--stdout 指定時は複数の出力フォーマットを指定できません。単一のフォーマットを指定してください (例: -f srt)。",
     stdoutSingleLangOnly:

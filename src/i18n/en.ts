@@ -117,6 +117,8 @@ export const en = {
     embedStarting: "🎬 Embedding soft subtitle tracks into video with FFmpeg...",
     embedDone: "🎬 Subtitle tracks embedded into video successfully",
     cannotEmbedAudio: "Cannot embed subtitles into an audio file",
+    embedUnsupportedContainer: (file: string, ext: string, supported: string) =>
+      `Cannot embed subtitle tracks into "${file}": the ${ext} container does not support soft subtitles (supported: ${supported}). Generate the subtitles without --embed, then run "vsub embed <video> <subtitle-file> -o <name>.mkv".`,
     stdoutSingleFormatOnly:
       "Cannot specify multiple formats with --stdout. Please specify a single format (e.g. -f srt).",
     stdoutSingleLangOnly:

@@ -5,6 +5,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { findMediaFiles, runBatchPipeline } from "./batch.js";
 import * as configModule from "./config.js";
 import * as ffmpegModule from "./ffmpeg.js";
+import * as geminiModule from "./gemini.js";
+import * as groqModule from "./groq.js";
 import * as pipelineModule from "./pipeline.js";
 
 describe("batch.ts", () => {
@@ -382,6 +384,66 @@ describe("batch.ts", () => {
 
         expect(processMediaPipelineSpy).not.toHaveBeenCalled();
         expect(checkFfmpegSpy).not.toHaveBeenCalled();
+      });
+    });
+
+    describe("--embed container pre-check", () => {
+      beforeEach(() => {
+        fs.writeFileSync(path.join(tempDir, "ep1.mp4"), "dummy video 1");
+        fs.writeFileSync(path.join(tempDir, "ep2.avi"), "dummy video 2");
+        fs.writeFileSync(path.join(tempDir, "ep3.mp4"), "dummy video 3");
+
+        vi.spyOn(configModule, "getConfig").mockReturnValue({
+          groqApiKey: "gsk-mock",
+          geminiApiKey: "gem-mock",
+          ffmpegPath: "ffmpeg",
+        });
+        vi.spyOn(configModule, "ensureApiKeys").mockResolvedValue({
+          groqApiKey: "gsk-mock",
+          geminiApiKey: "gem-mock",
+          ffmpegPath: "ffmpeg",
+        });
+        vi.spyOn(ffmpegModule, "checkFfmpeg").mockResolvedValue(undefined);
+        vi.spyOn(ffmpegModule, "extractAudio").mockResolvedValue({
+          audioPaths: [],
+          cleanup: async () => {},
+        });
+        vi.spyOn(ffmpegModule, "embedSubtitlesToVideo").mockImplementation(
+          async (_video, _sub, out) => out,
+        );
+        vi.spyOn(groqModule, "transcribeAudioSegments").mockResolvedValue({
+          entries: [{ id: 1, startTime: "00:00:00,000", endTime: "00:00:02,000", text: "Line" }],
+          detectedLanguage: "en",
+        });
+        vi.spyOn(geminiModule, "translateSrtEntries").mockImplementation(
+          async (entries) => entries,
+        );
+
+        vi.spyOn(console, "log").mockImplementation(() => {});
+        vi.spyOn(console, "error").mockImplementation(() => {});
+        vi.spyOn(console, "warn").mockImplementation(() => {});
+      });
+
+      it("should fail only unsupported containers before API calls and process other files", async () => {
+        const summary = await runBatchPipeline({
+          targets: [tempDir],
+          embed: true,
+          targetLang: "ja",
+          noCache: true,
+        });
+
+        const ep1Result = summary.items.find((r) => r.file === "ep1.mp4");
+        const ep2Result = summary.items.find((r) => r.file === "ep2.avi");
+        const ep3Result = summary.items.find((r) => r.file === "ep3.mp4");
+
+        expect(ep1Result?.status).toBe("success");
+        expect(ep2Result?.status).toBe("failed");
+        expect(ep2Result?.error).toContain('Cannot embed subtitle tracks into "ep2.embedded.avi"');
+        expect(ep3Result?.status).toBe("success");
+
+        expect(groqModule.transcribeAudioSegments).toHaveBeenCalledTimes(2);
+        expect(geminiModule.translateSrtEntries).toHaveBeenCalledTimes(2);
+        expect(ffmpegModule.embedSubtitlesToVideo).toHaveBeenCalledTimes(2);
       });
     });
   });
