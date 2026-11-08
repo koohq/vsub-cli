@@ -1,6 +1,11 @@
+import fs from "node:fs";
+import os from "node:os";
+import path from "node:path";
 import { PassThrough } from "node:stream";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import * as configModule from "./config.js";
+import { type AppConfig, getGlobalConfigPath } from "./config.js";
+import type { SupportedLanguage } from "./i18n/index.js";
 import {
   maskApiKey,
   runInitWizard,
@@ -8,6 +13,7 @@ import {
   verifyGeminiApiKey,
   verifyGroqApiKey,
 } from "./init.js";
+import { isolateConfigAndEnv } from "./test-support/isolate-config-env.js";
 
 // Mock Groq SDK
 vi.mock("groq-sdk", () => {
@@ -157,14 +163,76 @@ describe("init.ts", () => {
 
   describe("runInitWizard", () => {
     let saveSpy: ReturnType<typeof vi.spyOn>;
+    let tempDir: string;
+    const originalEnv = process.env;
 
     beforeEach(() => {
       saveSpy = vi.spyOn(configModule, "saveGlobalConfig").mockImplementation(() => {});
+      tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "vsub-init-test-"));
+      process.env = { ...originalEnv };
+      isolateConfigAndEnv(tempDir);
     });
 
     afterEach(() => {
+      process.env = originalEnv;
+      try {
+        fs.rmSync(tempDir, { recursive: true, force: true });
+      } catch {
+        // ignore
+      }
       vi.restoreAllMocks();
     });
+
+    function placeConfig(config: Partial<AppConfig>) {
+      const configPath = getGlobalConfigPath();
+      fs.mkdirSync(path.dirname(configPath), { recursive: true });
+      fs.writeFileSync(configPath, JSON.stringify(config, null, 2), "utf8");
+    }
+
+    interface RunWizardOptions {
+      lang?: SupportedLanguage | undefined;
+      displayLangAnswer?: string;
+      targetLangAnswer?: string;
+    }
+
+    async function runWizard(options: RunWizardOptions = {}) {
+      const output = new PassThrough();
+      let outputData = "";
+      output.on("data", (chunk) => {
+        outputData += chunk.toString();
+      });
+
+      const prompts: string[] = [];
+      const answers = [
+        "groq-key",
+        "gemini-key",
+        options.displayLangAnswer ?? "",
+        options.targetLangAnswer ?? "",
+        "", // Gemini model
+        "", // Groq model
+      ];
+
+      const ask = vi.fn().mockImplementation(async (prompt: string) => {
+        prompts.push(prompt);
+        return answers[prompts.length - 1] ?? "";
+      });
+
+      await runInitWizard({
+        output,
+        ask,
+        lang: options.lang,
+        groqVerifier: async () => ({ success: true, modelCount: 5 }),
+        geminiVerifier: async () => ({ success: true }),
+        ffmpegVerifier: async () => ({
+          success: true,
+          version: "ffmpeg version 7.0",
+        }),
+      });
+
+      const savedConfig: Partial<AppConfig> =
+        (saveSpy.mock.calls[0]?.[0] as Partial<AppConfig> | undefined) ?? {};
+      return { output: outputData, prompts, savedConfig };
+    }
 
     it("should complete wizard with provided inputs and save config in Japanese when lang is ja", async () => {
       const output = new PassThrough();
@@ -370,6 +438,166 @@ describe("init.ts", () => {
         expect(outputData).not.toContain("Setup completed successfully");
         expect(outputData).not.toContain("初期セットアップが正常に完了しました");
         expect(outputData).not.toContain("Quick Start");
+      },
+    );
+
+    it.each([
+      {
+        lang: "ja" as SupportedLanguage | undefined,
+        config: undefined as Partial<AppConfig> | undefined,
+        vsubLang: undefined as string | undefined,
+        displayLangAnswer: "",
+        expectedPromptName: "CLI 表示言語",
+        expectedBracket: "[ja]",
+        expectedSavedLang: "ja",
+        expectedSubsequentLang: "ja",
+      },
+      {
+        lang: "ja" as SupportedLanguage | undefined,
+        config: { lang: "en" as SupportedLanguage },
+        vsubLang: undefined as string | undefined,
+        displayLangAnswer: "",
+        expectedPromptName: "CLI 表示言語",
+        expectedBracket: "[ja]",
+        expectedSavedLang: "ja",
+        expectedSubsequentLang: "ja",
+      },
+      {
+        lang: "en" as SupportedLanguage | undefined,
+        config: { lang: "ja" as SupportedLanguage },
+        vsubLang: undefined as string | undefined,
+        displayLangAnswer: "",
+        expectedPromptName: "CLI Display Language",
+        expectedBracket: "[en]",
+        expectedSavedLang: "en",
+        expectedSubsequentLang: "en",
+      },
+      {
+        lang: undefined as SupportedLanguage | undefined,
+        config: { lang: "ja" as SupportedLanguage },
+        vsubLang: undefined as string | undefined,
+        displayLangAnswer: "",
+        expectedPromptName: "CLI 表示言語",
+        expectedBracket: "[ja]",
+        expectedSavedLang: "ja",
+        expectedSubsequentLang: "ja",
+      },
+      {
+        lang: undefined as SupportedLanguage | undefined,
+        config: undefined as Partial<AppConfig> | undefined,
+        vsubLang: "ja",
+        displayLangAnswer: "",
+        expectedPromptName: "CLI 表示言語",
+        expectedBracket: "[ja]",
+        expectedSavedLang: "ja",
+        expectedSubsequentLang: "ja",
+      },
+      {
+        lang: undefined as SupportedLanguage | undefined,
+        config: undefined as Partial<AppConfig> | undefined,
+        vsubLang: undefined as string | undefined,
+        displayLangAnswer: "",
+        expectedPromptName: "CLI Display Language",
+        expectedBracket: "[en]",
+        expectedSavedLang: "en",
+        expectedSubsequentLang: "en",
+      },
+      {
+        lang: "ja" as SupportedLanguage | undefined,
+        config: undefined as Partial<AppConfig> | undefined,
+        vsubLang: undefined as string | undefined,
+        displayLangAnswer: "en",
+        expectedPromptName: "CLI 表示言語",
+        expectedBracket: "[ja]",
+        expectedSavedLang: "en",
+        expectedSubsequentLang: "en",
+      },
+    ])(
+      "should handle display language default and subsequent language (Table 1: %j)",
+      async ({
+        lang,
+        config,
+        vsubLang,
+        displayLangAnswer,
+        expectedPromptName,
+        expectedBracket,
+        expectedSavedLang,
+        expectedSubsequentLang,
+      }) => {
+        if (config) {
+          placeConfig(config);
+        }
+        if (vsubLang) {
+          process.env["VSUB_LANG"] = vsubLang;
+        }
+
+        const { output, prompts, savedConfig } = await runWizard({
+          lang,
+          displayLangAnswer,
+        });
+
+        const displayPrompt = prompts[2] ?? "";
+        expect(displayPrompt).toContain(expectedPromptName);
+        expect(displayPrompt.match(/\[[^\]]*\]/g)).toEqual([expectedBracket]);
+        expect(savedConfig.lang).toBe(expectedSavedLang);
+
+        const targetPrompt = prompts[3] ?? "";
+        if (expectedSubsequentLang === "ja") {
+          expect(targetPrompt).toContain("デフォルト出力言語");
+          expect(output).toContain("初期セットアップが正常に完了しました");
+        } else {
+          expect(targetPrompt).toContain("Default Target Subtitle Language");
+          expect(output).toContain("Setup completed successfully");
+        }
+      },
+    );
+
+    it.each([
+      {
+        lang: "en" as SupportedLanguage,
+        config: undefined as Partial<AppConfig> | undefined,
+        expectedPromptName: "Default Target Subtitle Language",
+        expectedBracket: "[ja]",
+        expectedSavedTargetLang: "ja",
+      },
+      {
+        lang: "ja" as SupportedLanguage,
+        config: undefined as Partial<AppConfig> | undefined,
+        expectedPromptName: "デフォルト出力言語",
+        expectedBracket: "[ja]",
+        expectedSavedTargetLang: "ja",
+      },
+      {
+        lang: "en" as SupportedLanguage,
+        config: { targetLang: "en,ja" },
+        expectedPromptName: "Default Target Subtitle Language",
+        expectedBracket: "[en,ja]",
+        expectedSavedTargetLang: "en,ja",
+      },
+      {
+        lang: "ja" as SupportedLanguage,
+        config: { targetLang: "en,ja" },
+        expectedPromptName: "デフォルト出力言語",
+        expectedBracket: "[en,ja]",
+        expectedSavedTargetLang: "en,ja",
+      },
+    ])(
+      "should format target language prompt with single bracket (Table 2: %j)",
+      async ({ lang, config, expectedPromptName, expectedBracket, expectedSavedTargetLang }) => {
+        if (config) {
+          placeConfig(config);
+        }
+
+        const { prompts, savedConfig } = await runWizard({
+          lang,
+          displayLangAnswer: lang,
+          targetLangAnswer: "",
+        });
+
+        const targetPrompt = prompts[3] ?? "";
+        expect(targetPrompt).toContain(expectedPromptName);
+        expect(targetPrompt.match(/\[[^\]]*\]/g)).toEqual([expectedBracket]);
+        expect(savedConfig.targetLang).toBe(expectedSavedTargetLang);
       },
     );
   });

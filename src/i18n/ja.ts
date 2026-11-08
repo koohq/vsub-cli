@@ -265,8 +265,8 @@ export const ja: typeof en = {
     ffmpegFailed: (err: string) => `  ✖ FFmpeg が見つからないかエラーが発生しました: ${err}`,
     promptFfmpegPath: "  FFmpeg の実行パスを入力 (Enter でスキップ/現在の設定を維持): ",
     step4Title: "▶ [4/4] デフォルト設定の確認",
-    promptDisplayLang: "  CLI 表示言語 [en] (en/ja, Enter で現在の設定を維持): ",
-    promptTargetLang: "  デフォルト出力言語 [ja]: ",
+    promptDisplayLang: (current: string) => `  CLI 表示言語 [${current}] (en/ja): `,
+    promptTargetLang: (current: string) => `  デフォルト出力言語 [${current}]: `,
     configSaved: (path: string) =>
       `\n🎉 初期セットアップが正常に完了しました！\n設定保存先: ${path}\n`,
     configNotSaved: "このウィザードで入力した内容は保存されていません。",

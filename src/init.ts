@@ -109,7 +109,8 @@ export async function runInitWizard(options: InitWizardOptions = {}): Promise<vo
   const currentConfig = getConfig();
   const configPath = getGlobalConfigPath();
 
-  let effectiveLang = options.lang ?? currentConfig.lang ?? "en";
+  const initialLang = options.lang ?? currentConfig.lang ?? "en";
+  let effectiveLang = initialLang;
   let i18n = getI18n(effectiveLang);
   const m = () => i18n.init;
 
@@ -275,10 +276,8 @@ export async function runInitWizard(options: InitWizardOptions = {}): Promise<vo
     // ---------------------------------------------------------
     out(pc.bold(pc.green(m().step4Title)));
 
-    const currentDisplayLang = currentConfig.lang || "en";
-    const displayLangAnswer = (
-      await ask(`  CLI Display Language [${currentDisplayLang}] (en/ja): `)
-    )
+    const currentDisplayLang = initialLang;
+    const displayLangAnswer = (await ask(m().promptDisplayLang(currentDisplayLang)))
       .trim()
       .toLowerCase();
     const resolvedDisplayLang = normalizeLanguage(displayLangAnswer) || currentDisplayLang;
@@ -287,7 +286,7 @@ export async function runInitWizard(options: InitWizardOptions = {}): Promise<vo
     i18n = getI18n(resolvedDisplayLang);
 
     const currentTargetLang = currentConfig.targetLang || "ja";
-    const langAnswer = (await ask(`  ${m().promptTargetLang}[${currentTargetLang}]: `)).trim();
+    const langAnswer = (await ask(m().promptTargetLang(currentTargetLang))).trim();
     updatedConfig.targetLang = langAnswer || currentTargetLang;
 
     const currentGeminiModel = currentConfig.geminiModel || DEFAULT_GEMINI_MODEL;

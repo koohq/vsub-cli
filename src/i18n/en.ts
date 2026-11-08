@@ -262,8 +262,8 @@ export const en = {
     ffmpegFailed: (err: string) => `  ✖ FFmpeg not found or failed: ${err}`,
     promptFfmpegPath: "  Enter FFmpeg path (or Enter to keep/skip): ",
     step4Title: "▶ [4/4] Default Preferences",
-    promptDisplayLang: "  CLI Display Language [en] (en/ja, Enter to keep current): ",
-    promptTargetLang: "  Default Target Subtitle Language [ja]: ",
+    promptDisplayLang: (current: string) => `  CLI Display Language [${current}] (en/ja): `,
+    promptTargetLang: (current: string) => `  Default Target Subtitle Language [${current}]: `,
     configSaved: (path: string) =>
       `\n🎉 Setup completed successfully!\nSettings saved to: ${path}\n`,
     configNotSaved: "The settings you entered in this wizard were not saved.",
