@@ -59,6 +59,26 @@ export function computeSha256(filePath: string): string {
 }
 
 /**
+ * Resolves the tar executable. On Windows, prefers System32's bsdtar by absolute path so a
+ * GNU tar earlier on PATH (e.g. Git Bash) is not picked up; it cannot create zips or handle `C:` paths.
+ */
+export function resolveTarCommand(
+  platform: NodeJS.Platform = process.platform,
+  env: NodeJS.ProcessEnv = process.env,
+  exists: (p: string) => boolean = fs.existsSync,
+): string {
+  if (platform !== "win32") {
+    return "tar";
+  }
+  const systemRoot = env["SystemRoot"] || env["windir"];
+  if (!systemRoot) {
+    return "tar";
+  }
+  const bsdtar = path.win32.join(systemRoot, "System32", "tar.exe");
+  return exists(bsdtar) ? bsdtar : "tar";
+}
+
+/**
  * Creates an archive (.zip or .tar.gz) from a staging directory.
  */
 export async function createArchiveFile(
@@ -70,7 +90,7 @@ export async function createArchiveFile(
 
   if (format === "zip") {
     if (process.platform === "win32") {
-      await execa("tar", ["-a", "-cf", outputPath, ...files], {
+      await execa(resolveTarCommand(), ["-a", "-cf", outputPath, ...files], {
         cwd: stagingDir,
       });
     } else {
@@ -79,13 +99,13 @@ export async function createArchiveFile(
           cwd: stagingDir,
         });
       } catch {
-        await execa("tar", ["-a", "-cf", outputPath, ...files], {
+        await execa(resolveTarCommand(), ["-a", "-cf", outputPath, ...files], {
           cwd: stagingDir,
         });
       }
     }
   } else {
-    await execa("tar", ["-czf", outputPath, ...files], {
+    await execa(resolveTarCommand(), ["-czf", outputPath, ...files], {
       cwd: stagingDir,
     });
   }

@@ -2,7 +2,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
-import { computeSha256, packageReleaseAssets } from "./package-release.js";
+import { computeSha256, packageReleaseAssets, resolveTarCommand } from "./package-release.js";
 
 describe("package-release", () => {
   it("should compute accurate sha256 of a file", () => {
@@ -68,5 +68,31 @@ describe("package-release", () => {
         inputDir: "non-existent-input-dir",
       }),
     ).rejects.toThrow("Input directory not found");
+  });
+});
+
+describe("resolveTarCommand", () => {
+  it.each([
+    [
+      "win32",
+      { SystemRoot: "C:\\Windows" },
+      true,
+      path.win32.join("C:\\Windows", "System32", "tar.exe"),
+    ],
+    ["win32", { windir: "D:\\Win" }, true, path.win32.join("D:\\Win", "System32", "tar.exe")],
+    ["win32", { SystemRoot: "C:\\Windows" }, false, "tar"],
+    ["win32", {}, true, "tar"],
+    ["linux", { SystemRoot: "C:\\Windows" }, true, "tar"],
+    ["darwin", {}, true, "tar"],
+  ] as const)("resolves tar for %s with env %j (exists: %s)", (platform, env, exists, expected) => {
+    const checked: string[] = [];
+    const fakeExists = (p: string) => {
+      checked.push(p);
+      return exists;
+    };
+    expect(resolveTarCommand(platform, env, fakeExists)).toBe(expected);
+    if (platform !== "win32") {
+      expect(checked).toEqual([]);
+    }
   });
 });

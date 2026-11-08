@@ -1,0 +1,54 @@
+import fs from "node:fs";
+import path from "node:path";
+
+/**
+ * Environment variables read by getConfig() and getCacheDir() that tests must not inherit
+ * from a developer's shell or .env file. VSUB_GROQ_API_KEY / VSUB_GEMINI_API_KEY are
+ * intentionally absent: callers set dummy values for them.
+ */
+export const ENV_VARS_TO_CLEAR = [
+  "GROQ_API_KEY",
+  "GEMINI_API_KEY",
+  "VSUB_FFMPEG_PATH",
+  "FFMPEG_PATH",
+  "VSUB_WHISPER_PROMPT",
+  "WHISPER_PROMPT",
+  "VSUB_PROMPT",
+  "VSUB_GEMINI_PROMPT",
+  "GEMINI_PROMPT",
+  "VSUB_GLOSSARY",
+  "GLOSSARY",
+  "VSUB_CONCURRENCY",
+  "VSUB_GEMINI_MODEL",
+  "GEMINI_MODEL",
+  "VSUB_GROQ_MODEL",
+  "GROQ_MODEL",
+  "VSUB_TARGET_LANG",
+  "TARGET_LANG",
+  "VSUB_LANG",
+  "VSUB_NO_UPDATE_CHECK",
+  "VSUB_DISABLE_UPDATE_CHECK",
+  "VSUB_MAX_LENGTH",
+  "VSUB_BURN_POSITION",
+  "VSUB_BURN_FONT_SIZE",
+];
+
+/**
+ * Points the global config and cache directories into baseTempDir and clears config-related
+ * environment variables. Mutates the current process.env, so callers must replace
+ * process.env with a copy beforehand and restore it afterwards.
+ */
+export function isolateConfigAndEnv(
+  baseTempDir: string,
+  suffix = "config-home",
+): { configHome: string } {
+  const configHome = path.join(baseTempDir, suffix);
+  fs.mkdirSync(configHome, { recursive: true });
+  process.env["APPDATA"] = configHome;
+  process.env["XDG_CONFIG_HOME"] = configHome;
+  process.env["VSUB_CACHE_DIR"] = path.join(configHome, "cache");
+  for (const envVar of ENV_VARS_TO_CLEAR) {
+    delete process.env[envVar];
+  }
+  return { configHome };
+}

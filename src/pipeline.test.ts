@@ -33,6 +33,7 @@ import {
   resolveTranscriptEntries,
 } from "./pipeline.js";
 import { reflowSrtEntries, type SrtEntry } from "./srt.js";
+import { isolateConfigAndEnv } from "./test-support/isolate-config-env.js";
 
 vi.mock("./gemini.js", async (importOriginal) => {
   const actual = await importOriginal<typeof import("./gemini.js")>();
@@ -82,36 +83,9 @@ vi.mock("./groq.js", async (importOriginal) => {
   };
 });
 
-const ENV_VARS_TO_CLEAR = [
-  "VSUB_PROMPT",
-  "VSUB_GEMINI_PROMPT",
-  "GEMINI_PROMPT",
-  "VSUB_GLOSSARY",
-  "GLOSSARY",
-  "VSUB_GEMINI_MODEL",
-  "GEMINI_MODEL",
-  "VSUB_WHISPER_PROMPT",
-  "WHISPER_PROMPT",
-  "VSUB_GROQ_MODEL",
-  "GROQ_MODEL",
-  "VSUB_MAX_LENGTH",
-  "VSUB_TARGET_LANG",
-  "TARGET_LANG",
-];
-
-function isolateConfigAndEnv(baseTempDir: string, suffix = "config-home"): { configHome: string } {
-  const configHome = path.join(baseTempDir, suffix);
-  fs.mkdirSync(configHome, { recursive: true });
-  process.env["APPDATA"] = configHome;
-  process.env["XDG_CONFIG_HOME"] = configHome;
-  for (const envVar of ENV_VARS_TO_CLEAR) {
-    delete process.env[envVar];
-  }
-  return { configHome };
-}
-
 describe("pipeline.ts", () => {
   let tempDir: string;
+  let configHome: string;
   const originalEnv = process.env;
 
   beforeEach(() => {
@@ -121,6 +95,7 @@ describe("pipeline.ts", () => {
       VSUB_GEMINI_API_KEY: "test-gemini-api-key",
       VSUB_GROQ_API_KEY: "test-groq-api-key",
     };
+    ({ configHome } = isolateConfigAndEnv(tempDir));
   });
 
   afterEach(() => {
@@ -842,7 +817,6 @@ describe("pipeline.ts", () => {
   describe("processMediaPipeline --embed container pre-check", () => {
     beforeEach(() => {
       vi.clearAllMocks();
-      isolateConfigAndEnv(tempDir, "config-home-embed");
       vi.spyOn(console, "log").mockImplementation(() => {});
     });
 
@@ -1095,7 +1069,6 @@ describe("pipeline.ts", () => {
 
     beforeEach(() => {
       vi.clearAllMocks();
-      isolateConfigAndEnv(tempDir, "config-home-output-paths");
       vi.spyOn(console, "log").mockImplementation(() => {});
       dummyMedia = path.join(tempDir, "sample.mp4");
       fs.writeFileSync(dummyMedia, mediaContent);
@@ -1416,22 +1389,14 @@ describe("pipeline.ts", () => {
   });
 
   describe("processMediaPipeline default target language", () => {
-    let configHome: string;
     let cacheDir: string;
     let mediaFile: string;
 
     beforeEach(() => {
       vi.clearAllMocks();
-      configHome = path.join(tempDir, "config-home");
       cacheDir = path.join(tempDir, "cache");
       mediaFile = path.join(tempDir, "sample.mp4");
-      fs.mkdirSync(configHome, { recursive: true });
       fs.writeFileSync(mediaFile, "dummy video data");
-
-      process.env["APPDATA"] = configHome;
-      process.env["XDG_CONFIG_HOME"] = configHome;
-      delete process.env["VSUB_TARGET_LANG"];
-      delete process.env["TARGET_LANG"];
 
       saveTranscriptionCache(
         mediaFile,
@@ -1526,7 +1491,6 @@ describe("pipeline.ts", () => {
 
     beforeEach(() => {
       vi.clearAllMocks();
-      isolateConfigAndEnv(tempDir, "config-home-binding");
       cacheDir = path.join(tempDir, "cache-binding");
       mediaFile = path.join(tempDir, "sample-binding.mp4");
       fs.writeFileSync(mediaFile, "dummy video data");
@@ -1799,13 +1763,11 @@ describe("pipeline.ts", () => {
   });
 
   describe("transcription, chapters and summary cache binding", () => {
-    let configHome: string;
     let cacheDir: string;
     let mediaFile: string;
 
     beforeEach(() => {
       vi.clearAllMocks();
-      configHome = isolateConfigAndEnv(tempDir, "config-home-rest").configHome;
       cacheDir = path.join(tempDir, "cache-rest");
       mediaFile = path.join(tempDir, "sample-rest.mp4");
       fs.writeFileSync(mediaFile, "dummy video data");

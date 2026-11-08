@@ -16,6 +16,7 @@ vi.mock("execa", async (importOriginal) => {
   };
 });
 
+import { resolveTarCommand } from "../scripts/package-release.js";
 import { extractArchive } from "./updater.js";
 
 describe.skipIf(process.platform !== "win32")(
@@ -43,7 +44,7 @@ describe.skipIf(process.platform !== "win32")(
 
       // 2. Create zip archive using real execa tar (-a -cf)
       const cleanZipPath = path.join(cleanDir, "archive.zip");
-      await realExeca("tar", ["-a", "-cf", cleanZipPath, "-C", cleanDir, "vsub.exe"]);
+      await realExeca(resolveTarCommand(), ["-a", "-cf", cleanZipPath, "-C", cleanDir, "vsub.exe"]);
       expect(fs.existsSync(cleanZipPath)).toBe(true);
 
       // 3. Move zip archive to a folder with single quotes, brackets, and spaces

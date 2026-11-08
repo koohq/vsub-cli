@@ -235,14 +235,28 @@ describe("gemini.ts", () => {
         },
       ];
 
-      mockGenerateContent.mockRejectedValue(new Error("Network Timeout"));
+      vi.useFakeTimers();
+      try {
+        mockGenerateContent.mockRejectedValue(new Error("Network Timeout"));
 
-      await expect(translateSrtEntries(entries, "ja", "fake-key")).rejects.toThrow(
-        /Gemini API translation failed after 4 attempts on chunk 1\/1/,
-      );
+        const promise = translateSrtEntries(entries, "ja", "fake-key");
+        // Attach the handler first so the rejection is never reported as unhandled.
+        const assertion = expect(promise).rejects.toThrow(
+          /Gemini API translation failed after 4 attempts on chunk 1\/1/,
+        );
 
-      expect(mockGenerateContent).toHaveBeenCalledTimes(4);
-    }, 15000);
+        await vi.advanceTimersByTimeAsync(0);
+        expect(mockGenerateContent).toHaveBeenCalledTimes(1);
+        await vi.advanceTimersByTimeAsync(1499); // shortest first backoff is 1500ms
+        expect(mockGenerateContent).toHaveBeenCalledTimes(1);
+        await vi.runAllTimersAsync();
+
+        await assertion;
+        expect(mockGenerateContent).toHaveBeenCalledTimes(4);
+      } finally {
+        vi.useRealTimers();
+      }
+    });
 
     it("should call onProgress callback for each completed chunk", async () => {
       const entries: SrtEntry[] = [];

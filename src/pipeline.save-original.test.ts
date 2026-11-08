@@ -4,9 +4,16 @@ import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { createCachedTranslation, saveTranscriptionCache, saveTranslationCache } from "./cache.js";
 import { DEFAULT_GEMINI_MODEL } from "./config.js";
-import { DEFAULT_CONTEXT_WINDOW_SIZE } from "./gemini.js";
+import { checkFfmpeg, extractAudio } from "./ffmpeg.js";
+import { DEFAULT_CONTEXT_WINDOW_SIZE, translateSrtEntries } from "./gemini.js";
+import { transcribeAudioSegments } from "./groq.js";
 import { processMediaPipeline } from "./pipeline.js";
 import { ensureWritableTargets } from "./safety.js";
+import { isolateConfigAndEnv } from "./test-support/isolate-config-env.js";
+
+const mustNotBeCalled = vi.hoisted(
+  () => (name: string) => new Error(`${name} must not be called: cache should be hit`),
+);
 
 const actualSafety = await vi.importActual<typeof import("./safety.js")>("./safety.js");
 
@@ -14,8 +21,17 @@ vi.mock("./gemini.js", async (importOriginal) => {
   const actual = await importOriginal<typeof import("./gemini.js")>();
   return {
     ...actual,
+    translateSrtEntries: vi.fn().mockRejectedValue(mustNotBeCalled("translateSrtEntries")),
     generateChapters: vi.fn(),
     generateSummary: vi.fn(),
+  };
+});
+
+vi.mock("./groq.js", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("./groq.js")>();
+  return {
+    ...actual,
+    transcribeAudioSegments: vi.fn().mockRejectedValue(mustNotBeCalled("transcribeAudioSegments")),
   };
 });
 
@@ -23,6 +39,8 @@ vi.mock("./ffmpeg.js", async (importOriginal) => {
   const actual = await importOriginal<typeof import("./ffmpeg.js")>();
   return {
     ...actual,
+    checkFfmpeg: vi.fn().mockRejectedValue(mustNotBeCalled("checkFfmpeg")),
+    extractAudio: vi.fn().mockRejectedValue(mustNotBeCalled("extractAudio")),
     burnSubtitlesToVideo: vi.fn(),
     embedSubtitlesToVideo: vi.fn(),
   };
@@ -47,6 +65,7 @@ describe("pipeline.ts --save-original overwrite confirmation", () => {
       VSUB_GEMINI_API_KEY: "test-gemini-key",
       VSUB_GROQ_API_KEY: "test-groq-key",
     };
+    isolateConfigAndEnv(tempDir);
     vi.mocked(ensureWritableTargets).mockImplementation(actualSafety.ensureWritableTargets);
   });
 
@@ -58,6 +77,11 @@ describe("pipeline.ts --save-original overwrite confirmation", () => {
       // ignore
     }
     vi.restoreAllMocks();
+    // A cache miss would fall through to real ffmpeg / Groq / Gemini calls.
+    expect(translateSrtEntries).not.toHaveBeenCalled();
+    expect(transcribeAudioSegments).not.toHaveBeenCalled();
+    expect(checkFfmpeg).not.toHaveBeenCalled();
+    expect(extractAudio).not.toHaveBeenCalled();
   });
 
   function setupFixture(
