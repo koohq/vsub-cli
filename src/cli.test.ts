@@ -7,6 +7,7 @@ import { getCacheStats, loadMediaCache, saveTranslationCache } from "./cache.js"
 import { createProgram } from "./cli.js";
 import { getConfig, saveGlobalConfig } from "./config.js";
 import { translateSrtEntries } from "./gemini.js";
+import { runInitWizard } from "./init.js";
 import {
   processChaptersPipeline,
   processMediaPipeline,
@@ -106,6 +107,14 @@ vi.mock("./batch.js", async (importOriginal) => {
   return {
     ...actual,
     runBatchPipeline: vi.fn().mockResolvedValue({ failedCount: 0 }),
+  };
+});
+
+vi.mock("./init.js", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("./init.js")>();
+  return {
+    ...actual,
+    runInitWizard: vi.fn().mockResolvedValue(undefined),
   };
 });
 
@@ -491,5 +500,45 @@ describe("CLI integration harness", () => {
       );
       expect(exitSpy).not.toHaveBeenCalled();
     });
+  });
+
+  describe("init --lang", () => {
+    const initLangCases: Array<{
+      name: string;
+      args: string[];
+      expectedLang: string | undefined;
+    }> = [
+      { name: "vsub --lang en init", args: ["--lang", "en", "init"], expectedLang: "en" },
+      {
+        name: "vsub --lang en config init",
+        args: ["--lang", "en", "config", "init"],
+        expectedLang: "en",
+      },
+      { name: "vsub init --lang en", args: ["init", "--lang", "en"], expectedLang: "en" },
+      {
+        name: "vsub config init --lang en",
+        args: ["config", "init", "--lang", "en"],
+        expectedLang: "en",
+      },
+      { name: "vsub init --lang ja-JP", args: ["init", "--lang", "ja-JP"], expectedLang: "ja" },
+      { name: "vsub init --lang xx", args: ["init", "--lang", "xx"], expectedLang: undefined },
+      { name: "vsub init (no --lang)", args: ["init"], expectedLang: undefined },
+      { name: "vsub config init (no --lang)", args: ["config", "init"], expectedLang: undefined },
+    ];
+
+    it.each(initLangCases)(
+      "$name passes lang: $expectedLang to runInitWizard",
+      async ({ args, expectedLang }) => {
+        await runCli(...args);
+        expect(runInitWizard).toHaveBeenCalledTimes(1);
+        const passedLang = vi.mocked(runInitWizard).mock.calls[0]?.[0]?.lang;
+        if (expectedLang === undefined) {
+          expect(passedLang).toBeUndefined();
+        } else {
+          expect(passedLang).toBe(expectedLang);
+        }
+        expect(exitSpy).not.toHaveBeenCalled();
+      },
+    );
   });
 });

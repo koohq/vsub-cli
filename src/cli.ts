@@ -144,6 +144,28 @@ function readActionOptions<T>(cmd: Command): T & NormalizedNegativeFlags {
 }
 
 /**
+ * Creates a hidden -l/--lang option for commands that accept UI display language
+ * without exposing it in their help output.
+ */
+function createHiddenLangOption(): Option {
+  return new Option("-l, --lang <lang>", "UI display language (en, ja)").hideHelp();
+}
+
+/**
+ * Attaches the interactive setup wizard subcommand ("init") to a parent command.
+ */
+function addInitCommand(parent: Command, description: string): void {
+  parent
+    .command("init")
+    .description(description)
+    .addOption(createHiddenLangOption())
+    .action(async (_options: unknown, cmd: Command) => {
+      const actionOptions = readActionOptions<{ lang?: string }>(cmd);
+      await runInitWizard({ lang: normalizeLanguage(actionOptions.lang) });
+    });
+}
+
+/**
  * Recursively traverses subcommands and attaches hidden global options (-l/--lang, --no-update-check)
  * to leaf commands that define their own options.
  */
@@ -157,7 +179,7 @@ function acceptGlobalOptions(rootCmd: Command): void {
       (opt) => opt.long === "--lang" || opt.short === "-l",
     );
     if (!hasLangOption) {
-      rootCmd.addOption(new Option("-l, --lang <lang>", "UI display language (en, ja)").hideHelp());
+      rootCmd.addOption(createHiddenLangOption());
     }
 
     const hasNoUpdateCheck = rootCmd.options.some((opt) => opt.long === "--no-update-check");
@@ -454,24 +476,16 @@ export function createProgram(): Command {
       },
     );
 
-  configCmd
-    .command("init")
-    .description(
-      "Interactive setup wizard to configure API keys and preferences (alias to vsub init)",
-    )
-    .action(async () => {
-      await runInitWizard();
-    });
+  addInitCommand(
+    configCmd,
+    "Interactive setup wizard to configure API keys and preferences (alias to vsub init)",
+  );
 
   // Subcommand: init (Top-level wizard)
-  program
-    .command("init")
-    .description(
-      "Interactive setup wizard to verify and configure Groq API, Gemini API, FFmpeg, and preferences",
-    )
-    .action(async () => {
-      await runInitWizard();
-    });
+  addInitCommand(
+    program,
+    "Interactive setup wizard to verify and configure Groq API, Gemini API, FFmpeg, and preferences",
+  );
 
   // Subcommand: cache
   const cacheCmd = program
