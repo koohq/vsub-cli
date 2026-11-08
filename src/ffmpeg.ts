@@ -505,6 +505,13 @@ export function supportsSoftSubtitles(extOrPath: string): boolean {
 }
 
 /**
+ * Returns the comma-separated list of containers that support soft subtitle embedding.
+ */
+export function listSoftSubtitleContainers(): string {
+  return Object.keys(CONTAINER_SUBTITLE_CODECS).join(", ");
+}
+
+/**
  * Resolves the appropriate subtitle codec for a given video file extension.
  * Throws an error if the container is not supported for soft subtitle embedding.
  */

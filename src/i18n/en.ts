@@ -119,6 +119,8 @@ export const en = {
     cannotEmbedAudio: "Cannot embed subtitles into an audio file",
     embedUnsupportedContainer: (file: string, ext: string, supported: string) =>
       `Cannot embed subtitle tracks into "${file}": the ${ext} container does not support soft subtitles (supported: ${supported}). Generate the subtitles without --embed, then run "vsub embed <video> <subtitle-file> -o <name>.mkv".`,
+    outputPathConflict: (file: string) =>
+      `Cannot write "${file}": the path is the input media file or is also used by another output. Specify a different path with -o.`,
     stdoutSingleFormatOnly:
       "Cannot specify multiple formats with --stdout. Please specify a single format (e.g. -f srt).",
     stdoutSingleLangOnly:
@@ -205,6 +207,8 @@ export const en = {
     notVideoFile: (name: string) => `Cannot embed subtitles into non-video format: ${name}`,
     subtitleNotFound: (path: string) => `Subtitle file not found: ${path}`,
     noSubtitles: "At least one subtitle file is required to embed into video.",
+    unsupportedContainer: (file: string, ext: string, supported: string) =>
+      `Cannot embed subtitle tracks into "${file}": the ${ext || "(no extension)"} container does not support soft subtitles (supported: ${supported}). Specify an output file with a supported container, for example "-o <name>.mkv".`,
     stepEmbedding: "Embedding subtitle track(s) via FFmpeg stream copy...",
     stepSaved: (path: string) => `Embedded video saved successfully: ${path}`,
   },

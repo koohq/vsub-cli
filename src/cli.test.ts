@@ -12,6 +12,7 @@ import {
 } from "./cache.js";
 import { createProgram } from "./cli.js";
 import { getConfig, saveGlobalConfig } from "./config.js";
+import { embedSubtitlesToVideo } from "./ffmpeg.js";
 import { DEFAULT_CONTEXT_WINDOW_SIZE, translateSrtEntries } from "./gemini.js";
 import { runInitWizard } from "./init.js";
 import {
@@ -633,5 +634,131 @@ describe("CLI integration harness", () => {
         expect(exitSpy).not.toHaveBeenCalled();
       },
     );
+  });
+
+  describe("embed unsupported container pre-check", () => {
+    let stderrOutput = "";
+    let stderrSpy: ReturnType<typeof vi.spyOn>;
+
+    beforeEach(() => {
+      stderrOutput = "";
+      stderrSpy = vi.spyOn(process.stderr, "write").mockImplementation(((
+        chunk: string | Uint8Array,
+      ) => {
+        stderrOutput += chunk.toString();
+        return true;
+      }) as never);
+    });
+
+    afterEach(() => {
+      stderrSpy.mockRestore();
+    });
+
+    it.each([
+      { video: "video.avi", out: undefined, expectedFile: "video.embedded.avi" },
+      { video: "video.mp4", out: "out.flv", expectedFile: "out.flv" },
+      { video: "video.mp4", out: "out", expectedFile: "out" },
+    ])(
+      "exits with code 1 and does not embed or back up for $video (out: $out)",
+      async ({ video, out, expectedFile }) => {
+        const videoPath = path.join(tmpDir, video);
+        fs.writeFileSync(videoPath, "");
+        const targetPath = path.join(tmpDir, expectedFile);
+        fs.writeFileSync(targetPath, "pre-existing");
+
+        const args = ["embed", videoPath, dummySrtPath, "--backup"];
+        if (out) {
+          args.push("-o", path.join(tmpDir, out));
+        }
+
+        await runCli(...args);
+
+        expect(exitSpy).toHaveBeenCalledWith(1);
+        expect(embedSubtitlesToVideo).not.toHaveBeenCalled();
+        expect(fs.readdirSync(tmpDir).some((f) => f.endsWith(".bak"))).toBe(false);
+        expect(stderrOutput).toContain(`Cannot embed subtitle tracks into "${expectedFile}"`);
+      },
+    );
+
+    it.each([
+      {
+        name: "English with extension",
+        args: ["embed", "video.avi", "dummy.srt"],
+        expected:
+          'Cannot embed subtitle tracks into "video.embedded.avi": the .avi container does not support soft subtitles (supported: .mp4, .m4v, .mov, .mkv, .webm). Specify an output file with a supported container, for example "-o <name>.mkv".',
+      },
+      {
+        name: "Japanese with extension",
+        args: ["--lang", "ja", "embed", "video.avi", "dummy.srt"],
+        expected:
+          "「video.embedded.avi」には字幕トラックを埋め込めません。.avi のコンテナはソフトサブに対応していません（対応: .mp4, .m4v, .mov, .mkv, .webm）。対応するコンテナの出力先を指定してください（例: -o <名前>.mkv）。",
+      },
+      {
+        name: "English without extension",
+        args: ["embed", "video.mp4", "dummy.srt", "-o", "out"],
+        expected:
+          'Cannot embed subtitle tracks into "out": the (no extension) container does not support soft subtitles (supported: .mp4, .m4v, .mov, .mkv, .webm). Specify an output file with a supported container, for example "-o <name>.mkv".',
+      },
+      {
+        name: "Japanese without extension",
+        args: ["--lang", "ja", "embed", "video.mp4", "dummy.srt", "-o", "out"],
+        expected:
+          "「out」には字幕トラックを埋め込めません。（拡張子なし） のコンテナはソフトサブに対応していません（対応: .mp4, .m4v, .mov, .mkv, .webm）。対応するコンテナの出力先を指定してください（例: -o <名前>.mkv）。",
+      },
+    ])("formats error message correctly for $name", async ({ args, expected }) => {
+      const resolvedArgs = args.map((arg) => {
+        if (arg === "video.avi" || arg === "video.mp4") {
+          const p = path.join(tmpDir, arg);
+          if (!fs.existsSync(p)) fs.writeFileSync(p, "");
+          return p;
+        }
+        if (arg === "dummy.srt") {
+          return dummySrtPath;
+        }
+        if (arg === "out") {
+          return path.join(tmpDir, "out");
+        }
+        return arg;
+      });
+
+      await runCli(...resolvedArgs);
+
+      expect(exitSpy).toHaveBeenCalledWith(1);
+      expect(embedSubtitlesToVideo).not.toHaveBeenCalled();
+      expect(stderrOutput).toContain(expected);
+    });
+
+    it("rejects when -o points to input video file and does not create backup", async () => {
+      await runCli("embed", dummyVideoPath, dummySrtPath, "-o", dummyVideoPath, "--backup");
+
+      expect(exitSpy).toHaveBeenCalledWith(1);
+      expect(embedSubtitlesToVideo).not.toHaveBeenCalled();
+      expect(fs.readdirSync(tmpDir).some((f) => f.endsWith(".bak"))).toBe(false);
+      expect(stderrOutput).toContain(`Cannot write "${path.basename(dummyVideoPath)}"`);
+    });
+
+    it("proceeds to embed when container is supported (-o out.mkv)", async () => {
+      const outMkv = path.join(tmpDir, "out.mkv");
+      await runCli("embed", dummyVideoPath, dummySrtPath, "-o", outMkv);
+
+      expect(embedSubtitlesToVideo).toHaveBeenCalledWith(
+        dummyVideoPath,
+        expect.anything(),
+        outMkv,
+        expect.anything(),
+      );
+      expect(exitSpy).not.toHaveBeenCalled();
+    });
+
+    it("displays updated description for root -o option", () => {
+      const program = createProgram();
+      const outputOption = program.options.find(
+        (opt) => opt.attributeName() === "output" || opt.long === "--output",
+      );
+      expect(outputOption).toBeDefined();
+      expect(outputOption?.description).toBe(
+        "Output path or base name for the generated subtitle file(s); with --embed or --burn and a video path (e.g. out.mkv), subtitles are saved as out.<lang>.<format>",
+      );
+    });
   });
 });

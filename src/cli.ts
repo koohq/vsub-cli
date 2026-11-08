@@ -25,9 +25,11 @@ import {
   checkFfmpeg,
   embedSubtitlesToVideo,
   isVideoFile,
+  listSoftSubtitleContainers,
   parseBurnFontSize,
   parseBurnPosition,
   type SubtitleTrackInput,
+  supportsSoftSubtitles,
 } from "./ffmpeg.js";
 import {
   formatEntries,
@@ -43,6 +45,7 @@ import { getLanguageDisplayName, parseTargetLanguages, resolveTargetLang } from 
 
 import { printLicenses } from "./licenses.js";
 import {
+  findOutputPathConflict,
   type ProcessMediaOptions,
   parseBilingualOrder,
   processChaptersPipeline,
@@ -1367,6 +1370,20 @@ export function createProgram(): Command {
             resolvedOutputPath = path.join(videoDir, `${videoBase}.embedded${videoExt}`);
           }
 
+          if (!supportsSoftSubtitles(resolvedOutputPath)) {
+            throw new Error(
+              em.unsupportedContainer(
+                path.basename(resolvedOutputPath),
+                path.extname(resolvedOutputPath).toLowerCase(),
+                listSoftSubtitleContainers(),
+              ),
+            );
+          }
+
+          if (findOutputPathConflict(resolvedVideoPath, [resolvedOutputPath])) {
+            throw new Error(i18n.pipeline.outputPathConflict(path.basename(resolvedOutputPath)));
+          }
+
           // Pre-check output video file safety
           const safetyCheck = await ensureWritableTargets([resolvedOutputPath], {
             overwrite: options.overwrite,
@@ -1607,7 +1624,10 @@ export function createProgram(): Command {
       "Output formats: comma-separated list of srt, vtt, txt, json",
       "srt",
     )
-    .option("-o, --output <path>", "Output path or base name for the generated subtitle file(s)")
+    .option(
+      "-o, --output <path>",
+      "Output path or base name for the generated subtitle file(s); with --embed or --burn and a video path (e.g. out.mkv), subtitles are saved as out.<lang>.<format>",
+    )
     .option("-w, --overwrite", "Overwrite existing output files without confirmation prompt", false)
     .option("--backup", "Create backup (.bak) of existing output files before overwriting", false)
     .option(

@@ -13,7 +13,7 @@ import {
   saveTranslationCache,
 } from "./cache.js";
 import { DEFAULT_GEMINI_MODEL, DEFAULT_GROQ_MODEL } from "./config.js";
-import { embedSubtitlesToVideo } from "./ffmpeg.js";
+import { burnSubtitlesToVideo, embedSubtitlesToVideo, extractAudio } from "./ffmpeg.js";
 import {
   DEFAULT_CONTEXT_WINDOW_SIZE,
   generateChapters,
@@ -22,10 +22,12 @@ import {
 } from "./gemini.js";
 import { transcribeAudioSegments } from "./groq.js";
 import {
+  findOutputPathConflict,
   parseBilingualOrder,
   processChaptersPipeline,
   processMediaPipeline,
   processSummaryPipeline,
+  resolveBurntVideoPath,
   resolveEmbeddedVideoPath,
   resolveOutputFilePaths,
   resolveTranscriptEntries,
@@ -964,6 +966,402 @@ describe("pipeline.ts", () => {
         /Cannot embed subtitle tracks into "sample.embedded.avi"/,
       );
       expect(fs.existsSync(outDir)).toBe(false);
+    });
+  });
+
+  describe("resolveBurntVideoPath", () => {
+    it.each([
+      {
+        media: "clip.mp4",
+        langTag: "ja",
+        isMultiLang: false,
+        out: undefined,
+        outDir: undefined,
+        expected: "clip.ja.subbed.mp4",
+      },
+      {
+        media: "clip.mp4",
+        langTag: "ja.bilingual",
+        isMultiLang: false,
+        out: undefined,
+        outDir: undefined,
+        expected: "clip.ja.bilingual.subbed.mp4",
+      },
+      {
+        media: "clip.mp4",
+        langTag: "ja",
+        isMultiLang: false,
+        out: undefined,
+        outDir: "dist",
+        expected: path.join("dist", "clip.ja.subbed.mp4"),
+      },
+      {
+        media: "clip.mp4",
+        langTag: "ja",
+        isMultiLang: false,
+        out: "out.mp4",
+        outDir: undefined,
+        expected: "out.mp4",
+      },
+      {
+        media: "clip.mp4",
+        langTag: "ja",
+        isMultiLang: false,
+        out: "out.mkv",
+        outDir: undefined,
+        expected: "out.subbed.mp4",
+      },
+      {
+        media: "clip.mp4",
+        langTag: "ja",
+        isMultiLang: false,
+        out: "out.srt",
+        outDir: undefined,
+        expected: "out.subbed.mp4",
+      },
+      {
+        media: "clip.mp4",
+        langTag: "ja",
+        isMultiLang: true,
+        out: "out.mp4",
+        outDir: undefined,
+        expected: "out.ja.subbed.mp4",
+      },
+      {
+        media: "clip.mp4",
+        langTag: "ja",
+        isMultiLang: false,
+        out: "out.mp4",
+        outDir: "dist",
+        expected: "out.mp4",
+      },
+    ])(
+      "resolves $media (langTag: $langTag, isMultiLang: $isMultiLang, out: $out, outDir: $outDir) -> $expected",
+      ({ media, langTag, isMultiLang, out, outDir, expected }) => {
+        const mediaPath = path.join(tempDir, media);
+        const outputOption = out ? path.join(tempDir, out) : undefined;
+        const outputDir = outDir ? path.join(tempDir, outDir) : undefined;
+        const expectedPath = path.join(tempDir, expected);
+        expect(
+          resolveBurntVideoPath(mediaPath, langTag, isMultiLang, outputOption, outputDir),
+        ).toBe(expectedPath);
+      },
+    );
+  });
+
+  describe("findOutputPathConflict", () => {
+    it.each([
+      {
+        name: "returns undefined when outputs are distinct and differ from input",
+        input: "input.mp4",
+        outputs: ["out.ja.srt", "out.mkv"],
+        expected: undefined,
+      },
+      {
+        name: "returns conflict when output matches input",
+        input: "input.mp4",
+        outputs: ["input.mp4"],
+        expected: "input.mp4",
+      },
+      {
+        name: "returns conflict when outputs duplicate each other",
+        input: "input.mp4",
+        outputs: ["out.mp4", "out.mp4"],
+        expected: "out.mp4",
+      },
+      {
+        name: "returns conflict when output matches input case-insensitively",
+        input: "input.mp4",
+        outputs: ["INPUT.MP4"],
+        expected: "INPUT.MP4",
+      },
+      {
+        name: "returns conflict when outputs duplicate case-insensitively",
+        input: "input.mp4",
+        outputs: ["out.mkv", "OUT.MKV"],
+        expected: "OUT.MKV",
+      },
+    ])("$name", ({ input, outputs, expected }) => {
+      const inputPath = path.join(tempDir, input);
+      const outputPaths = outputs.map((p) => path.join(tempDir, p));
+      const expectedPath = expected ? path.join(tempDir, expected) : undefined;
+      expect(findOutputPathConflict(inputPath, outputPaths)).toBe(expectedPath);
+    });
+  });
+
+  describe("processMediaPipeline output paths", () => {
+    const mediaContent = "dummy media bytes";
+    let dummyMedia: string;
+
+    beforeEach(() => {
+      vi.clearAllMocks();
+      isolateConfigAndEnv(tempDir, "config-home-output-paths");
+      vi.spyOn(console, "log").mockImplementation(() => {});
+      dummyMedia = path.join(tempDir, "sample.mp4");
+      fs.writeFileSync(dummyMedia, mediaContent);
+    });
+
+    const runPipeline = (options: Partial<Parameters<typeof processMediaPipeline>[0]> = {}) => {
+      return processMediaPipeline({
+        mediaFile: dummyMedia,
+        targetLang: "ja",
+        noCache: true,
+        ...options,
+      });
+    };
+
+    describe("with a video -o", () => {
+      const outputCases = [
+        {
+          name: "embed, -o out.mkv",
+          options: { embed: true, output: "out.mkv" },
+          subtitles: ["out.ja.srt"],
+          burnt: [] as string[],
+          embedded: "out.mkv",
+        },
+        {
+          name: "embed, -o out.mkv, format: srt,vtt",
+          options: { embed: true, output: "out.mkv", format: "srt,vtt" },
+          subtitles: ["out.ja.srt", "out.ja.vtt"],
+          burnt: [] as string[],
+          embedded: "out.mkv",
+        },
+        {
+          name: "embed, -o out.mkv, bilingual",
+          options: { embed: true, output: "out.mkv", bilingual: true },
+          subtitles: ["out.ja.bilingual.srt"],
+          burnt: [] as string[],
+          embedded: "out.mkv",
+        },
+        {
+          name: "embed, -o out.mkv, targetLang: ja,en",
+          options: { embed: true, output: "out.mkv", targetLang: "ja,en" },
+          subtitles: ["out.ja.srt", "out.en.srt"],
+          burnt: [] as string[],
+          embedded: "out.mkv",
+        },
+        {
+          name: "embed, -o out.srt",
+          options: { embed: true, output: "out.srt" },
+          subtitles: ["out.srt"],
+          burnt: [] as string[],
+          embedded: "out.embedded.mp4",
+        },
+        {
+          name: "burn, -o out.mp4",
+          options: { burn: true, output: "out.mp4" },
+          subtitles: ["out.ja.srt"],
+          burnt: ["out.mp4"],
+          embedded: undefined,
+        },
+        {
+          name: "burn, -o out.mkv",
+          options: { burn: true, output: "out.mkv" },
+          subtitles: ["out.ja.srt"],
+          burnt: ["out.subbed.mp4"],
+          embedded: undefined,
+        },
+        {
+          name: "burn, -o out.mp4, targetLang: ja,en",
+          options: { burn: true, output: "out.mp4", targetLang: "ja,en" },
+          subtitles: ["out.ja.srt", "out.en.srt"],
+          burnt: ["out.ja.subbed.mp4", "out.en.subbed.mp4"],
+          embedded: undefined,
+        },
+        {
+          name: "burn, -o out.srt",
+          options: { burn: true, output: "out.srt" },
+          subtitles: ["out.srt"],
+          burnt: ["out.subbed.mp4"],
+          embedded: undefined,
+        },
+        {
+          name: "embed and burn, -o out.mkv",
+          options: { embed: true, burn: true, output: "out.mkv" },
+          subtitles: ["out.ja.srt"],
+          burnt: ["out.subbed.mp4"],
+          embedded: "out.mkv",
+        },
+        {
+          name: "none, -o out.mkv",
+          options: { output: "out.mkv" },
+          subtitles: ["out.mkv"],
+          burnt: [] as string[],
+          embedded: undefined,
+        },
+        {
+          name: "none, -o out.srt",
+          options: { output: "out.srt" },
+          subtitles: ["out.srt"],
+          burnt: [] as string[],
+          embedded: undefined,
+        },
+        {
+          name: "none, -o out.srt, format: srt,vtt",
+          options: { output: "out.srt", format: "srt,vtt" },
+          subtitles: ["out.srt", "out.vtt"],
+          burnt: [] as string[],
+          embedded: undefined,
+        },
+      ];
+
+      it.each(outputCases)(
+        "generates correct subtitle, burn and embed paths for $name",
+        async ({ options, subtitles, burnt, embedded }) => {
+          const outOption = options.output ? path.join(tempDir, options.output) : undefined;
+          const expectedSubs = subtitles.map((s) => path.join(tempDir, s));
+          const expectedBurnt = burnt.map((b) => path.join(tempDir, b));
+          const expectedEmbedded = embedded ? path.join(tempDir, embedded) : undefined;
+          const expectedAllOutputs = [
+            ...expectedSubs,
+            ...expectedBurnt,
+            ...(expectedEmbedded ? [expectedEmbedded] : []),
+          ];
+
+          const result = await runPipeline({
+            ...options,
+            output: outOption,
+          });
+
+          for (const subPath of expectedSubs) {
+            expect(fs.existsSync(subPath)).toBe(true);
+            const content = fs.readFileSync(subPath, "utf-8");
+            expect(content).toContain("-->");
+          }
+
+          const expectedSrtSubs = expectedSubs.filter((sub) => sub.endsWith(".srt"));
+          expect(
+            vi
+              .mocked(burnSubtitlesToVideo)
+              .mock.calls.map(([video, sub, output]) => [video, sub, output]),
+          ).toEqual(
+            expectedBurnt.map((burntPath, i) => [dummyMedia, expectedSrtSubs[i], burntPath]),
+          );
+          expect(
+            vi
+              .mocked(embedSubtitlesToVideo)
+              .mock.calls.map(([video, tracks, output]) => [
+                video,
+                tracks.map((track) => track.path),
+                output,
+              ]),
+          ).toEqual(expectedEmbedded ? [[dummyMedia, expectedSrtSubs, expectedEmbedded]] : []);
+
+          expect(result.outputFiles).toEqual(expectedAllOutputs);
+        },
+      );
+
+      it.each(outputCases)(
+        "backs up all target files when backup: true for $name",
+        async ({ options, subtitles, burnt, embedded }) => {
+          const outOption = options.output ? path.join(tempDir, options.output) : undefined;
+          const expectedSubs = subtitles.map((s) => path.join(tempDir, s));
+          const expectedBurnt = burnt.map((b) => path.join(tempDir, b));
+          const expectedEmbedded = embedded ? path.join(tempDir, embedded) : undefined;
+          const expectedAllOutputs = [
+            ...expectedSubs,
+            ...expectedBurnt,
+            ...(expectedEmbedded ? [expectedEmbedded] : []),
+          ];
+
+          for (const targetPath of expectedAllOutputs) {
+            fs.writeFileSync(targetPath, "pre-existing file content");
+          }
+
+          const result = await runPipeline({
+            ...options,
+            output: outOption,
+            backup: true,
+          });
+
+          const expectedBackups = expectedAllOutputs.map((p) => `${p}.bak`);
+          expect((result.backedUpFiles ?? []).slice().sort()).toEqual(
+            expectedBackups.slice().sort(),
+          );
+        },
+      );
+    });
+
+    describe("conflict pre-check", () => {
+      const conflictCases = [
+        {
+          name: "embed and burn, -o out.mp4",
+          options: { embed: true, burn: true, output: "out.mp4" },
+          conflictFile: "out.mp4",
+        },
+        {
+          name: "none, -o sample.mp4",
+          options: { output: "sample.mp4" },
+          conflictFile: "sample.mp4",
+        },
+        {
+          name: "embed, -o sample.mp4",
+          options: { embed: true, output: "sample.mp4" },
+          conflictFile: "sample.mp4",
+        },
+        {
+          name: "burn, -o sample.mp4",
+          options: { burn: true, output: "sample.mp4" },
+          conflictFile: "sample.mp4",
+        },
+        {
+          name: "embed and burn, -o out.mp4, outputDir: out-dir",
+          options: { embed: true, burn: true, output: "out.mp4", outputDir: "out-dir" },
+          conflictFile: "out.mp4",
+        },
+      ];
+
+      it.each(conflictCases)(
+        "rejects when output conflicts before calling expensive APIs ($name)",
+        async ({ options, conflictFile }) => {
+          const outOption = options.output ? path.join(tempDir, options.output) : undefined;
+          const outDirOption = options.outputDir
+            ? path.join(tempDir, options.outputDir)
+            : undefined;
+
+          const filesBefore = fs.readdirSync(tempDir);
+
+          await expect(
+            runPipeline({
+              ...options,
+              output: outOption,
+              outputDir: outDirOption,
+              overwrite: true,
+            }),
+          ).rejects.toThrow(`Cannot write "${conflictFile}"`);
+
+          expect(extractAudio).not.toHaveBeenCalled();
+          expect(transcribeAudioSegments).not.toHaveBeenCalled();
+          expect(translateSrtEntries).not.toHaveBeenCalled();
+          expect(burnSubtitlesToVideo).not.toHaveBeenCalled();
+          expect(embedSubtitlesToVideo).not.toHaveBeenCalled();
+
+          expect(fs.readFileSync(dummyMedia, "utf-8")).toBe(mediaContent);
+          expect(fs.readdirSync(tempDir)).toEqual(filesBefore);
+        },
+      );
+
+      it.each([
+        {
+          lang: "en" as const,
+          expected:
+            'Cannot write "out.mp4": the path is the input media file or is also used by another output. Specify a different path with -o.',
+        },
+        {
+          lang: "ja" as const,
+          expected:
+            "「out.mp4」には書き出せません。入力のメディアファイルか、ほかの出力と同じパスです。-o で別のパスを指定してください。",
+        },
+      ])("formats error message correctly in $lang", async ({ lang, expected }) => {
+        await expect(
+          runPipeline({
+            embed: true,
+            burn: true,
+            output: path.join(tempDir, "out.mp4"),
+            lang,
+          }),
+        ).rejects.toThrow(expected);
+      });
     });
   });
 

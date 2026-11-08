@@ -120,6 +120,8 @@ export const ja: typeof en = {
     cannotEmbedAudio: "音声ファイルに字幕トラックを埋め込むことはできません",
     embedUnsupportedContainer: (file: string, ext: string, supported: string) =>
       `「${file}」には字幕トラックを埋め込めません。${ext} のコンテナはソフトサブに対応していません（対応: ${supported}）。--embed を付けずに字幕を作ってから、「vsub embed <動画> <字幕ファイル> -o <名前>.mkv」を実行してください。`,
+    outputPathConflict: (file: string) =>
+      `「${file}」には書き出せません。入力のメディアファイルか、ほかの出力と同じパスです。-o で別のパスを指定してください。`,
     stdoutSingleFormatOnly:
       "--stdout 指定時は複数の出力フォーマットを指定できません。単一のフォーマットを指定してください (例: -f srt)。",
     stdoutSingleLangOnly:
@@ -209,6 +211,8 @@ export const ja: typeof en = {
       `動画ファイル以外の形式には字幕トラックを埋め込めません: ${name}`,
     subtitleNotFound: (path: string) => `字幕ファイルが見つかりません: ${path}`,
     noSubtitles: "動画に埋め込む字幕ファイルを1つ以上指定してください。",
+    unsupportedContainer: (file: string, ext: string, supported: string) =>
+      `「${file}」には字幕トラックを埋め込めません。${ext || "（拡張子なし）"} のコンテナはソフトサブに対応していません（対応: ${supported}）。対応するコンテナの出力先を指定してください（例: -o <名前>.mkv）。`,
     stepEmbedding: "FFmpeg ストリームコピーで字幕トラックを埋め込み中...",
     stepSaved: (path: string) => `字幕トラック埋め込み動画を保存完了: ${path}`,
   },
