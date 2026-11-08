@@ -3,7 +3,13 @@ import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { runBatchPipeline } from "./batch.js";
-import { getCacheStats, loadMediaCache, saveTranslationCache } from "./cache.js";
+import {
+  computeEntriesHash,
+  createCachedTranslation,
+  getCacheStats,
+  loadMediaCache,
+  saveTranslationCache,
+} from "./cache.js";
 import { createProgram } from "./cli.js";
 import { getConfig, saveGlobalConfig } from "./config.js";
 import { translateSrtEntries } from "./gemini.js";
@@ -13,7 +19,7 @@ import {
   processMediaPipeline,
   processSummaryPipeline,
 } from "./pipeline.js";
-import { reflowSrtEntries } from "./srt.js";
+import { parseSrt, reflowSrtEntries } from "./srt.js";
 import { notifyUpdateIfAvailable } from "./updater.js";
 
 const { mockConfig } = vi.hoisted(() => ({
@@ -467,6 +473,75 @@ describe("CLI integration harness", () => {
       it(`applies default behavior when ${flag} is omitted`, async () => {
         await runCli("translate", dummySrtPath);
         assertWithoutFlag();
+        expect(exitSpy).not.toHaveBeenCalled();
+      });
+    });
+
+    describe("translate translation cache", () => {
+      let sourceEntries: ReturnType<typeof parseSrt>;
+
+      function mockCacheWithTranslation(cached: ReturnType<typeof createCachedTranslation>): void {
+        vi.mocked(loadMediaCache).mockReturnValue({
+          version: 1,
+          mediaPath: path.resolve(dummySrtPath),
+          mediaSize: 100,
+          mediaMtimeMs: 1000,
+          translations: {
+            [cached.targetLang.toLowerCase()]: cached,
+          },
+          createdAt: Date.now(),
+          updatedAt: Date.now(),
+        });
+      }
+
+      beforeEach(() => {
+        sourceEntries = parseSrt(fs.readFileSync(dummySrtPath, "utf-8"));
+      });
+
+      afterEach(() => {
+        vi.mocked(loadMediaCache).mockReturnValue(null);
+      });
+
+      it("does not call translateSrtEntries when matching cache exists", async () => {
+        const cached = createCachedTranslation(
+          "ja",
+          { sourceEntries },
+          sourceEntries.map((e) => ({ ...e, text: `訳: ${e.text}` })),
+        );
+        mockCacheWithTranslation(cached);
+
+        await runCli("translate", dummySrtPath, "-t", "ja");
+
+        expect(translateSrtEntries).not.toHaveBeenCalled();
+        expect(exitSpy).not.toHaveBeenCalled();
+      });
+
+      it("calls translateSrtEntries when prompt was specified in cache but omitted in CLI run", async () => {
+        const cached = createCachedTranslation(
+          "ja",
+          { sourceEntries, prompt: "Polite prompt" },
+          sourceEntries.map((e) => ({ ...e, text: `訳: ${e.text}` })),
+        );
+        mockCacheWithTranslation(cached);
+
+        await runCli("translate", dummySrtPath, "-t", "ja");
+
+        expect(translateSrtEntries).toHaveBeenCalledTimes(1);
+        expect(exitSpy).not.toHaveBeenCalled();
+      });
+
+      it("saves translation cache with sourceHash matching computeEntriesHash of translated entries", async () => {
+        await runCli("translate", dummySrtPath, "-t", "ja");
+
+        expect(translateSrtEntries).toHaveBeenCalledTimes(1);
+        const passedEntries = vi.mocked(translateSrtEntries).mock.calls[0]?.[0] as ReturnType<
+          typeof parseSrt
+        >;
+        expect(saveTranslationCache).toHaveBeenCalledTimes(1);
+
+        const savedData = vi.mocked(saveTranslationCache).mock.calls[0]?.[2];
+        expect(savedData).toBeDefined();
+        expect(savedData?.sourceHash).toBe(computeEntriesHash(passedEntries));
         expect(exitSpy).not.toHaveBeenCalled();
       });
     });

@@ -2,7 +2,8 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { saveTranscriptionCache, saveTranslationCache } from "./cache.js";
+import { createCachedTranslation, saveTranscriptionCache, saveTranslationCache } from "./cache.js";
+import { DEFAULT_GEMINI_MODEL } from "./config.js";
 import { processMediaPipeline } from "./pipeline.js";
 import { ensureWritableTargets } from "./safety.js";
 
@@ -77,18 +78,20 @@ describe("pipeline.ts --save-original overwrite confirmation", () => {
       fs.writeFileSync(originalSrtPath, options.existingOriginalContent, "utf-8");
     }
 
+    const rawEntries = [
+      {
+        id: 1,
+        startTime: "00:00:01,000",
+        endTime: "00:00:03,000",
+        text: "Hello world raw",
+      },
+    ];
+
     saveTranscriptionCache(
       mediaFile,
       {
         detectedLanguage: "en",
-        entries: [
-          {
-            id: 1,
-            startTime: "00:00:01,000",
-            endTime: "00:00:03,000",
-            text: "Hello world raw",
-          },
-        ],
+        entries: rawEntries,
         createdAt: Date.now(),
       },
       cacheDir,
@@ -97,9 +100,10 @@ describe("pipeline.ts --save-original overwrite confirmation", () => {
     saveTranslationCache(
       mediaFile,
       targetLang,
-      {
+      createCachedTranslation(
         targetLang,
-        entries: [
+        { sourceEntries: rawEntries, model: DEFAULT_GEMINI_MODEL },
+        [
           {
             id: 1,
             startTime: "00:00:01,000",
@@ -107,8 +111,7 @@ describe("pipeline.ts --save-original overwrite confirmation", () => {
             text: "こんにちは世界 翻訳",
           },
         ],
-        createdAt: Date.now(),
-      },
+      ),
       cacheDir,
     );
 

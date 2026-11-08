@@ -18,6 +18,7 @@ export interface CachedTranslation {
   model?: string | undefined;
   prompt?: string | undefined;
   glossaryHash?: string | undefined;
+  sourceHash?: string | undefined;
   entries: SrtEntry[];
   createdAt: number;
 }
@@ -61,32 +62,67 @@ export function isTranscriptionCacheValid(
 }
 
 /**
- * Checks if cached translation matches current prompt, glossary, and model requirements.
+ * Computes a sha256 hash representing the subtitle entries (id, startTime, endTime, text).
+ */
+export function computeEntriesHash(entries: SrtEntry[]): string {
+  const payload = JSON.stringify(entries.map((e) => [e.id, e.startTime, e.endTime, e.text]));
+  return crypto.createHash("sha256").update(payload).digest("hex");
+}
+
+export interface TranslationCacheContext {
+  sourceEntries: SrtEntry[];
+  prompt?: string | undefined;
+  glossaryHash?: string | undefined;
+  model?: string | undefined;
+}
+
+function normalizeCacheString(value?: string): string {
+  return value === undefined ? "" : value.trim();
+}
+
+/**
+ * Checks if cached translation matches current source entries, prompt, glossary, and model requirements.
  */
 export function isTranslationCacheValid(
   cached: CachedTranslation | undefined,
-  currentPrompt?: string,
-  currentGlossaryHash?: string,
-  currentModel?: string,
+  context: TranslationCacheContext,
 ): boolean {
   if (!cached) return false;
-  if (currentPrompt !== undefined && (cached.prompt ?? "") !== currentPrompt.trim()) {
+  if (!cached.sourceHash || cached.sourceHash !== computeEntriesHash(context.sourceEntries)) {
     return false;
   }
-  if (
-    currentGlossaryHash !== undefined &&
-    (cached.glossaryHash ?? "") !== currentGlossaryHash.trim()
-  ) {
+  if (cached.entries.length === 0 || cached.entries.length !== context.sourceEntries.length) {
     return false;
   }
-  if (
-    currentModel !== undefined &&
-    cached.model !== undefined &&
-    cached.model !== currentModel.trim()
-  ) {
+  if (normalizeCacheString(cached.prompt) !== normalizeCacheString(context.prompt)) {
+    return false;
+  }
+  if (normalizeCacheString(cached.glossaryHash) !== normalizeCacheString(context.glossaryHash)) {
+    return false;
+  }
+  if (normalizeCacheString(cached.model) !== normalizeCacheString(context.model)) {
     return false;
   }
   return true;
+}
+
+/**
+ * Creates a CachedTranslation object bound to the given context and translated entries.
+ */
+export function createCachedTranslation(
+  targetLang: string,
+  context: TranslationCacheContext,
+  translatedEntries: SrtEntry[],
+): CachedTranslation {
+  return {
+    targetLang,
+    model: context.model,
+    prompt: context.prompt,
+    glossaryHash: context.glossaryHash,
+    sourceHash: computeEntriesHash(context.sourceEntries),
+    entries: translatedEntries,
+    createdAt: Date.now(),
+  };
 }
 
 /**

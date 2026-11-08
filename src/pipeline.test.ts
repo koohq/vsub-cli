@@ -3,11 +3,14 @@ import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
+  createCachedTranslation,
+  loadMediaCache,
   saveChaptersCache,
   saveSummaryCache,
   saveTranscriptionCache,
   saveTranslationCache,
 } from "./cache.js";
+import { DEFAULT_GEMINI_MODEL } from "./config.js";
 import { translateSrtEntries } from "./gemini.js";
 import {
   parseBilingualOrder,
@@ -17,6 +20,7 @@ import {
   resolveOutputFilePaths,
   resolveTranscriptEntries,
 } from "./pipeline.js";
+import { reflowSrtEntries, type SrtEntry } from "./srt.js";
 
 vi.mock("./gemini.js", async (importOriginal) => {
   const actual = await importOriginal<typeof import("./gemini.js")>();
@@ -330,18 +334,14 @@ describe("pipeline.ts", () => {
       saveTranslationCache(
         mediaFile,
         "ja",
-        {
-          targetLang: "ja",
-          entries: [
-            {
-              id: 1,
-              startTime: "00:00:01,000",
-              endTime: "00:00:03,000",
-              text: "こんにちは世界",
-            },
-          ],
-          createdAt: Date.now(),
-        },
+        createCachedTranslation("ja", { sourceEntries: mockEntries, model: DEFAULT_GEMINI_MODEL }, [
+          {
+            id: 1,
+            startTime: "00:00:01,000",
+            endTime: "00:00:03,000",
+            text: "こんにちは世界",
+          },
+        ]),
         cacheDir,
       );
 
@@ -634,36 +634,28 @@ describe("pipeline.ts", () => {
       saveTranslationCache(
         mediaFile,
         "ja",
-        {
-          targetLang: "ja",
-          entries: [
-            {
-              id: 1,
-              startTime: "00:00:01,000",
-              endTime: "00:00:03,000",
-              text: "こんにちは",
-            },
-          ],
-          createdAt: Date.now(),
-        },
+        createCachedTranslation("ja", { sourceEntries: mockEntries, model: DEFAULT_GEMINI_MODEL }, [
+          {
+            id: 1,
+            startTime: "00:00:01,000",
+            endTime: "00:00:03,000",
+            text: "こんにちは",
+          },
+        ]),
         cacheDir,
       );
 
       saveTranslationCache(
         mediaFile,
         "es",
-        {
-          targetLang: "es",
-          entries: [
-            {
-              id: 1,
-              startTime: "00:00:01,000",
-              endTime: "00:00:03,000",
-              text: "Hola",
-            },
-          ],
-          createdAt: Date.now(),
-        },
+        createCachedTranslation("es", { sourceEntries: mockEntries, model: DEFAULT_GEMINI_MODEL }, [
+          {
+            id: 1,
+            startTime: "00:00:01,000",
+            endTime: "00:00:03,000",
+            text: "Hola",
+          },
+        ]),
         cacheDir,
       );
 
@@ -870,5 +862,278 @@ describe("pipeline.ts", () => {
         }
       },
     );
+  });
+
+  describe("processMediaPipeline translation cache binding", () => {
+    let configHome: string;
+    let cacheDir: string;
+    let mediaFile: string;
+
+    const envVarsToClear = [
+      "VSUB_PROMPT",
+      "VSUB_GEMINI_PROMPT",
+      "GEMINI_PROMPT",
+      "VSUB_GLOSSARY",
+      "GLOSSARY",
+      "VSUB_GEMINI_MODEL",
+      "GEMINI_MODEL",
+      "VSUB_WHISPER_PROMPT",
+      "WHISPER_PROMPT",
+      "VSUB_MAX_LENGTH",
+      "VSUB_TARGET_LANG",
+      "TARGET_LANG",
+    ];
+
+    beforeEach(() => {
+      vi.clearAllMocks();
+      configHome = path.join(tempDir, "config-home-binding");
+      cacheDir = path.join(tempDir, "cache-binding");
+      mediaFile = path.join(tempDir, "sample-binding.mp4");
+      fs.mkdirSync(configHome, { recursive: true });
+      fs.writeFileSync(mediaFile, "dummy video data");
+
+      process.env["APPDATA"] = configHome;
+      process.env["XDG_CONFIG_HOME"] = configHome;
+      for (const envVar of envVarsToClear) {
+        delete process.env[envVar];
+      }
+    });
+
+    async function runPipelineTwice(params: {
+      initialTranscription: SrtEntry[];
+      firstOptions?: Partial<Parameters<typeof processMediaPipeline>[0]>;
+      secondTranscription?: SrtEntry[];
+      beforeSecondRun?: (() => void) | undefined;
+      secondOptions?: Partial<Parameters<typeof processMediaPipeline>[0]>;
+    }) {
+      saveTranscriptionCache(
+        mediaFile,
+        {
+          detectedLanguage: "en",
+          entries: params.initialTranscription,
+          createdAt: Date.now(),
+        },
+        cacheDir,
+      );
+
+      const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+      try {
+        const firstResult = await processMediaPipeline({
+          mediaFile,
+          targetLang: "ja",
+          cacheDir,
+          stdout: true,
+          ...params.firstOptions,
+        });
+
+        if (params.secondTranscription) {
+          saveTranscriptionCache(
+            mediaFile,
+            {
+              detectedLanguage: "en",
+              entries: params.secondTranscription,
+              createdAt: Date.now(),
+            },
+            cacheDir,
+          );
+        }
+
+        if (params.beforeSecondRun) {
+          params.beforeSecondRun();
+        }
+
+        const secondResult = await processMediaPipeline({
+          mediaFile,
+          targetLang: "ja",
+          cacheDir,
+          stdout: true,
+          ...params.secondOptions,
+        });
+
+        return { firstResult, secondResult };
+      } finally {
+        logSpy.mockRestore();
+      }
+    }
+
+    it("retranslates when transcription changes with same number of entries but different text and timestamps", async () => {
+      const transcriptionA: SrtEntry[] = [
+        { id: 1, startTime: "00:00:00,000", endTime: "00:00:02,000", text: "Hello world A" },
+      ];
+      const transcriptionB: SrtEntry[] = [
+        { id: 1, startTime: "00:00:04,000", endTime: "00:00:06,000", text: "Hello world B" },
+      ];
+
+      const { secondResult } = await runPipelineTwice({
+        initialTranscription: transcriptionA,
+        secondTranscription: transcriptionB,
+      });
+
+      expect(translateSrtEntries).toHaveBeenCalledTimes(2);
+      expect(vi.mocked(translateSrtEntries).mock.calls[1]?.[0]).toEqual(transcriptionB);
+      expect(secondResult.stdoutContent).toContain("00:00:04,000");
+      expect(secondResult.stdoutContent).not.toContain("00:00:00,000");
+    });
+
+    it("retranslates when reflow settings produce different text segments with the same entry count", async () => {
+      const transcription: SrtEntry[] = [
+        {
+          id: 1,
+          startTime: "00:00:00,000",
+          endTime: "00:00:06,000",
+          text: "one two three four five six seven eight",
+        },
+      ];
+
+      const reflow1 = reflowSrtEntries(transcription, { maxLength: 20 });
+      const reflow2 = reflowSrtEntries(transcription, { maxLength: 23 });
+      expect(reflow1).toHaveLength(2);
+      expect(reflow2).toHaveLength(2);
+      expect(reflow1[0]?.text).not.toBe(reflow2[0]?.text);
+
+      await runPipelineTwice({
+        initialTranscription: transcription,
+        firstOptions: { maxLength: 20 },
+        secondOptions: { maxLength: 23 },
+      });
+
+      expect(translateSrtEntries).toHaveBeenCalledTimes(2);
+    });
+
+    it.each([
+      {
+        name: "prompt attached first, then detached",
+        firstOptions: { prompt: "Translate politely" },
+        secondOptions: { prompt: undefined },
+      },
+      {
+        name: "prompt omitted first, then attached",
+        firstOptions: { prompt: undefined },
+        secondOptions: { prompt: "Translate politely" },
+      },
+      {
+        name: "geminiModel specified first, then omitted (default)",
+        firstOptions: { geminiModel: "gemini-3.7-flash" },
+        secondOptions: { geminiModel: undefined },
+      },
+      {
+        name: "geminiModel omitted (default) first, then specified",
+        firstOptions: { geminiModel: undefined },
+        secondOptions: { geminiModel: "gemini-3.7-flash" },
+      },
+    ])("retranslates when $name", async ({ firstOptions, secondOptions }) => {
+      const transcription: SrtEntry[] = [
+        { id: 1, startTime: "00:00:00,000", endTime: "00:00:02,000", text: "Hello" },
+      ];
+
+      await runPipelineTwice({
+        initialTranscription: transcription,
+        firstOptions,
+        secondOptions,
+      });
+
+      expect(translateSrtEntries).toHaveBeenCalledTimes(2);
+    });
+
+    it("invalidates legacy translation cache without sourceHash and updates it with sourceHash", async () => {
+      const transcription: SrtEntry[] = [
+        { id: 1, startTime: "00:00:00,000", endTime: "00:00:02,000", text: "Legacy test" },
+      ];
+      saveTranscriptionCache(
+        mediaFile,
+        {
+          detectedLanguage: "en",
+          entries: transcription,
+          createdAt: Date.now(),
+        },
+        cacheDir,
+      );
+
+      saveTranslationCache(
+        mediaFile,
+        "ja",
+        {
+          targetLang: "ja",
+          entries: [{ id: 1, startTime: "00:00:00,000", endTime: "00:00:02,000", text: "古い訳" }],
+          createdAt: Date.now(),
+        },
+        cacheDir,
+      );
+
+      const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+      try {
+        const result = await processMediaPipeline({
+          mediaFile,
+          targetLang: "ja",
+          cacheDir,
+          stdout: true,
+        });
+
+        expect(translateSrtEntries).toHaveBeenCalledTimes(1);
+        expect(result.cacheStatus?.transcriptionHit).toBe(true);
+
+        const updatedCache = loadMediaCache(mediaFile, cacheDir);
+        expect(updatedCache?.translations?.["ja"]?.sourceHash).toBeDefined();
+        expect(typeof updatedCache?.translations?.["ja"]?.sourceHash).toBe("string");
+      } finally {
+        logSpy.mockRestore();
+      }
+    });
+
+    it("reuses cache when source entries and options are identical", async () => {
+      const transcription: SrtEntry[] = [
+        { id: 1, startTime: "00:00:00,000", endTime: "00:00:02,000", text: "Consistent hello" },
+      ];
+
+      const { firstResult, secondResult } = await runPipelineTwice({
+        initialTranscription: transcription,
+      });
+
+      expect(translateSrtEntries).toHaveBeenCalledTimes(1);
+      expect(secondResult.stdoutContent).toBe(firstResult.stdoutContent);
+    });
+
+    it("reuses cache when maxLength differs but entries are not reflowed because text is short", async () => {
+      const transcription: SrtEntry[] = [
+        { id: 1, startTime: "00:00:00,000", endTime: "00:00:02,000", text: "Hi" },
+      ];
+
+      await runPipelineTwice({
+        initialTranscription: transcription,
+        firstOptions: { maxLength: 40 },
+        secondOptions: { maxLength: 50 },
+      });
+
+      expect(translateSrtEntries).toHaveBeenCalledTimes(1);
+    });
+
+    it("retranslates when environment variable VSUB_GEMINI_MODEL changes between runs", async () => {
+      const transcription: SrtEntry[] = [
+        { id: 1, startTime: "00:00:00,000", endTime: "00:00:02,000", text: "Env model test" },
+      ];
+
+      await runPipelineTwice({
+        initialTranscription: transcription,
+        beforeSecondRun: () => {
+          process.env["VSUB_GEMINI_MODEL"] = "gemini-3.7-flash";
+        },
+      });
+
+      expect(translateSrtEntries).toHaveBeenCalledTimes(2);
+    });
+
+    it("reuses cache when geminiModel explicitly matches DEFAULT_GEMINI_MODEL and is omitted on second run", async () => {
+      const transcription: SrtEntry[] = [
+        { id: 1, startTime: "00:00:00,000", endTime: "00:00:02,000", text: "Default model match" },
+      ];
+
+      await runPipelineTwice({
+        initialTranscription: transcription,
+        firstOptions: { geminiModel: DEFAULT_GEMINI_MODEL },
+        secondOptions: { geminiModel: undefined },
+      });
+
+      expect(translateSrtEntries).toHaveBeenCalledTimes(1);
+    });
   });
 });

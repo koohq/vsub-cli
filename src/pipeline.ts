@@ -3,6 +3,7 @@ import os from "node:os";
 import path from "node:path";
 import pc from "picocolors";
 import {
+  createCachedTranslation,
   isChaptersCacheValid,
   isSummaryCacheValid,
   isTranscriptionCacheValid,
@@ -12,6 +13,7 @@ import {
   saveSummaryCache,
   saveTranscriptionCache,
   saveTranslationCache,
+  type TranslationCacheContext,
 } from "./cache.js";
 import { DEFAULT_GEMINI_MODEL, DEFAULT_GROQ_MODEL, ensureApiKeys, getConfig } from "./config.js";
 import {
@@ -541,13 +543,17 @@ export async function processMediaPipeline(
         totalGlossaryTerms = Math.max(totalGlossaryTerms, Object.keys(glossaryMap).length);
       }
 
-      const cachedTranslation = mediaCache?.translations?.[targetL.toLowerCase()];
-      const isCacheValid =
-        useCache &&
-        isTranslationCacheValid(cachedTranslation, translationPrompt, glossaryHash, geminiModel) &&
-        cachedTranslation?.entries.length === srtEntries.length;
+      const cacheContext: TranslationCacheContext = {
+        sourceEntries: srtEntries,
+        prompt: translationPrompt,
+        glossaryHash,
+        model: geminiModel,
+      };
 
-      if (isCacheValid && cachedTranslation && cachedTranslation.entries.length > 0) {
+      const cachedTranslation = mediaCache?.translations?.[targetL.toLowerCase()];
+      const isCacheValid = useCache && isTranslationCacheValid(cachedTranslation, cacheContext);
+
+      if (isCacheValid && cachedTranslation) {
         resultsByLang.set(targetL, cachedTranslation.entries);
         cachedLanguages.push(targetL);
         translatedLanguages.push(targetL);
@@ -622,14 +628,7 @@ export async function processMediaPipeline(
         saveTranslationCache(
           resolvedMediaPath,
           targetL,
-          {
-            targetLang: targetL,
-            model: geminiModel,
-            prompt: translationPrompt,
-            glossaryHash,
-            entries: translatedEntries,
-            createdAt: Date.now(),
-          },
+          createCachedTranslation(targetL, cacheContext, translatedEntries),
           options.cacheDir,
         );
       }

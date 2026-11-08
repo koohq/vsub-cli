@@ -5,11 +5,13 @@ import pc from "picocolors";
 import { type BatchPipelineOptions, runBatchPipeline } from "./batch.js";
 import {
   clearCache,
+  createCachedTranslation,
   getCacheDir,
   getCacheStats,
   isTranslationCacheValid,
   loadMediaCache,
   saveTranslationCache,
+  type TranslationCacheContext,
 } from "./cache.js";
 import {
   DEFAULT_GEMINI_MODEL,
@@ -957,18 +959,17 @@ export function createProgram(): Command {
             totalGlossaryTerms = Math.max(totalGlossaryTerms, Object.keys(glossaryMap).length);
           }
 
-          const cachedTranslation = subtitleCache?.translations?.[tLang.toLowerCase()];
-          const isCacheValid =
-            useCache &&
-            isTranslationCacheValid(
-              cachedTranslation,
-              translationPrompt,
-              glossaryHash,
-              geminiModel,
-            ) &&
-            cachedTranslation?.entries.length === srtEntries.length;
+          const cacheContext: TranslationCacheContext = {
+            sourceEntries: srtEntries,
+            prompt: translationPrompt,
+            glossaryHash,
+            model: geminiModel,
+          };
 
-          if (isCacheValid && cachedTranslation && cachedTranslation.entries.length > 0) {
+          const cachedTranslation = subtitleCache?.translations?.[tLang.toLowerCase()];
+          const isCacheValid = useCache && isTranslationCacheValid(cachedTranslation, cacheContext);
+
+          if (isCacheValid && cachedTranslation) {
             resultsByLang.set(tLang, cachedTranslation.entries);
             cachedLanguages.push(tLang);
             if (isMultiLang) {
@@ -1033,14 +1034,7 @@ export function createProgram(): Command {
             saveTranslationCache(
               resolvedSubtitlePath,
               tLang,
-              {
-                targetLang: tLang,
-                model: geminiModel,
-                prompt: translationPrompt,
-                glossaryHash,
-                entries: translatedEntries,
-                createdAt: Date.now(),
-              },
+              createCachedTranslation(tLang, cacheContext, translatedEntries),
               options.cacheDir,
             );
           }

@@ -4,6 +4,8 @@ import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import {
   clearCache,
+  computeEntriesHash,
+  createCachedTranslation,
   getCacheDir,
   getCacheStats,
   getFileCacheKey,
@@ -16,6 +18,7 @@ import {
   saveSummaryCache,
   saveTranscriptionCache,
   saveTranslationCache,
+  type TranslationCacheContext,
 } from "./cache.js";
 import type { SrtEntry } from "./srt.js";
 
@@ -82,6 +85,64 @@ describe("cache module", () => {
       fs.appendFileSync(testMediaFile, " additional bytes");
       const key2 = getFileCacheKey(testMediaFile);
       expect(key1).not.toBe(key2);
+    });
+  });
+
+  describe("computeEntriesHash", () => {
+    const baseEntries: SrtEntry[] = [
+      { id: 1, startTime: "00:00:00,000", endTime: "00:00:02,000", text: "Entry 1" },
+      { id: 2, startTime: "00:00:02,500", endTime: "00:00:05,000", text: "Entry 2" },
+    ];
+    const baseHash = computeEntriesHash(baseEntries);
+
+    it.each([
+      {
+        name: "identical entries",
+        entries: [
+          { id: 1, startTime: "00:00:00,000", endTime: "00:00:02,000", text: "Entry 1" },
+          { id: 2, startTime: "00:00:02,500", endTime: "00:00:05,000", text: "Entry 2" },
+        ],
+        expectEqual: true,
+      },
+      {
+        name: "different text",
+        entries: [
+          { id: 1, startTime: "00:00:00,000", endTime: "00:00:02,000", text: "Different text" },
+          { id: 2, startTime: "00:00:02,500", endTime: "00:00:05,000", text: "Entry 2" },
+        ],
+        expectEqual: false,
+      },
+      {
+        name: "different startTime",
+        entries: [
+          { id: 1, startTime: "00:00:00,500", endTime: "00:00:02,000", text: "Entry 1" },
+          { id: 2, startTime: "00:00:02,500", endTime: "00:00:05,000", text: "Entry 2" },
+        ],
+        expectEqual: false,
+      },
+      {
+        name: "different endTime",
+        entries: [
+          { id: 1, startTime: "00:00:00,000", endTime: "00:00:03,000", text: "Entry 1" },
+          { id: 2, startTime: "00:00:02,500", endTime: "00:00:05,000", text: "Entry 2" },
+        ],
+        expectEqual: false,
+      },
+      {
+        name: "different order",
+        entries: [
+          { id: 2, startTime: "00:00:02,500", endTime: "00:00:05,000", text: "Entry 2" },
+          { id: 1, startTime: "00:00:00,000", endTime: "00:00:02,000", text: "Entry 1" },
+        ],
+        expectEqual: false,
+      },
+    ])("should return $name hash consistency ($expectEqual)", ({ entries, expectEqual }) => {
+      const hash = computeEntriesHash(entries);
+      if (expectEqual) {
+        expect(hash).toBe(baseHash);
+      } else {
+        expect(hash).not.toBe(baseHash);
+      }
     });
   });
 
@@ -227,24 +288,137 @@ describe("cache module", () => {
       expect(isTranscriptionCacheValid(undefined)).toBe(false);
     });
 
-    it("should check translation cache prompt, glossaryHash, and model match", () => {
-      const cached = {
-        targetLang: "ja",
-        entries: [],
+    describe("isTranslationCacheValid", () => {
+      const defaultSource: SrtEntry[] = [
+        { id: 1, startTime: "00:00:00,000", endTime: "00:00:02,000", text: "Hello" },
+      ];
+      const defaultTranslated: SrtEntry[] = [
+        { id: 1, startTime: "00:00:00,000", endTime: "00:00:02,000", text: "こんにちは" },
+      ];
+      const baseContext: TranslationCacheContext = {
+        sourceEntries: defaultSource,
+        prompt: "Base prompt",
+        glossaryHash: "glossary123",
         model: "gemini-3.7-flash",
-        prompt: "MyPrompt",
-        glossaryHash: "hash123",
-        createdAt: Date.now(),
       };
-      expect(isTranslationCacheValid(cached)).toBe(true);
-      expect(isTranslationCacheValid(cached, "MyPrompt", "hash123")).toBe(true);
-      expect(isTranslationCacheValid(cached, "MyPrompt", "hash123", "gemini-3.7-flash")).toBe(true);
-      expect(isTranslationCacheValid(cached, "DifferentPrompt", "hash123")).toBe(false);
-      expect(isTranslationCacheValid(cached, "MyPrompt", "differentHash")).toBe(false);
-      expect(isTranslationCacheValid(cached, "MyPrompt", "hash123", "gemini-2.5-flash")).toBe(
-        false,
+
+      const table: Array<{
+        name: string;
+        savedContext: TranslationCacheContext;
+        currentContext: TranslationCacheContext;
+        transformCached?:
+          | ((
+              cached: ReturnType<typeof createCachedTranslation>,
+            ) => ReturnType<typeof createCachedTranslation>)
+          | undefined;
+        isUndefinedCached?: boolean | undefined;
+        expected: boolean;
+      }> = [
+        {
+          name: "all identical",
+          savedContext: baseContext,
+          currentContext: baseContext,
+          expected: true,
+        },
+        {
+          name: "sourceEntries different text",
+          savedContext: baseContext,
+          currentContext: {
+            ...baseContext,
+            sourceEntries: [
+              { id: 1, startTime: "00:00:00,000", endTime: "00:00:02,000", text: "Different" },
+            ],
+          },
+          expected: false,
+        },
+        {
+          name: "sourceEntries different timestamp",
+          savedContext: baseContext,
+          currentContext: {
+            ...baseContext,
+            sourceEntries: [
+              { id: 1, startTime: "00:00:01,000", endTime: "00:00:03,000", text: "Hello" },
+            ],
+          },
+          expected: false,
+        },
+        {
+          name: "prompt attached first, then detached",
+          savedContext: { ...baseContext, prompt: "Translate politely" },
+          currentContext: { ...baseContext, prompt: undefined },
+          expected: false,
+        },
+        {
+          name: "prompt omitted first, then attached",
+          savedContext: { ...baseContext, prompt: undefined },
+          currentContext: { ...baseContext, prompt: "Translate politely" },
+          expected: false,
+        },
+        {
+          name: "glossaryHash attached first, then detached",
+          savedContext: { ...baseContext, glossaryHash: "ghash1" },
+          currentContext: { ...baseContext, glossaryHash: undefined },
+          expected: false,
+        },
+        {
+          name: "glossaryHash omitted first, then attached",
+          savedContext: { ...baseContext, glossaryHash: undefined },
+          currentContext: { ...baseContext, glossaryHash: "ghash1" },
+          expected: false,
+        },
+        {
+          name: "model attached first, then detached",
+          savedContext: { ...baseContext, model: "gemini-3.7-flash" },
+          currentContext: { ...baseContext, model: undefined },
+          expected: false,
+        },
+        {
+          name: "model omitted first, then attached",
+          savedContext: { ...baseContext, model: undefined },
+          currentContext: { ...baseContext, model: "gemini-3.7-flash" },
+          expected: false,
+        },
+        {
+          name: "prompt differing only in leading/trailing whitespace",
+          savedContext: { ...baseContext, prompt: "  Base prompt  " },
+          currentContext: { ...baseContext, prompt: "Base prompt" },
+          expected: true,
+        },
+        {
+          name: "legacy format without sourceHash",
+          savedContext: baseContext,
+          currentContext: baseContext,
+          transformCached: (cached) => {
+            const copy = { ...cached };
+            delete copy.sourceHash;
+            return copy;
+          },
+          expected: false,
+        },
+        {
+          name: "cached is undefined",
+          savedContext: baseContext,
+          currentContext: baseContext,
+          isUndefinedCached: true,
+          expected: false,
+        },
+      ];
+
+      it.each(table)(
+        "$name -> $expected",
+        ({ savedContext, currentContext, transformCached, isUndefinedCached, expected }) => {
+          let cached: ReturnType<typeof createCachedTranslation> | undefined;
+          if (isUndefinedCached) {
+            cached = undefined;
+          } else {
+            cached = createCachedTranslation("ja", savedContext, defaultTranslated);
+            if (transformCached) {
+              cached = transformCached(cached);
+            }
+          }
+          expect(isTranslationCacheValid(cached, currentContext)).toBe(expected);
+        },
       );
-      expect(isTranslationCacheValid(undefined)).toBe(false);
     });
 
     it("should check chapters cache prompt and model match", () => {
