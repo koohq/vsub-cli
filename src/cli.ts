@@ -753,6 +753,7 @@ export function createProgram(): Command {
       "Ignore existing cache and generate fresh translations, overwriting cache",
       false,
     )
+    .option("--cache-dir <path>", "Custom cache directory")
     .option(
       "--context-window <lines>",
       "Number of preceding context lines to carry across translation chunks (0 to disable)",

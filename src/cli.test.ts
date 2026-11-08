@@ -604,6 +604,62 @@ describe("CLI integration harness", () => {
         expect(exitSpy).not.toHaveBeenCalled();
       });
     });
+
+    describe("translate --cache-dir", () => {
+      let defaultCacheDir: string;
+      let customCacheDir: string;
+      let originalCacheDirEnv: string | undefined;
+
+      function hasCacheFiles(dir: string): boolean {
+        return fs.existsSync(dir) && fs.readdirSync(dir).some((f) => f.endsWith(".json"));
+      }
+
+      async function runTranslate(withCacheDir: boolean): Promise<void> {
+        const args = ["translate", dummySrtPath, "-t", "ja", "-w"];
+        if (withCacheDir) {
+          args.push("--cache-dir", customCacheDir);
+        }
+        await runCli(...args);
+      }
+
+      beforeEach(async () => {
+        defaultCacheDir = path.join(tmpDir, "default-cache");
+        customCacheDir = path.join(tmpDir, "custom-cache");
+        originalCacheDirEnv = process.env["VSUB_CACHE_DIR"];
+        process.env["VSUB_CACHE_DIR"] = defaultCacheDir;
+
+        const actual = await vi.importActual<typeof import("./cache.js")>("./cache.js");
+        vi.mocked(loadMediaCache).mockImplementation(actual.loadMediaCache);
+        vi.mocked(saveTranslationCache).mockImplementation(actual.saveTranslationCache);
+      });
+
+      afterEach(() => {
+        if (originalCacheDirEnv === undefined) {
+          delete process.env["VSUB_CACHE_DIR"];
+        } else {
+          process.env["VSUB_CACHE_DIR"] = originalCacheDirEnv;
+        }
+        vi.mocked(loadMediaCache).mockReset().mockReturnValue(null);
+        vi.mocked(saveTranslationCache).mockReset();
+      });
+
+      it("writes to and reads from the custom directory, and ignores it when omitted", async () => {
+        await runTranslate(true);
+        expect(exitSpy).not.toHaveBeenCalled();
+        expect(translateSrtEntries).toHaveBeenCalledTimes(1);
+        expect(hasCacheFiles(customCacheDir)).toBe(true);
+        expect(hasCacheFiles(defaultCacheDir)).toBe(false);
+
+        vi.mocked(translateSrtEntries).mockClear();
+        await runTranslate(true);
+        expect(exitSpy).not.toHaveBeenCalled();
+        expect(translateSrtEntries).not.toHaveBeenCalled();
+
+        await runTranslate(false);
+        expect(translateSrtEntries).toHaveBeenCalledTimes(1);
+        expect(hasCacheFiles(defaultCacheDir)).toBe(true);
+      });
+    });
   });
 
   const updateCheckCases = [
