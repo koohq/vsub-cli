@@ -3,8 +3,10 @@ import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { runBatchPipeline } from "./batch.js";
-import { loadMediaCache, saveTranslationCache } from "./cache.js";
+import { getCacheStats, loadMediaCache, saveTranslationCache } from "./cache.js";
 import { createProgram } from "./cli.js";
+import { saveGlobalConfig } from "./config.js";
+import { translateSrtEntries } from "./gemini.js";
 import {
   processChaptersPipeline,
   processMediaPipeline,
@@ -50,6 +52,11 @@ vi.mock("./cache.js", async (importOriginal) => {
     ...actual,
     loadMediaCache: vi.fn().mockReturnValue(null),
     saveTranslationCache: vi.fn(),
+    getCacheStats: vi.fn().mockImplementation((cacheDir?: string) => ({
+      cacheDir,
+      count: 0,
+      totalBytes: 0,
+    })),
   };
 });
 
@@ -76,6 +83,7 @@ vi.mock("./updater.js", async (importOriginal) => {
   return {
     ...actual,
     notifyUpdateIfAvailable: vi.fn().mockResolvedValue(undefined),
+    isStandaloneBinary: vi.fn().mockReturnValue(false),
   };
 });
 
@@ -99,6 +107,7 @@ vi.mock("./batch.js", async (importOriginal) => {
 
 describe("CLI integration harness", () => {
   let exitSpy: ReturnType<typeof vi.spyOn>;
+  let logSpy: ReturnType<typeof vi.spyOn>;
   let tmpDir: string;
   let dummySrtPath: string;
   let dummyVideoPath: string;
@@ -106,6 +115,7 @@ describe("CLI integration harness", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     exitSpy = vi.spyOn(process, "exit").mockImplementation((() => undefined) as never);
+    logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
 
     tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "vsub-cli-test-"));
     dummySrtPath = path.join(tmpDir, "sample.srt");
@@ -120,6 +130,7 @@ describe("CLI integration harness", () => {
 
   afterEach(() => {
     exitSpy.mockRestore();
+    logSpy.mockRestore();
     if (tmpDir && fs.existsSync(tmpDir)) {
       fs.rmSync(tmpDir, { recursive: true, force: true });
     }
@@ -170,9 +181,118 @@ describe("CLI integration harness", () => {
     expect(exitSpy).not.toHaveBeenCalled();
   });
 
-  it.todo(
-    "vsub chapters a.srt without -f should use the chapters default format txt (currently the root default 'srt' overrides it via optsWithGlobals)",
-  );
+  describe.each([
+    {
+      subcommand: "chapters",
+      args: ["chapters", "a.srt"],
+      getMock: () => processChaptersPipeline,
+      expected: { format: "txt", targetLang: undefined },
+    },
+    {
+      subcommand: "summarize",
+      args: ["summarize", "a.srt"],
+      getMock: () => processSummaryPipeline,
+      expected: { format: "md", targetLang: undefined },
+    },
+  ])("$subcommand default options", ({ args, getMock, expected }) => {
+    it("uses subcommand defaults instead of root defaults", async () => {
+      await runCli(...args);
+      expect(getMock()).toHaveBeenCalledTimes(1);
+      expect(getMock()).toHaveBeenCalledWith(expect.objectContaining(expected));
+      expect(exitSpy).not.toHaveBeenCalled();
+    });
+  });
+
+  const subcommandOptionCases = [
+    {
+      name: "batch dir -o out passes outputDir",
+      getArgs: () => ["batch", "videos", "-o", "out"],
+      assert: () => {
+        expect(runBatchPipeline).toHaveBeenCalledWith(
+          expect.objectContaining({ outputDir: "out" }),
+        );
+      },
+    },
+    {
+      name: "config set passes options without being swallowed by root",
+      getArgs: () => [
+        "config",
+        "set",
+        "--lang",
+        "ja",
+        "--prompt",
+        "p",
+        "--gemini-model",
+        "m",
+        "--concurrency",
+        "4",
+      ],
+      assert: () => {
+        expect(saveGlobalConfig).toHaveBeenCalledWith(
+          expect.objectContaining({
+            lang: "ja",
+            prompt: "p",
+            geminiModel: "m",
+            concurrency: 4,
+          }),
+        );
+      },
+    },
+    {
+      name: "cache stats --cache-dir passes directory",
+      getArgs: () => ["cache", "stats", "--cache-dir", tmpDir],
+      assert: () => {
+        expect(getCacheStats).toHaveBeenCalledWith(tmpDir);
+      },
+    },
+    {
+      name: "update -f does not fail with missing argument",
+      getArgs: () => ["update", "-f"],
+      assert: () => {
+        // Just verify it doesn't fail
+      },
+    },
+    {
+      name: "translate <srt> -t en passes target language",
+      getArgs: () => ["translate", dummySrtPath, "-t", "en"],
+      assert: () => {
+        expect(vi.mocked(translateSrtEntries).mock.calls[0]?.[1]).toBe("en");
+      },
+    },
+  ];
+
+  describe.each(subcommandOptionCases)("$name", ({ getArgs, assert }) => {
+    it("executes without error and passes options to target handler", async () => {
+      await runCli(...getArgs());
+      assert();
+      expect(exitSpy).not.toHaveBeenCalled();
+    });
+  });
+
+  describe("global option placement", () => {
+    it.each([
+      {
+        position: "after subcommand",
+        args: ["chapters", "a.srt", "-f", "txt", "--lang", "ja"],
+      },
+      {
+        position: "before subcommand",
+        args: ["--lang", "ja", "chapters", "a.srt", "-f", "txt"],
+      },
+    ])("--lang ja specified $position", async ({ args }) => {
+      await runCli(...args);
+      expect(processChaptersPipeline).toHaveBeenCalledWith(expect.objectContaining({ lang: "ja" }));
+      expect(exitSpy).not.toHaveBeenCalled();
+    });
+
+    it("--no-update-check specified before subcommand", async () => {
+      await runCli("--no-update-check", "chapters", "a.srt", "-f", "txt");
+      expect(notifyUpdateIfAvailable).toHaveBeenCalledWith(
+        expect.objectContaining({ disableUpdateCheck: true }),
+      );
+      expect(exitSpy).not.toHaveBeenCalled();
+    });
+  });
 
   const pipelineCases = [
     {

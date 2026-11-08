@@ -1,6 +1,6 @@
 import fs from "node:fs";
 import path from "node:path";
-import { Command } from "commander";
+import { Command, Option } from "commander";
 import pc from "picocolors";
 import { type BatchPipelineOptions, runBatchPipeline } from "./batch.js";
 import {
@@ -92,20 +92,81 @@ interface NormalizedNegativeFlags {
   noUpdateCheck: boolean;
 }
 
+interface InheritedGlobalOptions {
+  lang?: string;
+  updateCheck?: boolean;
+}
+
 /**
- * Reads options with globals from Commander and normalizes negative flag names.
- * Commander exposes negative options (`--no-foo`) as positive properties (`raw["foo"] = false` when flag is passed).
- * This helper maps them to internal boolean names (`noFoo: true` only when the flag was passed).
+ * Traverses parent commands to resolve global options (lang and updateCheck).
+ */
+function resolveInheritedGlobals(cmd: Command): InheritedGlobalOptions {
+  const local = cmd.opts<Record<string, unknown>>();
+  let inheritedLang = typeof local["lang"] === "string" ? local["lang"] : undefined;
+  let disableUpdateCheck = local["updateCheck"] === false;
+
+  let current = cmd.parent;
+  while (current) {
+    const parentOpts = current.opts<Record<string, unknown>>();
+    if (inheritedLang === undefined && typeof parentOpts["lang"] === "string") {
+      inheritedLang = parentOpts["lang"];
+    }
+    if (parentOpts["updateCheck"] === false) {
+      disableUpdateCheck = true;
+    }
+    current = current.parent;
+  }
+
+  return {
+    ...(inheritedLang !== undefined ? { lang: inheritedLang } : {}),
+    ...(disableUpdateCheck ? { updateCheck: false } : {}),
+  };
+}
+
+/**
+ * Reads options for an action handler, inheriting only global options (lang, updateCheck)
+ * from parent commands, and normalizes negative flag names.
  */
 function readActionOptions<T>(cmd: Command): T & NormalizedNegativeFlags {
-  const raw = cmd.optsWithGlobals<Record<string, unknown>>();
-  return {
-    ...(raw as unknown as T),
-    noTranslate: raw["translate"] === false,
-    noCache: raw["cache"] === false,
-    noReflow: raw["reflow"] === false,
-    noUpdateCheck: raw["updateCheck"] === false,
+  const raw = cmd.opts<Record<string, unknown>>();
+  const globals = resolveInheritedGlobals(cmd);
+  const merged: Record<string, unknown> = {
+    ...raw,
+    ...globals,
   };
+  return {
+    ...(merged as unknown as T),
+    noTranslate: merged["translate"] === false,
+    noCache: merged["cache"] === false,
+    noReflow: merged["reflow"] === false,
+    noUpdateCheck: merged["updateCheck"] === false,
+  };
+}
+
+/**
+ * Recursively traverses subcommands and attaches hidden global options (-l/--lang, --no-update-check)
+ * to leaf commands that define their own options.
+ */
+function acceptGlobalOptions(rootCmd: Command): void {
+  for (const cmd of rootCmd.commands) {
+    acceptGlobalOptions(cmd);
+  }
+
+  if (rootCmd.commands.length === 0 && rootCmd.options.length > 0) {
+    const hasLangOption = rootCmd.options.some(
+      (opt) => opt.long === "--lang" || opt.short === "-l",
+    );
+    if (!hasLangOption) {
+      rootCmd.addOption(new Option("-l, --lang <lang>", "UI display language (en, ja)").hideHelp());
+    }
+
+    const hasNoUpdateCheck = rootCmd.options.some((opt) => opt.long === "--no-update-check");
+    if (!hasNoUpdateCheck) {
+      rootCmd.addOption(
+        new Option("--no-update-check", "Disable checking for new version updates").hideHelp(),
+      );
+    }
+  }
 }
 
 export function createProgram(): Command {
@@ -117,6 +178,7 @@ export function createProgram(): Command {
     .description(
       "CLI tool to extract audio from video/audio files, transcribe speech via Groq API, and generate multilingual subtitles (.srt, .vtt, .txt, .json) via Gemini API.",
     )
+    .enablePositionalOptions()
     .option("-l, --lang <lang>", "UI display language (en, ja)")
     .option("--no-update-check", "Disable checking for new version updates");
 
@@ -130,9 +192,9 @@ export function createProgram(): Command {
     .option("--verbose", "Output detailed logs", false)
     .action(
       async (options: { force?: boolean; check?: boolean; verbose?: boolean }, cmd: Command) => {
-        const globals = cmd.optsWithGlobals<{ lang?: string }>();
-        const rawConfig = getConfig(undefined, globals.lang);
-        const lang = globals.lang ?? rawConfig.lang ?? "en";
+        const actionOptions = readActionOptions<{ lang?: string }>(cmd);
+        const rawConfig = getConfig(undefined, actionOptions.lang);
+        const lang = actionOptions.lang ?? rawConfig.lang ?? "en";
         const i18n = getI18n(lang);
         const m = i18n.update;
 
@@ -187,9 +249,9 @@ export function createProgram(): Command {
     .description("Display third-party open source licenses and legal notices")
     .option("--full", "Display full license text for all bundled dependencies")
     .action((options: { full?: boolean }, cmd: Command) => {
-      const globals = cmd.optsWithGlobals<{ lang?: string }>();
-      const rawConfig = getConfig(undefined, globals.lang);
-      const lang = globals.lang ?? rawConfig.lang ?? "en";
+      const actionOptions = readActionOptions<{ lang?: string }>(cmd);
+      const rawConfig = getConfig(undefined, actionOptions.lang);
+      const lang = actionOptions.lang ?? rawConfig.lang ?? "en";
       printLicenses({ full: options.full, lang });
     });
 
@@ -1664,6 +1726,8 @@ export function createProgram(): Command {
         }
       },
     );
+
+  acceptGlobalOptions(program);
 
   return program;
 }
