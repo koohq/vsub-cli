@@ -162,18 +162,34 @@ describe("ffmpeg.ts", () => {
   });
 
   describe("escapeFfmpegFilterPath", () => {
-    it("should escape colons and wrap in single quotes", () => {
-      expect(escapeFfmpegFilterPath("C:/videos/sub.srt")).toBe("'C\\:/videos/sub.srt'");
-    });
-
-    it("should convert backslashes to forward slashes", () => {
-      expect(escapeFfmpegFilterPath("C:\\videos\\sub.srt")).toBe("'C\\:/videos/sub.srt'");
-    });
-
-    it("should escape single quotes inside path", () => {
-      expect(escapeFfmpegFilterPath("/path/to/my video's sub.srt")).toBe(
-        "'/path/to/my video\\'s sub.srt'",
-      );
+    it.each([
+      {
+        description: "escape colon and wrap in single quotes",
+        input: "C:/videos/sub.srt",
+        expected: "'C\\:/videos/sub.srt'",
+      },
+      {
+        description: "escape backslashes instead of converting to forward slashes",
+        input: "C:\\videos\\sub.srt",
+        expected: "'C\\:\\\\videos\\\\sub.srt'",
+      },
+      {
+        description: "escape single quotes inside path",
+        input: "/path/to/my video's sub.srt",
+        expected: "'/path/to/my video\\'\\''s sub.srt'",
+      },
+      {
+        description: "escape single quotes inside directory name",
+        input: "/Bob's videos/sub.srt",
+        expected: "'/Bob\\'\\''s videos/sub.srt'",
+      },
+      {
+        description: "preserve commas, semicolons, and brackets inside single quotes",
+        input: "/videos/a,b;[1].srt",
+        expected: "'/videos/a,b;[1].srt'",
+      },
+    ])("should $description ($input)", ({ input, expected }) => {
+      expect(escapeFfmpegFilterPath(input)).toBe(expected);
     });
   });
 
@@ -341,6 +357,12 @@ describe("ffmpeg.ts", () => {
     it("should combine Alignment and FontSize when both are provided", () => {
       expect(buildSubtitlesFilter("/path/to/sub.srt", { position: "top", fontSize: "large" })).toBe(
         "subtitles='/path/to/sub.srt':force_style='Alignment=8,FontSize=30'",
+      );
+    });
+
+    it("should escape single quotes in path and directory name", () => {
+      expect(buildSubtitlesFilter("/Bob's videos/it's.srt", { position: "top" })).toBe(
+        "subtitles='/Bob\\'\\''s videos/it\\'\\''s.srt':force_style='Alignment=8'",
       );
     });
   });

@@ -274,14 +274,17 @@ export async function extractAudio(
 export const prepareAudio = extractAudio;
 
 /**
- * Escapes a file path for safe usage inside FFmpeg filtergraph expressions (e.g. subtitles='...').
+ * Escapes a file path for safe usage as a filter option value inside an FFmpeg filtergraph.
+ *
+ * FFmpeg evaluates filter option values in two distinct escaping stages:
+ * 1. Filter option level: `\`, `'`, and `:` are escaped with a backslash.
+ * 2. Filtergraph level: the whole option value is wrapped in single quotes (`'...'`),
+ *    where backslashes are treated as literal characters and single quotes inside are
+ *    escaped by closing the quote, writing an escaped quote, and reopening (`'\''`).
  */
 export function escapeFfmpegFilterPath(filePath: string): string {
-  // Normalize backslashes to forward slashes
-  const normalized = filePath.replace(/\\/g, "/");
-  // Escape single quotes and colons
-  const escaped = normalized.replace(/'/g, "\\'").replace(/:/g, "\\:");
-  return `'${escaped}'`;
+  const optionEscaped = filePath.replace(/[\\':]/g, "\\$&");
+  return `'${optionEscaped.replace(/'/g, "'\\''")}'`;
 }
 
 export type BurnPosition = "bottom" | "top" | "center";
