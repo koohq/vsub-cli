@@ -13,12 +13,12 @@ dotenv.config();
 export interface ModelMetadata {
   id: string;
   provider: "Gemini" | "Groq";
-  displayName?: string;
-  description?: string;
-  inputTokenLimit?: number;
-  outputTokenLimit?: number;
-  contextWindow?: number;
-  documentationUrl?: string;
+  displayName?: string | undefined;
+  description?: string | undefined;
+  inputTokenLimit?: number | undefined;
+  outputTokenLimit?: number | undefined;
+  contextWindow?: number | undefined;
+  documentationUrl?: string | undefined;
 }
 
 export interface WatchResult {
@@ -160,7 +160,7 @@ export async function fetchGroqCandidateModels(apiKey?: string): Promise<ModelMe
         candidateModels.push({
           id: model.id,
           provider: "Groq",
-          contextWindow: model.context_window ?? undefined,
+          contextWindow: (model as { context_window?: number | null }).context_window ?? undefined,
           documentationUrl: getModelDocumentationUrl("Groq"),
         });
       }
@@ -411,9 +411,11 @@ export async function runModelWatcher(
 }
 
 // Execute directly when run as script
+const entryPath = process.argv[1];
 const isDirectRun =
-  Boolean(process.argv[1]) &&
-  path.resolve(process.argv[1]) === path.resolve(fileURLToPath(import.meta.url));
+  entryPath !== undefined &&
+  entryPath !== "" &&
+  path.resolve(entryPath) === path.resolve(fileURLToPath(import.meta.url));
 
 if (isDirectRun) {
   runModelWatcher({ writeSummary: true })

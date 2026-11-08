@@ -251,7 +251,7 @@ export async function main(args: string[] = process.argv.slice(2)): Promise<void
     }
 
     // Set GitHub Actions outputs if running in CI
-    const githubOutput = process.env.GITHUB_OUTPUT;
+    const githubOutput = process.env["GITHUB_OUTPUT"];
     if (githubOutput) {
       const outputs = [
         `needs_update=true`,
@@ -264,7 +264,7 @@ export async function main(args: string[] = process.argv.slice(2)): Promise<void
       console.log("GitHub Actions step outputs configured.");
     }
   } else {
-    const githubOutput = process.env.GITHUB_OUTPUT;
+    const githubOutput = process.env["GITHUB_OUTPUT"];
     if (githubOutput) {
       fs.appendFileSync(githubOutput, "needs_update=false\n", "utf-8");
     }

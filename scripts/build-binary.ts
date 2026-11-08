@@ -14,13 +14,13 @@ const ROOT_DIR = path.resolve(__dirname, "..");
 
 export interface BuildBinaryOptions {
   bundleOnly?: boolean;
-  name?: string;
-  outputDir?: string;
+  name?: string | undefined;
+  outputDir?: string | undefined;
   checksum?: boolean;
   skipTest?: boolean;
   rootDir?: string;
   archive?: boolean;
-  archiveName?: string;
+  archiveName?: string | undefined;
 }
 
 /**
@@ -196,9 +196,11 @@ export async function createBinaryArchive(
 /**
  * Generates sea-config.json and builds single executable using node --build-sea.
  */
-export async function buildStandaloneBinary(
-  options: BuildBinaryOptions = {},
-): Promise<{ binaryPath: string; archivePath?: string; checksumPath?: string }> {
+export async function buildStandaloneBinary(options: BuildBinaryOptions = {}): Promise<{
+  binaryPath: string;
+  archivePath?: string | undefined;
+  checksumPath?: string | undefined;
+}> {
   const rootDir = options.rootDir || ROOT_DIR;
   const distDir = path.join(rootDir, "dist");
   const outputDir = options.outputDir ? path.resolve(rootDir, options.outputDir) : distDir;

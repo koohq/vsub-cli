@@ -9,7 +9,7 @@
   },
   "main": "./dist/index.js",
   "scripts": {
-    "build": "tsc",
+    "build": "tsx scripts/prepare-build.ts && tsc -p tsconfig.build.json",
     "dev": "tsx src/index.ts",
     "check": "biome check .",
     "lint": "biome lint .",
@@ -24,7 +24,7 @@
     "build:bundle": "tsx scripts/build-binary.ts --bundle-only",
     "build:binary": "tsx scripts/build-binary.ts",
     "package:release": "tsx scripts/package-release.ts",
-    "typecheck": "pnpm -r --if-present typecheck",
+    "typecheck": "tsc --noEmit && pnpm -r --if-present typecheck",
     "deps:semver": "pnpm up -r",
     "deps:latest": "pnpm up -r --latest",
     "deps:interactive": "pnpm up -r -i --latest",
