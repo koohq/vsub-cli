@@ -304,6 +304,10 @@ export const ja: typeof en = {
     verifyingChecksum: "SHA-256 チェックサムを検証中...",
     checksumMismatch: (expected: string, actual: string) =>
       `チェックサムの不一致を検出しました。期待値: ${expected}, 実際値: ${actual}`,
+    checksumMissing: (url: string) =>
+      `リリースに SHA256SUMS.txt が無いため、ダウンロードしたファイルを検証できません。更新を中止しました（今のバイナリはそのままです）。手動で更新する場合は、次を参照してください: ${url}`,
+    checksumEntryMissing: (asset: string, url: string) =>
+      `SHA256SUMS.txt に ${asset} のチェックサムが無いため、ダウンロードしたファイルを検証できません。更新を中止しました（今のバイナリはそのままです）。手動で更新する場合は、次を参照してください: ${url}`,
     extracting: "アーカイブを展開中...",
     replacing: (path: string) => `${path} を新バージョンに置換中...`,
     permissionDenied: (path: string) =>

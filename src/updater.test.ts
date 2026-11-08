@@ -4,6 +4,10 @@ import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
+vi.mock("node:sea", () => ({ isSea: vi.fn(() => false) }));
+
+import { isSea } from "node:sea";
+
 const mockExeca = vi.fn();
 vi.mock("execa", () => ({
   execa: (...args: unknown[]) => mockExeca(...args),
@@ -28,6 +32,7 @@ import {
   notifyUpdateIfAvailable,
   parseChecksumFile,
   performSelfUpdate,
+  quotePowerShellLiteral,
   replaceBinarySafely,
   saveUpdateCache,
   UPDATE_CHECK_INTERVAL_MS,
@@ -40,6 +45,7 @@ describe("updater.ts", () => {
   beforeEach(() => {
     tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "vsub-updater-test-"));
     testCachePath = path.join(tempDir, "update-cache.json");
+    vi.mocked(isSea).mockReturnValue(false);
   });
 
   afterEach(() => {
@@ -48,24 +54,31 @@ describe("updater.ts", () => {
   });
 
   describe("isStandaloneBinary", () => {
-    it("should return false for node and dev runners", () => {
-      expect(isStandaloneBinary("C:\\Program Files\\nodejs\\node.exe")).toBe(false);
-      expect(isStandaloneBinary("/usr/local/bin/node")).toBe(false);
-      expect(isStandaloneBinary("node")).toBe(false);
-      expect(isStandaloneBinary("tsx.cmd")).toBe(false);
-      expect(isStandaloneBinary("vitest")).toBe(false);
-      expect(isStandaloneBinary("")).toBe(false);
+    const originalExecPath = process.execPath;
+
+    afterEach(() => {
+      Object.defineProperty(process, "execPath", {
+        value: originalExecPath,
+        configurable: true,
+      });
     });
 
-    it("should return true for compiled vsub executables", () => {
-      expect(isStandaloneBinary("C:\\tools\\vsub.exe")).toBe(true);
-      expect(isStandaloneBinary("C:/tools/vsub.exe")).toBe(true);
-      expect(isStandaloneBinary("/usr/local/bin/vsub")).toBe(true);
-      expect(isStandaloneBinary("vsub")).toBe(true);
-      expect(isStandaloneBinary("vsub-windows-x64.exe")).toBe(true);
-      expect(isStandaloneBinary("/opt/vsub-linux-x64")).toBe(true);
-      expect(isStandaloneBinary("vsub-macos-arm64")).toBe(true);
-    });
+    it.each([
+      { sea: true, execPath: "C:\\tools\\subtitler.exe", expected: true },
+      { sea: true, execPath: "/usr/local/bin/vsub", expected: true },
+      { sea: false, execPath: "/opt/vsub-node", expected: false },
+      { sea: false, execPath: "C:\\Program Files\\nodejs\\node.exe", expected: false },
+    ])(
+      "should return $expected when isSea() is $sea and execPath is $execPath",
+      ({ sea, execPath, expected }) => {
+        vi.mocked(isSea).mockReturnValue(sea);
+        Object.defineProperty(process, "execPath", {
+          value: execPath,
+          configurable: true,
+        });
+        expect(isStandaloneBinary()).toBe(expected);
+      },
+    );
   });
 
   describe("getUpdateCommand", () => {
@@ -270,6 +283,17 @@ e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855  vsub-windows-x
     });
   });
 
+  describe("quotePowerShellLiteral", () => {
+    it.each([
+      { input: "C:\\a\\b.zip", expected: "'C:\\a\\b.zip'" },
+      { input: "C:\\it's\\b.zip", expected: "'C:\\it''s\\b.zip'" },
+      { input: "C:\\it's and that's\\b.zip", expected: "'C:\\it''s and that''s\\b.zip'" },
+      { input: "C:\\path\\[x]\\b.zip", expected: "'C:\\path\\[x]\\b.zip'" },
+    ])("should quote $input as $expected", ({ input, expected }) => {
+      expect(quotePowerShellLiteral(input)).toBe(expected);
+    });
+  });
+
   describe("extractArchive", () => {
     it("should extract archive using execa tar", async () => {
       const extractDir = path.join(tempDir, "extracted");
@@ -300,6 +324,40 @@ e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855  vsub-windows-x
       await expect(extractArchive(archivePath, extractDir)).rejects.toThrow(
         /did not contain expected binary/,
       );
+    });
+
+    it("should pass -LiteralPath and escaped paths to PowerShell Expand-Archive when tar fails", async () => {
+      const specialDir = path.join(tempDir, "it's [x]");
+      fs.mkdirSync(specialDir, { recursive: true });
+      const archivePath = path.join(specialDir, "vsub.zip");
+      const extractDir = path.join(specialDir, "dest");
+      fs.writeFileSync(archivePath, "fake zip");
+
+      let tarCalled = false;
+      mockExeca.mockImplementation(async (cmd: unknown) => {
+        if (cmd === "tar") {
+          tarCalled = true;
+          throw new Error("tar failed");
+        }
+        if (cmd === "powershell") {
+          fs.mkdirSync(extractDir, { recursive: true });
+          fs.writeFileSync(path.join(extractDir, "vsub.exe"), "dummy binary");
+          return {};
+        }
+        return {};
+      });
+
+      const result = await extractArchive(archivePath, extractDir, "win32");
+      expect(tarCalled).toBe(true);
+      expect(fs.existsSync(result)).toBe(true);
+
+      const quotedArchive = `'${archivePath.replace(/'/g, "''")}'`;
+      const quotedDest = `'${extractDir.replace(/'/g, "''")}'`;
+      expect(mockExeca).toHaveBeenCalledWith("powershell", [
+        "-NoProfile",
+        "-Command",
+        `Expand-Archive -LiteralPath ${quotedArchive} -DestinationPath ${quotedDest} -Force`,
+      ]);
     });
   });
 
@@ -375,6 +433,73 @@ e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855  vsub-windows-x
       expect(fs.readFileSync(targetBinary, "utf-8")).toBe("new unix binary");
       expect(fs.existsSync(`${targetBinary}.old`)).toBe(false);
     });
+
+    describe("Unix cross-device and failure handling", () => {
+      let binDir: string;
+      let extractedDir: string;
+      let targetBinary: string;
+      let newBinary: string;
+
+      beforeEach(() => {
+        binDir = path.join(tempDir, "bin");
+        extractedDir = path.join(tempDir, "extracted");
+        fs.mkdirSync(binDir, { recursive: true });
+        fs.mkdirSync(extractedDir, { recursive: true });
+        targetBinary = path.join(binDir, "vsub");
+        newBinary = path.join(extractedDir, "vsub");
+        fs.writeFileSync(targetBinary, "original unix binary");
+        fs.writeFileSync(newBinary, "new unix binary");
+      });
+
+      it("should replace binary across filesystems handling EXDEV", () => {
+        const realRenameSync = fs.renameSync;
+        const renameSpy = vi.spyOn(fs, "renameSync").mockImplementation((oldPath, newPath) => {
+          const oldDir = path.dirname(String(oldPath));
+          const newDir = path.dirname(String(newPath));
+          if (oldDir !== newDir) {
+            const err = new Error(
+              "EXDEV: cross-device link not permitted",
+            ) as NodeJS.ErrnoException;
+            err.code = "EXDEV";
+            throw err;
+          }
+          return realRenameSync(oldPath, newPath);
+        });
+
+        replaceBinarySafely({
+          newBinaryPath: newBinary,
+          targetBinaryPath: targetBinary,
+          platform: "linux",
+        });
+
+        expect(fs.readFileSync(targetBinary, "utf-8")).toBe("new unix binary");
+        expect(fs.readdirSync(binDir)).toEqual(["vsub"]);
+        if (process.platform !== "win32") {
+          expect(fs.statSync(targetBinary).mode & 0o777).toBe(0o755);
+        }
+        renameSpy.mockRestore();
+      });
+
+      it("should clean up staged temporary binary and leave original untouched on failure", () => {
+        const renameSpy = vi.spyOn(fs, "renameSync").mockImplementation(() => {
+          const err = new Error("EPERM: operation not permitted") as NodeJS.ErrnoException;
+          err.code = "EPERM";
+          throw err;
+        });
+
+        expect(() =>
+          replaceBinarySafely({
+            newBinaryPath: newBinary,
+            targetBinaryPath: targetBinary,
+            platform: "linux",
+          }),
+        ).toThrow(/sudo/);
+
+        expect(fs.readFileSync(targetBinary, "utf-8")).toBe("original unix binary");
+        expect(fs.readdirSync(binDir)).toEqual(["vsub"]);
+        renameSpy.mockRestore();
+      });
+    });
   });
 
   describe("formatSelfUpdateSummary", () => {
@@ -404,24 +529,24 @@ e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855  vsub-windows-x
       await expect(
         performSelfUpdate({
           targetBinaryPath: "C:\\Program Files\\nodejs\\node.exe",
+          isBinary: false,
+          cachePath: testCachePath,
         }),
       ).rejects.toThrow(/npm i -g vsub-cli/);
     });
 
     it("should report alreadyLatest when current version is up to date", async () => {
-      const mockFetcher = vi.fn().mockResolvedValue({
-        ok: true,
-        json: async () => ({
-          tag_name: "v1.3.0",
-          html_url: "https://github.com/koohq/vsub-cli/releases/tag/v1.3.0",
-          assets: [],
-        }),
-      } as unknown as Response);
+      const mockFetcher = createReleaseFetcher({
+        tag: "v1.3.0",
+        assets: [],
+      });
 
       const result = await performSelfUpdate({
         currentVersion: "1.3.0",
         targetBinaryPath: path.join(tempDir, "vsub.exe"),
         fetcher: mockFetcher,
+        isBinary: true,
+        cachePath: testCachePath,
       });
 
       expect(result.alreadyLatest).toBe(true);
@@ -434,42 +559,10 @@ e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855  vsub-windows-x
 
       const archiveName = "vsub-windows-x64.zip";
       const dummyArchiveContent = Buffer.from("dummy zip archive bytes");
-      const dummyChecksum = computeSha256FromBuffer(dummyArchiveContent);
-      const dummySums = `${dummyChecksum}  ${archiveName}\n`;
-
-      const mockFetcher = vi.fn().mockImplementation(async (url: string) => {
-        if (url.endsWith("/releases/latest")) {
-          return {
-            ok: true,
-            json: async () => ({
-              tag_name: "v1.4.0",
-              html_url: "https://github.com/koohq/vsub-cli/releases/tag/v1.4.0",
-              assets: [
-                {
-                  name: archiveName,
-                  browser_download_url: `https://github.com/download/${archiveName}`,
-                },
-                {
-                  name: "SHA256SUMS.txt",
-                  browser_download_url: "https://github.com/download/SHA256SUMS.txt",
-                },
-              ],
-            }),
-          };
-        }
-        if (url.endsWith("SHA256SUMS.txt")) {
-          return {
-            ok: true,
-            arrayBuffer: async () => Buffer.from(dummySums),
-          };
-        }
-        if (url.endsWith(archiveName)) {
-          return {
-            ok: true,
-            arrayBuffer: async () => dummyArchiveContent,
-          };
-        }
-        return { ok: false, status: 404, statusText: "Not Found" };
+      const mockFetcher = createReleaseFetcher({
+        tag: "v1.4.0",
+        archiveName,
+        archiveContent: dummyArchiveContent,
       });
 
       // Mock execa tar extraction to write new vsub.exe
@@ -485,6 +578,8 @@ e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855  vsub-windows-x
         platform: "win32",
         arch: "x64",
         fetcher: mockFetcher,
+        isBinary: true,
+        cachePath: testCachePath,
       });
 
       expect(result.success).toBe(true);
@@ -501,40 +596,11 @@ e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855  vsub-windows-x
       const dummyArchiveContent = Buffer.from("corrupted zip archive");
       const wrongChecksum = "0000000000000000000000000000000000000000000000000000000000000000";
       const dummySums = `${wrongChecksum}  ${archiveName}\n`;
-
-      const mockFetcher = vi.fn().mockImplementation(async (url: string) => {
-        if (url.endsWith("/releases/latest")) {
-          return {
-            ok: true,
-            json: async () => ({
-              tag_name: "v1.4.0",
-              html_url: "https://github.com/koohq/vsub-cli/releases/tag/v1.4.0",
-              assets: [
-                {
-                  name: archiveName,
-                  browser_download_url: `https://github.com/download/${archiveName}`,
-                },
-                {
-                  name: "SHA256SUMS.txt",
-                  browser_download_url: "https://github.com/download/SHA256SUMS.txt",
-                },
-              ],
-            }),
-          };
-        }
-        if (url.endsWith("SHA256SUMS.txt")) {
-          return {
-            ok: true,
-            arrayBuffer: async () => Buffer.from(dummySums),
-          };
-        }
-        if (url.endsWith(archiveName)) {
-          return {
-            ok: true,
-            arrayBuffer: async () => dummyArchiveContent,
-          };
-        }
-        return { ok: false, status: 404 };
+      const mockFetcher = createReleaseFetcher({
+        tag: "v1.4.0",
+        archiveName,
+        archiveContent: dummyArchiveContent,
+        sums: dummySums,
       });
 
       await expect(
@@ -544,11 +610,113 @@ e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855  vsub-windows-x
           platform: "win32",
           arch: "x64",
           fetcher: mockFetcher,
+          isBinary: true,
+          cachePath: testCachePath,
         }),
       ).rejects.toThrow(/Checksum mismatch/);
 
       // Target binary should be untouched
       expect(fs.readFileSync(targetBinary, "utf-8")).toBe("old binary v1.3.0");
+    });
+
+    it.each([
+      { lang: "en", pattern: /does not include SHA256SUMS\.txt/ },
+      { lang: "ja", pattern: /SHA256SUMS\.txt が無い/ },
+    ])(
+      "should abort before downloading archive if SHA256SUMS.txt is missing (lang: $lang)",
+      async ({ lang, pattern }) => {
+        const targetBinary = path.join(tempDir, "vsub.exe");
+        fs.writeFileSync(targetBinary, "original binary");
+
+        const archiveName = "vsub-windows-x64.zip";
+        const mockFetcher = createReleaseFetcher({
+          tag: "v1.4.0",
+          archiveName,
+          sums: null,
+        });
+
+        mockExeca.mockClear();
+
+        await expect(
+          performSelfUpdate({
+            currentVersion: "1.3.0",
+            targetBinaryPath: targetBinary,
+            platform: "win32",
+            arch: "x64",
+            fetcher: mockFetcher,
+            isBinary: true,
+            cachePath: testCachePath,
+            lang,
+          }),
+        ).rejects.toThrow(pattern);
+
+        const calledUrls = mockFetcher.mock.calls.map((c) => c[0] as string);
+        expect(calledUrls.some((u: string) => u.endsWith(archiveName))).toBe(false);
+        expect(mockExeca).not.toHaveBeenCalled();
+        expect(fs.readFileSync(targetBinary, "utf-8")).toBe("original binary");
+      },
+    );
+
+    it("should abort before extracting if SHA256SUMS.txt has no entry for target archive", async () => {
+      const targetBinary = path.join(tempDir, "vsub.exe");
+      fs.writeFileSync(targetBinary, "original binary");
+
+      const archiveName = "vsub-windows-x64.zip";
+      const dummySums =
+        "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef  vsub-linux-x64.tar.gz\n";
+      const mockFetcher = createReleaseFetcher({
+        tag: "v1.4.0",
+        archiveName,
+        sums: dummySums,
+      });
+
+      mockExeca.mockClear();
+
+      await expect(
+        performSelfUpdate({
+          currentVersion: "1.3.0",
+          targetBinaryPath: targetBinary,
+          platform: "win32",
+          arch: "x64",
+          fetcher: mockFetcher,
+          isBinary: true,
+          cachePath: testCachePath,
+        }),
+      ).rejects.toThrow(/has no checksum for vsub-windows-x64\.zip/);
+
+      expect(mockExeca).not.toHaveBeenCalled();
+      expect(fs.readFileSync(targetBinary, "utf-8")).toBe("original binary");
+    });
+
+    it("should update renamed SEA binary without isBinary and save update cache to custom cachePath", async () => {
+      vi.mocked(isSea).mockReturnValue(true);
+      const customBinary = path.join(tempDir, "my-subtitler.exe");
+      fs.writeFileSync(customBinary, "old binary v1.3.0");
+
+      const archiveName = "vsub-windows-x64.zip";
+      const mockFetcher = createReleaseFetcher({
+        tag: "v1.4.0",
+        archiveName,
+      });
+
+      mockExeca.mockImplementation(async (_cmd: unknown, args: unknown[]) => {
+        const destDir = (args as string[])[3] || "";
+        fs.writeFileSync(path.join(destDir, "vsub.exe"), "brand new binary v1.4.0");
+        return {};
+      });
+
+      const result = await performSelfUpdate({
+        currentVersion: "1.3.0",
+        targetBinaryPath: customBinary,
+        platform: "win32",
+        arch: "x64",
+        fetcher: mockFetcher,
+        cachePath: testCachePath,
+      });
+
+      expect(result.success).toBe(true);
+      expect(fs.readFileSync(customBinary, "utf-8")).toBe("brand new binary v1.4.0");
+      expect(loadUpdateCache(testCachePath)?.latestVersion).toBe("1.4.0");
     });
   });
 
@@ -752,4 +920,71 @@ e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855  vsub-windows-x
 
 function computeSha256FromBuffer(buffer: Buffer): string {
   return crypto.createHash("sha256").update(buffer).digest("hex");
+}
+
+function createReleaseFetcher(
+  options: {
+    tag?: string | undefined;
+    releaseUrl?: string | undefined;
+    assets?: Array<{ name: string; browser_download_url: string }> | undefined;
+    archiveName?: string | undefined;
+    archiveContent?: Buffer | string | undefined;
+    sums?: string | null | undefined;
+  } = {},
+) {
+  const tag = options.tag ?? "v1.4.0";
+  const releaseUrl = options.releaseUrl ?? `https://github.com/koohq/vsub-cli/releases/tag/${tag}`;
+  const archiveName = options.archiveName ?? "vsub-windows-x64.zip";
+  const archiveContent = Buffer.isBuffer(options.archiveContent)
+    ? options.archiveContent
+    : Buffer.from(options.archiveContent ?? "dummy zip archive bytes");
+
+  const defaultSums =
+    options.sums === undefined
+      ? `${computeSha256FromBuffer(archiveContent)}  ${archiveName}\n`
+      : options.sums;
+
+  const assets: Array<{ name: string; browser_download_url: string }> = options.assets ?? [
+    {
+      name: archiveName,
+      browser_download_url: `https://github.com/download/${archiveName}`,
+    },
+    ...(defaultSums !== null
+      ? [
+          {
+            name: "SHA256SUMS.txt",
+            browser_download_url: "https://github.com/download/SHA256SUMS.txt",
+          },
+        ]
+      : []),
+  ];
+
+  return vi.fn().mockImplementation(async (url: string) => {
+    if (url.endsWith("/releases/latest")) {
+      return {
+        ok: true,
+        json: async () => ({
+          tag_name: tag,
+          html_url: releaseUrl,
+          assets,
+        }),
+      } as unknown as Response;
+    }
+    if (url.endsWith("SHA256SUMS.txt")) {
+      if (defaultSums === null) {
+        return { ok: false, status: 404, statusText: "Not Found" } as unknown as Response;
+      }
+      return {
+        ok: true,
+        arrayBuffer: async () => Buffer.from(defaultSums),
+      } as unknown as Response;
+    }
+    if (url.endsWith(archiveName)) {
+      return {
+        ok: true,
+        arrayBuffer: async () => archiveContent,
+      } as unknown as Response;
+    }
+    return { ok: false, status: 404, statusText: "Not Found" } as unknown as Response;
+  });
 }

@@ -2,6 +2,7 @@ import crypto from "node:crypto";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
+import { isSea } from "node:sea";
 import { execa } from "execa";
 import pc from "picocolors";
 import { getGlobalConfigDir } from "./config.js";
@@ -60,6 +61,8 @@ export interface PerformSelfUpdateOptions {
   arch?: string | undefined;
   currentVersion?: string | undefined;
   lang?: SupportedLanguage | string | undefined;
+  isBinary?: boolean | undefined;
+  cachePath?: string | undefined;
 }
 
 export interface SelfUpdateResult {
@@ -74,23 +77,8 @@ export interface SelfUpdateResult {
 /**
  * Checks whether the current process is running as a compiled standalone SEA binary.
  */
-export function isStandaloneBinary(customExecPath?: string): boolean {
-  const execPath = customExecPath || process.execPath;
-  const basename = (execPath.split(/[/\\]/).pop() ?? "").toLowerCase();
-
-  // If invoked via node runtime or common dev runners, it's not a standalone binary
-  if (
-    basename === "node" ||
-    basename === "node.exe" ||
-    basename.startsWith("node") ||
-    basename.startsWith("tsx") ||
-    basename.startsWith("vitest")
-  ) {
-    return false;
-  }
-
-  // Standalone binaries are typically named "vsub", "vsub.exe", or target-specific "vsub-windows-x64.exe"
-  return basename === "vsub" || basename === "vsub.exe" || basename.startsWith("vsub-");
+export function isStandaloneBinary(): boolean {
+  return isSea();
 }
 
 /**
@@ -313,6 +301,14 @@ export async function downloadFile(
 }
 
 /**
+ * Quotes a string for safe usage in PowerShell single-quoted string literals.
+ * Replaces single quotes with pairs of single quotes (PowerShell escape mechanism) and wraps in single quotes.
+ */
+export function quotePowerShellLiteral(value: string): string {
+  return `'${value.replace(/'/g, "''")}'`;
+}
+
+/**
  * Extracts archive (.zip or .tar.gz) into destDir and returns path to extracted vsub executable.
  */
 export async function extractArchive(
@@ -328,10 +324,20 @@ export async function extractArchive(
     await execa("tar", ["-xf", archivePath, "-C", destDir]);
   } catch (err) {
     if (platform === "win32" && archivePath.endsWith(".zip")) {
+      // If destDir was created as an empty directory, remove it so PowerShell's
+      // Expand-Archive doesn't fail with DirectoryExist when path contains brackets [ ]
+      try {
+        if (fs.existsSync(destDir) && fs.readdirSync(destDir).length === 0) {
+          fs.rmdirSync(destDir);
+        }
+      } catch {
+        // Ignore
+      }
+
       await execa("powershell", [
         "-NoProfile",
         "-Command",
-        `Expand-Archive -Path '${archivePath}' -DestinationPath '${destDir}' -Force`,
+        `Expand-Archive -LiteralPath ${quotePowerShellLiteral(archivePath)} -DestinationPath ${quotePowerShellLiteral(destDir)} -Force`,
       ]);
     } else {
       throw new Error(
@@ -444,49 +450,33 @@ export function replaceBinarySafely(options: {
     }
   } else {
     // Unix (Linux / macOS)
+    const stagedBinaryPath = `${options.targetBinaryPath}.new`;
     try {
-      fs.chmodSync(options.newBinaryPath, 0o755);
-    } catch {
-      // Ignore
-    }
+      // 1. Copy to a staged temporary file in the same directory (same filesystem)
+      fs.copyFileSync(options.newBinaryPath, stagedBinaryPath);
 
-    const backupPath = `${options.targetBinaryPath}.old`;
+      // 2. Ensure executable permissions before atomic replacement
+      fs.chmodSync(stagedBinaryPath, 0o755);
 
-    if (fs.existsSync(options.targetBinaryPath)) {
+      // 3. Atomically replace target binary
+      fs.renameSync(stagedBinaryPath, options.targetBinaryPath);
+    } catch (err: unknown) {
+      // Clean up staged temporary binary if left behind
       try {
-        fs.copyFileSync(options.targetBinaryPath, backupPath);
-      } catch (backupErr: unknown) {
-        const error = backupErr as { code?: string };
-        if (error.code === "EACCES" || error.code === "EPERM") {
-          throw new Error(
-            `Permission denied accessing ${options.targetBinaryPath}. Please re-run with sudo.`,
-          );
+        if (fs.existsSync(stagedBinaryPath)) {
+          fs.unlinkSync(stagedBinaryPath);
         }
-        throw backupErr;
+      } catch {
+        // Ignore cleanup failure
       }
-    }
 
-    try {
-      fs.renameSync(options.newBinaryPath, options.targetBinaryPath);
-      if (fs.existsSync(backupPath)) {
-        fs.unlinkSync(backupPath);
-      }
-    } catch (replaceErr: unknown) {
-      // Rollback
-      if (fs.existsSync(backupPath) && !fs.existsSync(options.targetBinaryPath)) {
-        try {
-          fs.renameSync(backupPath, options.targetBinaryPath);
-        } catch {
-          // Rollback failed
-        }
-      }
-      const error = replaceErr as { code?: string };
+      const error = err as { code?: string };
       if (error.code === "EACCES" || error.code === "EPERM") {
         throw new Error(
           `Permission denied writing to ${options.targetBinaryPath}. Please re-run with sudo.`,
         );
       }
-      throw replaceErr;
+      throw err;
     }
   }
 }
@@ -641,7 +631,7 @@ export async function performSelfUpdate(
 ): Promise<SelfUpdateResult> {
   const currentVersion = options.currentVersion || getCurrentVersion();
   const targetBinary = options.targetBinaryPath || process.execPath;
-  const isBinary = isStandaloneBinary(targetBinary);
+  const isBinary = options.isBinary ?? isStandaloneBinary();
   const lang = options.lang;
   const i18n = getI18n(lang);
   const m = i18n.update;
@@ -679,26 +669,30 @@ export async function performSelfUpdate(
   }
 
   const checksumAsset = release.assets.find((a) => a.name === "SHA256SUMS.txt");
+  if (!checksumAsset) {
+    throw new Error(m.checksumMissing(release.releaseUrl));
+  }
+
   const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "vsub-update-"));
 
   try {
     const archiveDest = path.join(tempDir, targetArchiveName);
     await downloadFile(archiveAsset.browser_download_url, archiveDest, options.fetcher);
 
-    // Verify SHA-256 Checksum if SHA256SUMS.txt is available
-    if (checksumAsset) {
-      const checksumDest = path.join(tempDir, "SHA256SUMS.txt");
-      await downloadFile(checksumAsset.browser_download_url, checksumDest, options.fetcher);
-      const checksumContent = fs.readFileSync(checksumDest, "utf-8");
-      const checksumMap = parseChecksumFile(checksumContent);
-      const expectedHash = checksumMap.get(targetArchiveName);
+    // Verify SHA-256 Checksum
+    const checksumDest = path.join(tempDir, "SHA256SUMS.txt");
+    await downloadFile(checksumAsset.browser_download_url, checksumDest, options.fetcher);
+    const checksumContent = fs.readFileSync(checksumDest, "utf-8");
+    const checksumMap = parseChecksumFile(checksumContent);
+    const expectedHash = checksumMap.get(targetArchiveName);
 
-      if (expectedHash) {
-        const computedHash = computeSha256(archiveDest);
-        if (computedHash !== expectedHash) {
-          throw new Error(m.checksumMismatch(expectedHash, computedHash));
-        }
-      }
+    if (!expectedHash) {
+      throw new Error(m.checksumEntryMissing(targetArchiveName, release.releaseUrl));
+    }
+
+    const computedHash = computeSha256(archiveDest);
+    if (computedHash !== expectedHash) {
+      throw new Error(m.checksumMismatch(expectedHash, computedHash));
     }
 
     // Extract archive
@@ -713,11 +707,14 @@ export async function performSelfUpdate(
     });
 
     // Update update-cache.json with the new version so checkUpdate knows we are up to date
-    saveUpdateCache({
-      lastChecked: Date.now(),
-      latestVersion: release.version,
-      releaseUrl: release.releaseUrl,
-    });
+    saveUpdateCache(
+      {
+        lastChecked: Date.now(),
+        latestVersion: release.version,
+        releaseUrl: release.releaseUrl,
+      },
+      options.cachePath,
+    );
 
     return {
       success: true,

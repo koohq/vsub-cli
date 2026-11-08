@@ -299,6 +299,10 @@ export const en = {
     verifyingChecksum: "Verifying SHA-256 checksum...",
     checksumMismatch: (expected: string, actual: string) =>
       `Checksum mismatch! Expected: ${expected}, but got: ${actual}`,
+    checksumMissing: (url: string) =>
+      `The release does not include SHA256SUMS.txt, so the download cannot be verified. The update was stopped and the current binary was left unchanged. To update manually, see: ${url}`,
+    checksumEntryMissing: (asset: string, url: string) =>
+      `SHA256SUMS.txt has no checksum for ${asset}, so the download cannot be verified. The update was stopped and the current binary was left unchanged. To update manually, see: ${url}`,
     extracting: "Extracting binary archive...",
     replacing: (path: string) => `Installing binary to ${path}...`,
     permissionDenied: (path: string) =>
