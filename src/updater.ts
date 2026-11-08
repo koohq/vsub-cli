@@ -310,6 +310,7 @@ export function quotePowerShellLiteral(value: string): string {
 
 /**
  * Extracts archive (.zip or .tar.gz) into destDir and returns path to extracted vsub executable.
+ * Note: destDir must be a dedicated folder for this extraction (it will be removed recursively if tar fails before fallback).
  */
 export async function extractArchive(
   archivePath: string,
@@ -324,12 +325,10 @@ export async function extractArchive(
     await execa("tar", ["-xf", archivePath, "-C", destDir]);
   } catch (err) {
     if (platform === "win32" && archivePath.endsWith(".zip")) {
-      // If destDir was created as an empty directory, remove it so PowerShell's
+      // Remove destDir and any partial files written by tar so PowerShell's
       // Expand-Archive doesn't fail with DirectoryExist when path contains brackets [ ]
       try {
-        if (fs.existsSync(destDir) && fs.readdirSync(destDir).length === 0) {
-          fs.rmdirSync(destDir);
-        }
+        fs.rmSync(destDir, { recursive: true, force: true });
       } catch {
         // Ignore
       }
@@ -337,7 +336,7 @@ export async function extractArchive(
       await execa("powershell", [
         "-NoProfile",
         "-Command",
-        `Expand-Archive -LiteralPath ${quotePowerShellLiteral(archivePath)} -DestinationPath ${quotePowerShellLiteral(destDir)} -Force`,
+        `$ErrorActionPreference = 'Stop'; Expand-Archive -LiteralPath ${quotePowerShellLiteral(archivePath)} -DestinationPath ${quotePowerShellLiteral(destDir)} -Force`,
       ]);
     } else {
       throw new Error(
@@ -357,14 +356,36 @@ export async function extractArchive(
 }
 
 /**
- * Cleans up any leftover .old binaries from prior updates in the binary directory.
+ * Cleans up leftover .old binaries matching the binary name from prior updates.
  */
-export function cleanOldBinaries(binaryDir: string): void {
+export function cleanOldBinaries(
+  binaryPath: string,
+  platform: NodeJS.Platform | string = process.platform,
+): void {
   try {
+    const binaryDir = path.dirname(binaryPath);
     if (!fs.existsSync(binaryDir)) return;
+
+    const baseName = path.basename(binaryPath);
+    const isWin32 = platform === "win32";
+    const targetBase = isWin32 ? baseName.toLowerCase() : baseName;
+    const targetPrefix = `${targetBase}.old`;
+
     const files = fs.readdirSync(binaryDir);
     for (const file of files) {
-      if (file.toLowerCase().startsWith("vsub") && file.toLowerCase().includes(".old")) {
+      const currentName = isWin32 ? file.toLowerCase() : file;
+      let matches = false;
+
+      if (currentName === targetPrefix) {
+        matches = true;
+      } else if (currentName.startsWith(`${targetPrefix}.`)) {
+        const suffix = currentName.slice(targetPrefix.length + 1);
+        if (/^\d+$/.test(suffix)) {
+          matches = true;
+        }
+      }
+
+      if (matches) {
         try {
           fs.unlinkSync(path.join(binaryDir, file));
         } catch {
@@ -378,6 +399,14 @@ export function cleanOldBinaries(binaryDir: string): void {
 }
 
 /**
+ * Cleans up leftover .old binaries on startup if running as a standalone SEA binary.
+ */
+export function cleanOldBinariesOnStartup(): void {
+  if (!isStandaloneBinary()) return;
+  cleanOldBinaries(process.execPath);
+}
+
+/**
  * Safely replaces target binary with new binary, implementing Windows renaming safety and rollback.
  */
 export function replaceBinarySafely(options: {
@@ -386,10 +415,9 @@ export function replaceBinarySafely(options: {
   platform?: string | undefined;
 }): void {
   const platform = options.platform || process.platform;
-  const targetDir = path.dirname(options.targetBinaryPath);
 
   // Clean any old leftover backup files
-  cleanOldBinaries(targetDir);
+  cleanOldBinaries(options.targetBinaryPath, platform);
 
   if (platform === "win32") {
     const backupPath = `${options.targetBinaryPath}.old`;

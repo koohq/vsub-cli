@@ -16,6 +16,7 @@ vi.mock("execa", () => ({
 import {
   checkUpdate,
   cleanOldBinaries,
+  cleanOldBinariesOnStartup,
   compareVersions,
   computeSha256,
   downloadFile,
@@ -38,6 +39,12 @@ import {
   UPDATE_CHECK_INTERVAL_MS,
 } from "./updater.js";
 
+const originalExecPath = process.execPath;
+
+function setProcessExecPath(value: string): void {
+  Object.defineProperty(process, "execPath", { value, configurable: true });
+}
+
 describe("updater.ts", () => {
   let tempDir: string;
   let testCachePath: string;
@@ -51,18 +58,10 @@ describe("updater.ts", () => {
   afterEach(() => {
     fs.rmSync(tempDir, { recursive: true, force: true });
     vi.restoreAllMocks();
+    setProcessExecPath(originalExecPath);
   });
 
   describe("isStandaloneBinary", () => {
-    const originalExecPath = process.execPath;
-
-    afterEach(() => {
-      Object.defineProperty(process, "execPath", {
-        value: originalExecPath,
-        configurable: true,
-      });
-    });
-
     it.each([
       { sea: true, execPath: "C:\\tools\\subtitler.exe", expected: true },
       { sea: true, execPath: "/usr/local/bin/vsub", expected: true },
@@ -72,10 +71,7 @@ describe("updater.ts", () => {
       "should return $expected when isSea() is $sea and execPath is $execPath",
       ({ sea, execPath, expected }) => {
         vi.mocked(isSea).mockReturnValue(sea);
-        Object.defineProperty(process, "execPath", {
-          value: execPath,
-          configurable: true,
-        });
+        setProcessExecPath(execPath);
         expect(isStandaloneBinary()).toBe(expected);
       },
     );
@@ -326,6 +322,28 @@ e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855  vsub-windows-x
       );
     });
 
+    function setupTarFallback(options?: { onTar?: () => void; onPowerShell?: () => void }) {
+      let tarCalled = false;
+      let powershellCalled = false;
+      mockExeca.mockImplementation(async (cmd: unknown) => {
+        if (cmd === "tar") {
+          tarCalled = true;
+          options?.onTar?.();
+          throw new Error("tar failed");
+        }
+        if (cmd === "powershell") {
+          powershellCalled = true;
+          options?.onPowerShell?.();
+          return {};
+        }
+        return {};
+      });
+      return {
+        getTarCalled: () => tarCalled,
+        getPowershellCalled: () => powershellCalled,
+      };
+    }
+
     it("should pass -LiteralPath and escaped paths to PowerShell Expand-Archive when tar fails", async () => {
       const specialDir = path.join(tempDir, "it's [x]");
       fs.mkdirSync(specialDir, { recursive: true });
@@ -333,22 +351,15 @@ e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855  vsub-windows-x
       const extractDir = path.join(specialDir, "dest");
       fs.writeFileSync(archivePath, "fake zip");
 
-      let tarCalled = false;
-      mockExeca.mockImplementation(async (cmd: unknown) => {
-        if (cmd === "tar") {
-          tarCalled = true;
-          throw new Error("tar failed");
-        }
-        if (cmd === "powershell") {
+      const tracker = setupTarFallback({
+        onPowerShell: () => {
           fs.mkdirSync(extractDir, { recursive: true });
           fs.writeFileSync(path.join(extractDir, "vsub.exe"), "dummy binary");
-          return {};
-        }
-        return {};
+        },
       });
 
       const result = await extractArchive(archivePath, extractDir, "win32");
-      expect(tarCalled).toBe(true);
+      expect(tracker.getTarCalled()).toBe(true);
       expect(fs.existsSync(result)).toBe(true);
 
       const quotedArchive = `'${archivePath.replace(/'/g, "''")}'`;
@@ -356,29 +367,137 @@ e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855  vsub-windows-x
       expect(mockExeca).toHaveBeenCalledWith("powershell", [
         "-NoProfile",
         "-Command",
-        `Expand-Archive -LiteralPath ${quotedArchive} -DestinationPath ${quotedDest} -Force`,
+        `$ErrorActionPreference = 'Stop'; Expand-Archive -LiteralPath ${quotedArchive} -DestinationPath ${quotedDest} -Force`,
       ]);
+    });
+
+    it("should remove destDir and intermediate files before PowerShell Expand-Archive fallback", async () => {
+      const specialDir = path.join(tempDir, "it's [x] fallback");
+      fs.mkdirSync(specialDir, { recursive: true });
+      const archivePath = path.join(specialDir, "vsub.zip");
+      const extractDir = path.join(specialDir, "dest");
+      fs.writeFileSync(archivePath, "fake zip");
+
+      let destDirExistedWhenPowerShellCalled: boolean | undefined;
+
+      setupTarFallback({
+        onTar: () => {
+          fs.mkdirSync(extractDir, { recursive: true });
+          fs.writeFileSync(path.join(extractDir, "vsub.exe"), "partial");
+          fs.writeFileSync(path.join(extractDir, "leftover.txt"), "junk");
+        },
+        onPowerShell: () => {
+          destDirExistedWhenPowerShellCalled = fs.existsSync(extractDir);
+          fs.mkdirSync(extractDir, { recursive: true });
+          fs.writeFileSync(path.join(extractDir, "vsub.exe"), "new binary from powershell");
+        },
+      });
+
+      const result = await extractArchive(archivePath, extractDir, "win32");
+
+      expect(destDirExistedWhenPowerShellCalled).toBe(false);
+      expect(fs.readFileSync(result, "utf-8")).toBe("new binary from powershell");
+      expect(fs.existsSync(path.join(extractDir, "leftover.txt"))).toBe(false);
     });
   });
 
   describe("cleanOldBinaries", () => {
-    it("should delete any leftover vsub*.old files in directory", () => {
-      const binDir = path.join(tempDir, "bin");
+    const tableCases = [
+      { file: "mytool.exe", win32: true, linux: true },
+      { file: "mytool.exe.old", win32: false, linux: false },
+      { file: "mytool.exe.old.1730000000000", win32: false, linux: false },
+      { file: "mytool.exe.older", win32: true, linux: true },
+      { file: "mytool.exe.old.bak", win32: true, linux: true },
+      { file: "vsub.exe.old", win32: true, linux: true },
+      { file: "vsub-notes.old.txt", win32: true, linux: true },
+    ] as const;
+
+    it.each([{ platform: "win32" as const }, { platform: "linux" as const }])(
+      "should clean only target .old binaries on $platform",
+      ({ platform }) => {
+        const binDir = path.join(tempDir, `bin-${platform}`);
+        fs.mkdirSync(binDir, { recursive: true });
+        const binaryPath = path.join(binDir, "mytool.exe");
+
+        for (const item of tableCases) {
+          fs.writeFileSync(path.join(binDir, item.file), "dummy");
+        }
+
+        cleanOldBinaries(binaryPath, platform);
+
+        for (const item of tableCases) {
+          const shouldRemain = item[platform];
+          expect(fs.existsSync(path.join(binDir, item.file))).toBe(shouldRemain);
+        }
+      },
+    );
+
+    it.each([
+      { platform: "win32" as const, shouldRemain: false },
+      { platform: "linux" as const, shouldRemain: true },
+    ])(
+      "should handle case sensitivity for MyTool.EXE.old on $platform",
+      ({ platform, shouldRemain }) => {
+        const binCaseDir = path.join(tempDir, `bin-case-${platform}`);
+        fs.mkdirSync(binCaseDir, { recursive: true });
+        const binaryPath = path.join(binCaseDir, "mytool.exe");
+        fs.writeFileSync(binaryPath, "dummy binary");
+        const caseOldFile = path.join(binCaseDir, "MyTool.EXE.old");
+        fs.writeFileSync(caseOldFile, "dummy old");
+
+        cleanOldBinaries(binaryPath, platform);
+
+        expect(fs.existsSync(caseOldFile)).toBe(shouldRemain);
+      },
+    );
+
+    it("should handle binary path with regex special characters", () => {
+      const binDir = path.join(tempDir, "bin-special");
       fs.mkdirSync(binDir, { recursive: true });
-      const oldFile1 = path.join(binDir, "vsub.exe.old");
-      const oldFile2 = path.join(binDir, "vsub.exe.old.12345");
-      const activeFile = path.join(binDir, "vsub.exe");
+      const binaryPath = path.join(binDir, "my+tool (1).exe");
+      fs.writeFileSync(binaryPath, "binary");
+      const targetOld = path.join(binDir, "my+tool (1).exe.old");
+      const unrelatedOld = path.join(binDir, "myytool (1).exe.old");
+      fs.writeFileSync(targetOld, "target old");
+      fs.writeFileSync(unrelatedOld, "unrelated old");
 
-      fs.writeFileSync(oldFile1, "old 1");
-      fs.writeFileSync(oldFile2, "old 2");
-      fs.writeFileSync(activeFile, "active");
+      cleanOldBinaries(binaryPath, "win32");
 
-      cleanOldBinaries(binDir);
-
-      expect(fs.existsSync(oldFile1)).toBe(false);
-      expect(fs.existsSync(oldFile2)).toBe(false);
-      expect(fs.existsSync(activeFile)).toBe(true);
+      expect(fs.existsSync(targetOld)).toBe(false);
+      expect(fs.existsSync(unrelatedOld)).toBe(true);
     });
+
+    it("should not throw if binary directory does not exist", () => {
+      expect(() => {
+        cleanOldBinaries(path.join(tempDir, "non_existent_dir", "mytool.exe"));
+      }).not.toThrow();
+    });
+  });
+
+  describe("cleanOldBinariesOnStartup", () => {
+    it.each([
+      { isSeaValue: true, shouldRemain: false },
+      { isSeaValue: false, shouldRemain: true },
+    ])(
+      "when isSea is $isSeaValue, should clean old binaries: $shouldRemain",
+      ({ isSeaValue, shouldRemain }) => {
+        vi.mocked(isSea).mockReturnValue(isSeaValue);
+
+        const binDir = path.join(tempDir, `bin-startup-${isSeaValue}`);
+        fs.mkdirSync(binDir, { recursive: true });
+        const dummyExecPath = path.join(binDir, "mytool.exe");
+        const dummyOldPath = path.join(binDir, "mytool.exe.old");
+
+        fs.writeFileSync(dummyExecPath, "binary");
+        fs.writeFileSync(dummyOldPath, "old binary");
+
+        setProcessExecPath(dummyExecPath);
+
+        cleanOldBinariesOnStartup();
+
+        expect(fs.existsSync(dummyOldPath)).toBe(shouldRemain);
+      },
+    );
   });
 
   describe("replaceBinarySafely", () => {
@@ -396,6 +515,27 @@ e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855  vsub-windows-x
       });
 
       expect(fs.readFileSync(targetBinary, "utf-8")).toBe("new version binary");
+    });
+
+    it("should clean old binary backups matching target name but keep unrelated .old files", () => {
+      const targetBinary = path.join(tempDir, "mytool.exe");
+      const newBinary = path.join(tempDir, "new_mytool.exe");
+      const leftoverBackup = path.join(tempDir, "mytool.exe.old.12345");
+      const unrelatedOld = path.join(tempDir, "vsub-notes.old.txt");
+
+      fs.writeFileSync(targetBinary, "current binary");
+      fs.writeFileSync(newBinary, "new binary");
+      fs.writeFileSync(leftoverBackup, "prior backup");
+      fs.writeFileSync(unrelatedOld, "notes");
+
+      replaceBinarySafely({
+        newBinaryPath: newBinary,
+        targetBinaryPath: targetBinary,
+        platform: "win32",
+      });
+
+      expect(fs.existsSync(leftoverBackup)).toBe(false);
+      expect(fs.existsSync(unrelatedOld)).toBe(true);
     });
 
     it("should rollback to previous binary on Windows if copy fails", () => {
