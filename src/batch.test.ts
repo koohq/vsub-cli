@@ -302,5 +302,87 @@ describe("batch.ts", () => {
       expect(summary.succeededCount).toBe(1);
       expect(passedOptions?.embed).toBe(true);
     });
+
+    describe("API key pre-check", () => {
+      let dummyFile: string;
+      let ensureApiKeysSpy: ReturnType<typeof vi.spyOn>;
+      let checkFfmpegSpy: ReturnType<typeof vi.spyOn>;
+      let processMediaPipelineSpy: ReturnType<typeof vi.spyOn>;
+
+      beforeEach(() => {
+        dummyFile = path.join(tempDir, "sample.mp4");
+        fs.writeFileSync(dummyFile, "dummy");
+
+        vi.spyOn(configModule, "getConfig").mockReturnValue({
+          groqApiKey: "gsk-mock",
+          geminiApiKey: "gem-mock",
+          ffmpegPath: "ffmpeg",
+        });
+
+        ensureApiKeysSpy = vi
+          .spyOn(configModule, "ensureApiKeys")
+          .mockImplementation(async (config, opts) => {
+            configModule.validateApiKeys(config, opts);
+            return config;
+          });
+
+        checkFfmpegSpy = vi.spyOn(ffmpegModule, "checkFfmpeg").mockResolvedValue();
+
+        processMediaPipelineSpy = vi
+          .spyOn(pipelineModule, "processMediaPipeline")
+          .mockResolvedValue({
+            mediaFile: path.basename(dummyFile),
+            mediaType: "video",
+            durationMs: 100,
+            targetLanguages: ["ja"],
+            entriesCount: 1,
+            outputFiles: [],
+          });
+      });
+
+      it.each([
+        {
+          description: "noTranslate: true",
+          options: { noTranslate: true },
+          expected: { requireGroq: true, requireGemini: false },
+        },
+        {
+          description: "without noTranslate",
+          options: {},
+          expected: { requireGroq: true, requireGemini: true },
+        },
+      ])(
+        "should call ensureApiKeys with correct requirements ($description)",
+        async ({ options, expected }) => {
+          await runBatchPipeline({
+            targets: [dummyFile],
+            ...options,
+          });
+
+          expect(ensureApiKeysSpy).toHaveBeenCalledWith(
+            expect.anything(),
+            expect.objectContaining(expected),
+          );
+        },
+      );
+
+      it("should reject with missing Groq key error and abort before processing when noTranslate is true", async () => {
+        vi.spyOn(configModule, "getConfig").mockReturnValue({
+          groqApiKey: "",
+          geminiApiKey: "gem-mock",
+          ffmpegPath: "ffmpeg",
+        });
+
+        await expect(
+          runBatchPipeline({
+            targets: [dummyFile],
+            noTranslate: true,
+          }),
+        ).rejects.toThrow("VSUB_GROQ_API_KEY");
+
+        expect(processMediaPipelineSpy).not.toHaveBeenCalled();
+        expect(checkFfmpegSpy).not.toHaveBeenCalled();
+      });
+    });
   });
 });

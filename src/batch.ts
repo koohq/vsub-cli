@@ -139,7 +139,8 @@ export async function runBatchPipeline(options: BatchPipelineOptions): Promise<B
 
   // Pre-validate API keys and FFmpeg once before starting batch operations
   const rawConfig = getConfig(options.ffmpegPath, options.lang);
-  const requiresGroq = !options.noTranslate;
+  // Batch does not inspect transcription cache beforehand, so Groq API key is always required.
+  const requiresGroq = true;
   const requiresGemini = !options.noTranslate;
 
   const config = await ensureApiKeys(rawConfig, {
