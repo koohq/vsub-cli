@@ -297,10 +297,18 @@ export const FONT_SIZE_PRESETS: Record<string, number> = {
   large: 30,
 };
 
+/**
+ * `Alignment` values for FFmpeg's `force_style`.
+ *
+ * libass applies `force_style` overrides as-is, without the numpad conversion it
+ * performs for `[V4+ Styles]` lines, so these use the legacy SSA numbering:
+ * 1-3 = bottom (left/center/right), 5-7 = top, 9-11 = middle.
+ * The ASS numpad values (8 = top, 5 = middle) would render middle-left / top-left.
+ */
 export const ALIGNMENT_MAP: Record<BurnPosition, number> = {
   bottom: 2,
-  top: 8,
-  center: 5,
+  top: 6,
+  center: 10,
 };
 
 /**

@@ -258,7 +258,7 @@ describe("ffmpeg.ts", () => {
       const vfIndex = args.indexOf("-vf");
       expect(vfIndex).toBeGreaterThanOrEqual(0);
       const filterArg = args[vfIndex + 1];
-      expect(filterArg).toContain("force_style='Alignment=8,FontSize=30'");
+      expect(filterArg).toContain("force_style='Alignment=6,FontSize=30'");
     });
 
     it("should pass force_style with only FontSize when position is not specified", async () => {
@@ -335,10 +335,10 @@ describe("ffmpeg.ts", () => {
 
     it("should include Alignment when position is top or center", () => {
       expect(buildSubtitlesFilter("/path/to/sub.srt", { position: "top" })).toBe(
-        "subtitles='/path/to/sub.srt':force_style='Alignment=8'",
+        "subtitles='/path/to/sub.srt':force_style='Alignment=6'",
       );
       expect(buildSubtitlesFilter("/path/to/sub.srt", { position: "center" })).toBe(
-        "subtitles='/path/to/sub.srt':force_style='Alignment=5'",
+        "subtitles='/path/to/sub.srt':force_style='Alignment=10'",
       );
       expect(buildSubtitlesFilter("/path/to/sub.srt", { position: "bottom" })).toBe(
         "subtitles='/path/to/sub.srt':force_style='Alignment=2'",
@@ -356,13 +356,13 @@ describe("ffmpeg.ts", () => {
 
     it("should combine Alignment and FontSize when both are provided", () => {
       expect(buildSubtitlesFilter("/path/to/sub.srt", { position: "top", fontSize: "large" })).toBe(
-        "subtitles='/path/to/sub.srt':force_style='Alignment=8,FontSize=30'",
+        "subtitles='/path/to/sub.srt':force_style='Alignment=6,FontSize=30'",
       );
     });
 
     it("should escape single quotes in path and directory name", () => {
       expect(buildSubtitlesFilter("/Bob's videos/it's.srt", { position: "top" })).toBe(
-        "subtitles='/Bob\\'\\''s videos/it\\'\\''s.srt':force_style='Alignment=8'",
+        "subtitles='/Bob\\'\\''s videos/it\\'\\''s.srt':force_style='Alignment=6'",
       );
     });
   });

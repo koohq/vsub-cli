@@ -3,7 +3,7 @@ import os from "node:os";
 import path from "node:path";
 import { execa } from "execa";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { buildSubtitlesFilter, burnSubtitlesToVideo } from "./ffmpeg.js";
+import { type BurnPosition, buildSubtitlesFilter, burnSubtitlesToVideo } from "./ffmpeg.js";
 
 async function checkFfmpegSupport(): Promise<boolean> {
   try {
@@ -150,5 +150,99 @@ describe.skipIf(!hasFfmpeg)("subtitles filter with real ffmpeg", () => {
       expect(result).toBe(outPath);
       expect(fs.existsSync(outPath)).toBe(true);
     }, 60000);
+  });
+
+  describe("subtitle position with real ffmpeg", () => {
+    const FRAME_WIDTH = 320;
+    const FRAME_HEIGHT = 240;
+
+    async function findBrightCentroid(filter: string): Promise<{ xRatio: number; yRatio: number }> {
+      const result = await execa(
+        "ffmpeg",
+        [
+          "-hide_banner",
+          "-loglevel",
+          "error",
+          "-f",
+          "lavfi",
+          "-i",
+          `color=c=black:s=${FRAME_WIDTH}x${FRAME_HEIGHT}:d=1`,
+          "-vf",
+          filter,
+          "-frames:v",
+          "1",
+          "-pix_fmt",
+          "gray",
+          "-f",
+          "rawvideo",
+          "-",
+        ],
+        { encoding: "buffer" },
+      );
+
+      const buffer = result.stdout;
+      let totalX = 0;
+      let totalY = 0;
+      let count = 0;
+
+      for (let y = 0; y < FRAME_HEIGHT; y++) {
+        for (let x = 0; x < FRAME_WIDTH; x++) {
+          const pixel = buffer[y * FRAME_WIDTH + x] ?? 0;
+          if (pixel > 128) {
+            totalX += x;
+            totalY += y;
+            count++;
+          }
+        }
+      }
+
+      expect(count, "no subtitle pixels were rendered").toBeGreaterThan(0);
+
+      const centroidX = totalX / count;
+      const centroidY = totalY / count;
+
+      return {
+        xRatio: centroidX / FRAME_WIDTH,
+        yRatio: centroidY / FRAME_HEIGHT,
+      };
+    }
+
+    const positionCases: Array<{
+      position: BurnPosition;
+      minYRatio: number;
+      maxYRatio: number;
+    }> = [
+      {
+        position: "bottom",
+        minYRatio: 2 / 3,
+        maxYRatio: 1,
+      },
+      {
+        position: "top",
+        minYRatio: 0,
+        maxYRatio: 1 / 3,
+      },
+      {
+        position: "center",
+        minYRatio: 1 / 3,
+        maxYRatio: 2 / 3,
+      },
+    ];
+
+    it.each(positionCases)(
+      "should render subtitles in the correct area for position $position",
+      async ({ position, minYRatio, maxYRatio }) => {
+        const srtPath = writeSrt(undefined, "position.srt");
+        const filter = buildSubtitlesFilter(srtPath, { position, fontSize: 30 });
+        const { xRatio, yRatio } = await findBrightCentroid(filter);
+
+        expect(xRatio).toBeGreaterThan(1 / 3);
+        expect(xRatio).toBeLessThan(2 / 3);
+
+        expect(yRatio).toBeGreaterThan(minYRatio);
+        expect(yRatio).toBeLessThan(maxYRatio);
+      },
+      30000,
+    );
   });
 });
