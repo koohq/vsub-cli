@@ -269,7 +269,14 @@ export const ja: typeof en = {
     promptTargetLang: "  デフォルト出力言語 [ja]: ",
     configSaved: (path: string) =>
       `\n🎉 初期セットアップが正常に完了しました！\n設定保存先: ${path}\n`,
+    configNotSaved: "このウィザードで入力した内容は保存されていません。",
     noApiKeyProvided: "APIキーが指定されていません",
+  },
+  config: {
+    unreadableConfig: (path: string, reason: string) =>
+      `既存の設定ファイルを読み込めませんでした: ${path}（${reason}）。何も保存していません。ファイルを直すか削除してから、もう一度実行してください。`,
+    dirPermissionWarning: (dir: string, reason: string) =>
+      `⚠️ 設定フォルダの権限を 700 に絞れませんでした: ${dir}（${reason}）。設定ファイル自体は、権限 600 で書き込みます。`,
   },
   gemini: {
     modelRetiredDefault: (model: string) =>

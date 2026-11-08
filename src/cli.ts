@@ -166,7 +166,12 @@ function addInitCommand(parent: Command, description: string): void {
     .addOption(createHiddenLangOption())
     .action(async (_options: unknown, cmd: Command) => {
       const actionOptions = readActionOptions<{ lang?: string }>(cmd);
-      await runInitWizard({ lang: normalizeLanguage(actionOptions.lang) });
+      try {
+        await runInitWizard({ lang: normalizeLanguage(actionOptions.lang) });
+      } catch (err) {
+        console.error(pc.red(`\n✖ ${err instanceof Error ? err.message : String(err)}\n`));
+        process.exit(1);
+      }
     });
 }
 
@@ -458,24 +463,32 @@ export function createProgram(): Command {
           return;
         }
 
-        saveGlobalConfig({
-          ...(normalizedLang ? { lang: normalizedLang } : {}),
-          ...(options.groqKey ? { groqApiKey: options.groqKey.trim() } : {}),
-          ...(options.geminiKey ? { geminiApiKey: options.geminiKey.trim() } : {}),
-          ...(options.ffmpegPath ? { ffmpegPath: options.ffmpegPath.trim() } : {}),
-          ...(options.geminiModel ? { geminiModel: options.geminiModel.trim() } : {}),
-          ...(options.groqModel ? { groqModel: options.groqModel.trim() } : {}),
-          ...(options.whisperPrompt ? { whisperPrompt: options.whisperPrompt.trim() } : {}),
-          ...(options.prompt ? { prompt: options.prompt.trim() } : {}),
-          ...(options.glossary ? { glossary: options.glossary.trim() } : {}),
-          ...(concurrencyNum !== undefined ? { concurrency: concurrencyNum } : {}),
-          ...(disableUpdateCheckVal !== undefined
-            ? { disableUpdateCheck: disableUpdateCheckVal }
-            : {}),
-          ...(maxLengthNum !== undefined ? { maxLength: maxLengthNum } : {}),
-          ...(burnPositionVal ? { burnPosition: burnPositionVal } : {}),
-          ...(burnFontSizeVal !== undefined ? { burnFontSize: burnFontSizeVal } : {}),
-        });
+        try {
+          saveGlobalConfig(
+            {
+              ...(normalizedLang ? { lang: normalizedLang } : {}),
+              ...(options.groqKey ? { groqApiKey: options.groqKey.trim() } : {}),
+              ...(options.geminiKey ? { geminiApiKey: options.geminiKey.trim() } : {}),
+              ...(options.ffmpegPath ? { ffmpegPath: options.ffmpegPath.trim() } : {}),
+              ...(options.geminiModel ? { geminiModel: options.geminiModel.trim() } : {}),
+              ...(options.groqModel ? { groqModel: options.groqModel.trim() } : {}),
+              ...(options.whisperPrompt ? { whisperPrompt: options.whisperPrompt.trim() } : {}),
+              ...(options.prompt ? { prompt: options.prompt.trim() } : {}),
+              ...(options.glossary ? { glossary: options.glossary.trim() } : {}),
+              ...(concurrencyNum !== undefined ? { concurrency: concurrencyNum } : {}),
+              ...(disableUpdateCheckVal !== undefined
+                ? { disableUpdateCheck: disableUpdateCheckVal }
+                : {}),
+              ...(maxLengthNum !== undefined ? { maxLength: maxLengthNum } : {}),
+              ...(burnPositionVal ? { burnPosition: burnPositionVal } : {}),
+              ...(burnFontSizeVal !== undefined ? { burnFontSize: burnFontSizeVal } : {}),
+            },
+            { lang: normalizedLang ?? getConfig().lang },
+          );
+        } catch (err) {
+          console.error(pc.red(`\n✖ ${err instanceof Error ? err.message : String(err)}\n`));
+          return process.exit(1);
+        }
 
         console.log(`✅ Configuration updated and saved: ${getGlobalConfigPath()}`);
       },

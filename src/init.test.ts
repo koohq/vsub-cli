@@ -204,6 +204,7 @@ describe("init.ts", () => {
           geminiModel: "gemini-3.8-flash",
           groqModel: "whisper-large-v3-turbo",
         }),
+        expect.anything(),
       );
 
       expect(outputData).toContain("初期セットアップが正常に完了しました");
@@ -246,6 +247,7 @@ describe("init.ts", () => {
           geminiModel: "gemini-3.8-flash",
           groqModel: "whisper-large-v3-turbo",
         }),
+        expect.anything(),
       );
 
       expect(outputData).toContain("Setup completed successfully");
@@ -289,6 +291,7 @@ describe("init.ts", () => {
           groqApiKey: "good-key",
           geminiApiKey: "gemini-key",
         }),
+        expect.anything(),
       );
     });
 
@@ -322,7 +325,52 @@ describe("init.ts", () => {
         expect.objectContaining({
           ffmpegPath: "custom/bin/ffmpeg",
         }),
+        expect.anything(),
       );
     });
+
+    it.each([
+      { lang: "en", notSaved: "The settings you entered in this wizard were not saved." },
+      { lang: "ja", notSaved: "このウィザードで入力した内容は保存されていません" },
+    ] as const)(
+      "should reject without a completion message when saving fails ($lang)",
+      async ({ lang, notSaved }) => {
+        saveSpy.mockImplementation(() => {
+          throw new Error("dummy unreadable config");
+        });
+        const output = new PassThrough();
+        let outputData = "";
+        output.on("data", (chunk) => {
+          outputData += chunk.toString();
+        });
+        const ask = vi
+          .fn()
+          .mockResolvedValueOnce("groq-key")
+          .mockResolvedValueOnce("gemini-key")
+          .mockResolvedValueOnce(lang) // Display lang
+          .mockResolvedValueOnce("")
+          .mockResolvedValueOnce("")
+          .mockResolvedValueOnce("");
+
+        const error = await runInitWizard({
+          output,
+          ask,
+          lang,
+          groqVerifier: async () => ({ success: true }),
+          geminiVerifier: async () => ({ success: true }),
+          ffmpegVerifier: async () => ({ success: true, version: "ffmpeg version 7.0" }),
+        }).then(
+          () => undefined,
+          (e: unknown) => e,
+        );
+
+        expect(error).toBeInstanceOf(Error);
+        expect((error as Error).message).toContain("dummy unreadable config");
+        expect((error as Error).message).toContain(notSaved);
+        expect(outputData).not.toContain("Setup completed successfully");
+        expect(outputData).not.toContain("初期セットアップが正常に完了しました");
+        expect(outputData).not.toContain("Quick Start");
+      },
+    );
   });
 });

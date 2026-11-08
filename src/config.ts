@@ -1,9 +1,15 @@
+import { randomUUID } from "node:crypto";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import readline from "node:readline/promises";
 import dotenv from "dotenv";
-import { resolveLanguage, type SupportedLanguage } from "./i18n/index.js";
+import {
+  getI18n,
+  type I18nMessages,
+  resolveLanguage,
+  type SupportedLanguage,
+} from "./i18n/index.js";
 
 // Load environment variables from .env file if present in current or parent directories
 function loadEnv(): void {
@@ -69,16 +75,74 @@ export function loadGlobalConfig(): Partial<AppConfig> {
   return {};
 }
 
-export function saveGlobalConfig(config: Partial<AppConfig>): void {
-  const configPath = getGlobalConfigPath();
-  const dir = path.dirname(configPath);
-  if (!fs.existsSync(dir)) {
-    fs.mkdirSync(dir, { recursive: true });
-  }
+function describeError(error: unknown): string {
+  const code = (error as NodeJS.ErrnoException | undefined)?.code;
+  return code ?? (error instanceof Error ? error.message : String(error));
+}
 
-  const existing = loadGlobalConfig();
+/**
+ * Creates the vsub config directory and, on Unix, restricts it to 0700.
+ * A failed chmod only produces a warning: the config file itself is always written with mode 600.
+ */
+function ensureConfigDir(dir: string, i18n: I18nMessages): void {
+  fs.mkdirSync(dir, { recursive: true });
+  if (process.platform === "win32") return;
+  try {
+    fs.chmodSync(dir, 0o700);
+  } catch (error) {
+    console.warn(i18n.config.dirPermissionWarning(dir, describeError(error)));
+  }
+}
+
+/**
+ * Reads the existing config for a save. Unlike loadGlobalConfig(), a config file that exists but
+ * cannot be read or parsed as a JSON object is an error, so that a save never discards settings.
+ */
+function readConfigForSave(configPath: string, i18n: I18nMessages): Partial<AppConfig> {
+  if (!fs.existsSync(configPath)) return {};
+  let reason: string;
+  try {
+    const parsed: unknown = JSON.parse(fs.readFileSync(configPath, "utf-8"));
+    if (typeof parsed === "object" && parsed !== null && !Array.isArray(parsed)) {
+      return parsed as Partial<AppConfig>;
+    }
+    reason = "not a JSON object";
+  } catch (error) {
+    reason = describeError(error);
+  }
+  throw new Error(i18n.config.unreadableConfig(configPath, reason));
+}
+
+export function saveGlobalConfig(
+  config: Partial<AppConfig>,
+  options: { lang?: SupportedLanguage | undefined } = {},
+): void {
+  const i18n = getI18n(options.lang);
+  const configPath = getGlobalConfigPath();
+  ensureConfigDir(path.dirname(configPath), i18n);
+
+  const existing = readConfigForSave(configPath, i18n);
   const updated = { ...existing, ...config };
-  fs.writeFileSync(configPath, JSON.stringify(updated, null, 2), "utf-8");
+
+  // Write to a temp file next to the real target (following a symlink) and rename it into place,
+  // so the file is created with mode 600 and never visible with looser permissions.
+  const targetPath = fs.existsSync(configPath) ? fs.realpathSync(configPath) : configPath;
+  const tmpPath = path.join(path.dirname(targetPath), `.config.json.${randomUUID()}.tmp`);
+  try {
+    fs.writeFileSync(tmpPath, JSON.stringify(updated, null, 2), {
+      encoding: "utf-8",
+      mode: 0o600,
+      flag: "wx",
+    });
+    fs.renameSync(tmpPath, targetPath);
+  } catch (error) {
+    try {
+      fs.rmSync(tmpPath, { force: true });
+    } catch {
+      // Ignore cleanup failures; the original error is more useful.
+    }
+    throw error;
+  }
 }
 
 export function getConfig(cliFfmpegPath?: string, cliLang?: string): AppConfig {
@@ -242,10 +306,13 @@ export async function ensureApiKeys(
       }
 
       if (groqApiKey || geminiApiKey) {
-        saveGlobalConfig({
-          ...(groqApiKey ? { groqApiKey } : {}),
-          ...(geminiApiKey ? { geminiApiKey } : {}),
-        });
+        saveGlobalConfig(
+          {
+            ...(groqApiKey ? { groqApiKey } : {}),
+            ...(geminiApiKey ? { geminiApiKey } : {}),
+          },
+          { lang: options.lang },
+        );
         console.log("✅ Configuration saved successfully.\n");
       }
     } finally {

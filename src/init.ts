@@ -307,7 +307,12 @@ export async function runInitWizard(options: InitWizardOptions = {}): Promise<vo
     // ---------------------------------------------------------
     // Save Configuration
     // ---------------------------------------------------------
-    saveGlobalConfig(updatedConfig);
+    try {
+      saveGlobalConfig(updatedConfig, { lang: effectiveLang });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      throw new Error(`${message}\n${m().configNotSaved}`, { cause: error });
+    }
 
     out(pc.bold(pc.green(m().configSaved(configPath))));
     out(pc.bold("🚀 Quick Start:"));

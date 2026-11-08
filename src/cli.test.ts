@@ -305,6 +305,7 @@ describe("CLI integration harness", () => {
             geminiModel: "m",
             concurrency: 4,
           }),
+          expect.anything(),
         );
       },
     },
@@ -336,6 +337,45 @@ describe("CLI integration harness", () => {
       await runCli(...getArgs());
       assert();
       expect(exitSpy).not.toHaveBeenCalled();
+    });
+  });
+
+  describe("save failure handling", () => {
+    let errorSpy: ReturnType<typeof vi.spyOn>;
+
+    beforeEach(() => {
+      errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+    });
+
+    afterEach(() => {
+      errorSpy.mockRestore();
+    });
+
+    function errorOutput(): string {
+      return errorSpy.mock.calls.map((call: unknown[]) => String(call[0])).join("\n");
+    }
+
+    it("config set exits with code 1 and no success message when saving fails", async () => {
+      vi.mocked(saveGlobalConfig).mockImplementationOnce(() => {
+        throw new Error("dummy unreadable config");
+      });
+      await runCli("config", "set", "--gemini-model", "m");
+
+      expect(exitSpy).toHaveBeenCalledWith(1);
+      expect(errorOutput()).toContain("dummy unreadable config");
+      const logged = logSpy.mock.calls.map((call: unknown[]) => String(call[0])).join("\n");
+      expect(logged).not.toContain("Configuration updated and saved");
+    });
+
+    it.each([
+      { name: "init", args: ["init"] },
+      { name: "config init", args: ["config", "init"] },
+    ])("$name exits with code 1 when the wizard fails", async ({ args }) => {
+      vi.mocked(runInitWizard).mockRejectedValueOnce(new Error("dummy wizard failure"));
+      await expect(runCli(...args)).resolves.toBeUndefined();
+
+      expect(exitSpy).toHaveBeenCalledWith(1);
+      expect(errorOutput()).toContain("dummy wizard failure");
     });
   });
 

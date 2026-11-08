@@ -266,7 +266,14 @@ export const en = {
     promptTargetLang: "  Default Target Subtitle Language [ja]: ",
     configSaved: (path: string) =>
       `\n🎉 Setup completed successfully!\nSettings saved to: ${path}\n`,
+    configNotSaved: "The settings you entered in this wizard were not saved.",
     noApiKeyProvided: "API key not provided",
+  },
+  config: {
+    unreadableConfig: (path: string, reason: string) =>
+      `The existing config file could not be read: ${path} (${reason}). Nothing was saved. Fix or delete the file, then run the command again.`,
+    dirPermissionWarning: (dir: string, reason: string) =>
+      `⚠️ Could not restrict the permissions of the config directory to 700: ${dir} (${reason}). The config file itself is still written with mode 600.`,
   },
   gemini: {
     modelRetiredDefault: (model: string) =>
