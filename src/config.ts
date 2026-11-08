@@ -11,20 +11,20 @@ import {
   type SupportedLanguage,
 } from "./i18n/index.js";
 
-// Load environment variables from .env file if present in current or parent directories
-function loadEnv(): void {
-  let currentDir = process.cwd();
+// Load environment variables from .env file if present in startDir or parent directories
+export function loadEnv(startDir: string = process.cwd()): void {
+  let currentDir = startDir;
   while (true) {
     const envPath = path.join(currentDir, ".env");
     if (fs.existsSync(envPath)) {
-      dotenv.config({ path: envPath });
+      dotenv.config({ path: envPath, quiet: true });
       return;
     }
     const parentDir = path.dirname(currentDir);
     if (parentDir === currentDir) break;
     currentDir = parentDir;
   }
-  dotenv.config();
+  dotenv.config({ quiet: true });
 }
 loadEnv();
 
