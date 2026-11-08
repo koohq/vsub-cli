@@ -333,10 +333,12 @@ export async function extractArchive(
         // Ignore
       }
 
+      // Suppress progress bar: Windows PowerShell 5.1's Expand-Archive is several times
+      // slower while rendering its progress bar, even when output is piped.
       await execa("powershell", [
         "-NoProfile",
         "-Command",
-        `$ErrorActionPreference = 'Stop'; Expand-Archive -LiteralPath ${quotePowerShellLiteral(archivePath)} -DestinationPath ${quotePowerShellLiteral(destDir)} -Force`,
+        `$ProgressPreference = 'SilentlyContinue'; $ErrorActionPreference = 'Stop'; Expand-Archive -LiteralPath ${quotePowerShellLiteral(archivePath)} -DestinationPath ${quotePowerShellLiteral(destDir)} -Force`,
       ]);
     } else {
       throw new Error(

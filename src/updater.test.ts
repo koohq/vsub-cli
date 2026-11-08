@@ -367,7 +367,7 @@ e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855  vsub-windows-x
       expect(mockExeca).toHaveBeenCalledWith("powershell", [
         "-NoProfile",
         "-Command",
-        `$ErrorActionPreference = 'Stop'; Expand-Archive -LiteralPath ${quotedArchive} -DestinationPath ${quotedDest} -Force`,
+        `$ProgressPreference = 'SilentlyContinue'; $ErrorActionPreference = 'Stop'; Expand-Archive -LiteralPath ${quotedArchive} -DestinationPath ${quotedDest} -Force`,
       ]);
     });
 
