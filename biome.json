@@ -1,7 +1,7 @@
 {
   "$schema": "https://biomejs.dev/schemas/2.6.5/schema.json",
   "files": {
-    "includes": ["**", "!!dist", "!!coverage", "!!.worktrees", "!src/licenses.data.ts"]
+    "includes": ["**", "!!dist", "!!coverage", "!!.worktrees", "!!scratch", "!src/licenses.data.ts"]
   },
   "assist": { "actions": { "source": { "organizeImports": "on" } } },
   "linter": {
