@@ -20,7 +20,6 @@ import {
   generateSummary,
   translateSrtEntries,
 } from "./gemini.js";
-import { transcribeAudioSegments } from "./groq.js";
 import {
   findOutputPathConflict,
   parseBilingualOrder,
@@ -34,6 +33,7 @@ import {
 } from "./pipeline.js";
 import { reflowSrtEntries, type SrtEntry } from "./srt.js";
 import { isolateConfigAndEnv } from "./test-support/isolate-config-env.js";
+import { transcribeAudioSegments } from "./transcribe/transcriber.js";
 
 vi.mock("./gemini.js", async (importOriginal) => {
   const actual = await importOriginal<typeof import("./gemini.js")>();
@@ -70,8 +70,8 @@ vi.mock("./ffmpeg.js", async (importOriginal) => {
   };
 });
 
-vi.mock("./groq.js", async (importOriginal) => {
-  const actual = await importOriginal<typeof import("./groq.js")>();
+vi.mock("./transcribe/transcriber.js", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("./transcribe/transcriber.js")>();
   return {
     ...actual,
     transcribeAudioSegments: vi.fn().mockResolvedValue({

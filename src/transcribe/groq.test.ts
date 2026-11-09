@@ -1,10 +1,7 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
-import {
-  formatSrtTime,
-  normalizeLanguageCode,
-  transcribeAudioSegments,
-  transcribeAudioWithGroq,
-} from "./groq.js";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { createGroqTranscriber, GROQ_LIMITS } from "./groq.js";
+import { createTranscriber } from "./select.js";
+import { transcribeAudioSegments } from "./transcriber.js";
 
 // Mock groq-sdk
 const mockCreateTranscription = vi.fn();
@@ -32,65 +29,19 @@ vi.mock("node:fs", async (importOriginal) => {
   };
 });
 
-describe("groq.ts", () => {
+describe("transcribe/groq.ts", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    // Keep the default-model expectations independent of the developer's real environment.
+    vi.stubEnv("VSUB_GROQ_MODEL", "");
+    vi.stubEnv("GROQ_MODEL", "");
   });
 
-  describe("formatSrtTime", () => {
-    it("should format 0 seconds", () => {
-      expect(formatSrtTime(0)).toBe("00:00:00,000");
-    });
-
-    it("should format seconds with fractional milliseconds", () => {
-      expect(formatSrtTime(1.5)).toBe("00:00:01,500");
-      expect(formatSrtTime(9.025)).toBe("00:00:09,025");
-    });
-
-    it("should format minutes and seconds", () => {
-      expect(formatSrtTime(65.123)).toBe("00:01:05,123");
-      expect(formatSrtTime(599.999)).toBe("00:09:59,999");
-    });
-
-    it("should format hours, minutes, and seconds", () => {
-      expect(formatSrtTime(3665.04)).toBe("01:01:05,040");
-      expect(formatSrtTime(7325.8)).toBe("02:02:05,800");
-    });
-
-    it("should pad single digits with leading zeroes", () => {
-      expect(formatSrtTime(1.005)).toBe("00:00:01,005");
-    });
+  afterEach(() => {
+    vi.unstubAllEnvs();
   });
 
-  describe("normalizeLanguageCode", () => {
-    it("should return undefined for falsy or empty values", () => {
-      expect(normalizeLanguageCode(undefined)).toBeUndefined();
-      expect(normalizeLanguageCode("")).toBeUndefined();
-    });
-
-    it("should map language names to 2-letter codes", () => {
-      expect(normalizeLanguageCode("japanese")).toBe("ja");
-      expect(normalizeLanguageCode("Japanese")).toBe("ja");
-      expect(normalizeLanguageCode("ENGLISH")).toBe("en");
-      expect(normalizeLanguageCode("french")).toBe("fr");
-      expect(normalizeLanguageCode("german")).toBe("de");
-      expect(normalizeLanguageCode("chinese")).toBe("zh");
-    });
-
-    it("should preserve valid 2-letter codes", () => {
-      expect(normalizeLanguageCode("ja")).toBe("ja");
-      expect(normalizeLanguageCode("en")).toBe("en");
-      expect(normalizeLanguageCode("es")).toBe("es");
-    });
-
-    it("should extract 2-letter code from BCP-47 language tags", () => {
-      expect(normalizeLanguageCode("en-US")).toBe("en");
-      expect(normalizeLanguageCode("ja-JP")).toBe("ja");
-      expect(normalizeLanguageCode("zh-CN")).toBe("zh");
-    });
-  });
-
-  describe("transcribeAudioWithGroq", () => {
+  describe("createGroqTranscriber", () => {
     it("should convert Groq transcription segments to SrtEntry array", async () => {
       mockCreateTranscription.mockResolvedValueOnce({
         language: "english",
@@ -100,7 +51,10 @@ describe("groq.ts", () => {
         ],
       });
 
-      const result = await transcribeAudioWithGroq("dummy.m4a", "fake-api-key", 0);
+      const result = await transcribeAudioSegments(
+        ["dummy.m4a"],
+        createGroqTranscriber("fake-api-key"),
+      );
 
       expect(result.detectedLanguage).toBe("en");
       expect(result.entries).toEqual([
@@ -125,7 +79,7 @@ describe("groq.ts", () => {
         segments: [{ id: 0, start: 0, end: 1, text: "テスト" }],
       });
 
-      await transcribeAudioWithGroq("dummy.m4a", "fake-api-key", 0, false, {
+      await createGroqTranscriber("fake-api-key").transcribe("dummy.m4a", {
         prompt: "Antigravity, vsub",
       });
 
@@ -142,7 +96,7 @@ describe("groq.ts", () => {
         segments: [{ id: 0, start: 0, end: 1, text: "テスト" }],
       });
 
-      await transcribeAudioWithGroq("dummy.m4a", "fake-api-key", 0, false, {
+      await createGroqTranscriber("fake-api-key").transcribe("dummy.m4a", {
         model: "whisper-large-v3",
       });
 
@@ -152,18 +106,113 @@ describe("groq.ts", () => {
         }),
       );
     });
+
+    it("should send exactly file, model and response_format when no prompt is given", async () => {
+      mockCreateTranscription.mockResolvedValueOnce({ segments: [] });
+
+      await createGroqTranscriber("fake-api-key").transcribe("dummy.m4a");
+
+      const request = mockCreateTranscription.mock.calls[0]?.[0];
+      expect(Object.keys(request).sort()).toEqual(["file", "model", "response_format"]);
+      expect(request).toEqual({
+        file: expect.anything(),
+        model: "whisper-large-v3-turbo",
+        response_format: "verbose_json",
+      });
+    });
+
+    it("should add only prompt to the request when a prompt is given", async () => {
+      mockCreateTranscription.mockResolvedValueOnce({ segments: [] });
+
+      await createGroqTranscriber("fake-api-key").transcribe("dummy.m4a", { prompt: "Terms" });
+
+      const request = mockCreateTranscription.mock.calls[0]?.[0];
+      expect(Object.keys(request).sort()).toEqual(["file", "model", "prompt", "response_format"]);
+      expect(request.prompt).toBe("Terms");
+      expect(request.response_format).toBe("verbose_json");
+    });
+
+    it.each([
+      {
+        name: "option model wins",
+        option: "opt-model",
+        vsub: "vsub-model",
+        groq: "groq-model",
+        expected: "opt-model",
+      },
+      {
+        name: "VSUB_GROQ_MODEL next",
+        option: undefined,
+        vsub: "vsub-model",
+        groq: "groq-model",
+        expected: "vsub-model",
+      },
+      {
+        name: "GROQ_MODEL next",
+        option: undefined,
+        vsub: "",
+        groq: "groq-model",
+        expected: "groq-model",
+      },
+      {
+        name: "default model last",
+        option: undefined,
+        vsub: "",
+        groq: "",
+        expected: "whisper-large-v3-turbo",
+      },
+    ])("should resolve the model: $name", async ({ option, vsub, groq, expected }) => {
+      vi.stubEnv("VSUB_GROQ_MODEL", vsub);
+      vi.stubEnv("GROQ_MODEL", groq);
+      mockCreateTranscription.mockResolvedValueOnce({ segments: [] });
+
+      await createGroqTranscriber("fake-api-key").transcribe("dummy.m4a", { model: option });
+
+      expect(mockCreateTranscription.mock.calls[0]?.[0].model).toBe(expected);
+    });
+
+    it("should return response segments as-is and the raw language", async () => {
+      mockCreateTranscription.mockResolvedValueOnce({
+        language: "japanese",
+        segments: [{ id: 0, start: 2.5, end: 4, text: " テスト " }],
+      });
+
+      const result = await createGroqTranscriber("fake-api-key").transcribe("dummy.m4a");
+
+      expect(result).toEqual({
+        segments: [{ id: 0, start: 2.5, end: 4, text: " テスト " }],
+        language: "japanese",
+      });
+    });
   });
 
-  describe("transcribeAudioSegments", () => {
-    it("should forward prompt option to transcribeAudioWithGroq for each segment", async () => {
+  describe("limits and selection", () => {
+    it("should keep the Groq split limits at 24.5MB and 1200s", () => {
+      expect(GROQ_LIMITS).toEqual({ maxFileBytes: 24.5 * 1024 * 1024, segmentSeconds: 1200 });
+    });
+
+    it("createTranscriber should return the Groq transcriber", () => {
+      const transcriber = createTranscriber({ groqApiKey: "fake-api-key" });
+
+      expect(transcriber.limits).toBe(GROQ_LIMITS);
+      expect(transcriber.logLabel).toBe("Groq API");
+    });
+  });
+
+  describe("transcribeAudioSegments with the Groq transcriber", () => {
+    it("should forward prompt option to the Groq request for each segment", async () => {
       mockCreateTranscription.mockResolvedValue({
         language: "japanese",
         segments: [{ id: 0, start: 0, end: 1, text: "セグメント" }],
       });
 
-      await transcribeAudioSegments(["seg1.m4a", "seg2.m4a"], "fake-api-key", false, undefined, {
-        prompt: "GlossaryTerms",
-      });
+      await transcribeAudioSegments(
+        ["seg1.m4a", "seg2.m4a"],
+        createGroqTranscriber("fake-api-key"),
+        false,
+        undefined,
+        { prompt: "GlossaryTerms" },
+      );
 
       expect(mockCreateTranscription).toHaveBeenCalledTimes(2);
       expect(mockCreateTranscription).toHaveBeenCalledWith(
@@ -172,6 +221,7 @@ describe("groq.ts", () => {
         }),
       );
     });
+
     it("should process multiple audio segments and accumulate accurately measured durations", async () => {
       // Segment 1 (duration: 1200.450s)
       mockCreateTranscription.mockResolvedValueOnce({
@@ -193,7 +243,7 @@ describe("groq.ts", () => {
 
       const result = await transcribeAudioSegments(
         ["seg1.m4a", "seg2.m4a", "seg3.m4a"],
-        "fake-api-key",
+        createGroqTranscriber("fake-api-key"),
         false,
         undefined,
         {
@@ -237,7 +287,10 @@ describe("groq.ts", () => {
         segments: [{ id: 0, start: 5.0, end: 10.0, text: "セグメント2" }],
       });
 
-      const result = await transcribeAudioSegments(["seg1.m4a", "seg2.m4a"], "fake-api-key");
+      const result = await transcribeAudioSegments(
+        ["seg1.m4a", "seg2.m4a"],
+        createGroqTranscriber("fake-api-key"),
+      );
 
       expect(result.detectedLanguage).toBe("ja");
       expect(result.entries).toEqual([
@@ -268,7 +321,12 @@ describe("groq.ts", () => {
         });
 
       const onProgress = vi.fn();
-      await transcribeAudioSegments(["seg1.m4a", "seg2.m4a"], "fake-api-key", false, onProgress);
+      await transcribeAudioSegments(
+        ["seg1.m4a", "seg2.m4a"],
+        createGroqTranscriber("fake-api-key"),
+        false,
+        onProgress,
+      );
 
       expect(onProgress).toHaveBeenCalledTimes(2);
       expect(onProgress).toHaveBeenNthCalledWith(1, 1, 2);

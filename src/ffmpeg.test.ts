@@ -1,5 +1,7 @@
 import fs from "node:fs";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import os from "node:os";
+import path from "node:path";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   buildSubtitlesFilter,
   burnSubtitlesToVideo,
@@ -147,13 +149,75 @@ describe("ffmpeg.ts", () => {
   });
 
   describe("extractAudio & prepareAudio", () => {
+    const TEST_LIMITS = { maxFileBytes: 1000, segmentSeconds: 300 };
+    let workDir: string;
+    let inputPath: string;
+    let cleanups: Array<() => Promise<void>>;
+
+    beforeEach(() => {
+      workDir = fs.mkdtempSync(path.join(os.tmpdir(), "vsub-test-"));
+      inputPath = path.join(workDir, "input.mp3");
+      fs.writeFileSync(inputPath, "dummy");
+      cleanups = [];
+    });
+
+    afterEach(async () => {
+      for (const cleanup of cleanups) await cleanup();
+      fs.rmSync(workDir, { recursive: true, force: true });
+    });
+
+    /** Fakes ffmpeg: writes the extracted file, then segment files on split. Everything else (ffprobe) fails. */
+    function mockFfmpegWithExtractedSize(sizeBytes: number, segmentCount = 2) {
+      mockExeca.mockImplementation(async (_cmd: string, args: string[]) => {
+        const outPath = args[args.length - 1] as string;
+        if (args.includes("-segment_time")) {
+          for (let i = 0; i < segmentCount; i++) {
+            fs.writeFileSync(outPath.replace("%03d", String(i).padStart(3, "0")), "x");
+          }
+          return { stdout: "", stderr: "" };
+        }
+        if (args.includes("-vn")) {
+          fs.writeFileSync(outPath, Buffer.alloc(sizeBytes));
+          return { stdout: "", stderr: "" };
+        }
+        throw new Error("probe unavailable");
+      });
+    }
+
     it("should throw error if input media file does not exist", async () => {
-      await expect(extractAudio("/path/to/nonexistent/video.mp4", "ffmpeg")).rejects.toThrow(
-        /Specified media file not found/,
+      await expect(
+        extractAudio("/path/to/nonexistent/video.mp4", "ffmpeg", TEST_LIMITS),
+      ).rejects.toThrow(/Specified media file not found/);
+      await expect(
+        prepareAudio("/path/to/nonexistent/audio.mp3", "ffmpeg", TEST_LIMITS),
+      ).rejects.toThrow(/Specified media file not found/);
+    });
+
+    it("should not split when extracted audio is at most maxFileBytes", async () => {
+      mockFfmpegWithExtractedSize(TEST_LIMITS.maxFileBytes);
+
+      const result = await extractAudio(inputPath, "ffmpeg", TEST_LIMITS);
+      cleanups.push(result.cleanup);
+
+      expect(mockExeca).toHaveBeenCalledTimes(1);
+      expect(result.audioPaths).toHaveLength(1);
+      expect(result.durations).toBeUndefined();
+    });
+
+    it("should split with segmentSeconds when audio exceeds maxFileBytes", async () => {
+      mockFfmpegWithExtractedSize(TEST_LIMITS.maxFileBytes + 1);
+
+      const result = await extractAudio(inputPath, "ffmpeg", TEST_LIMITS);
+      cleanups.push(result.cleanup);
+
+      const splitCall = mockExeca.mock.calls.find((c) =>
+        (c[1] as string[]).includes("-segment_time"),
       );
-      await expect(prepareAudio("/path/to/nonexistent/audio.mp3", "ffmpeg")).rejects.toThrow(
-        /Specified media file not found/,
-      );
+      const splitArgs = splitCall?.[1] as string[];
+      expect(splitArgs[splitArgs.indexOf("-segment_time") + 1]).toBe("300");
+      expect(result.audioPaths).toHaveLength(2);
+      // ffprobe/ffmpeg duration measurement fails, so each falls back to segmentSeconds
+      expect(result.durations).toEqual([300, 300]);
     });
 
     it("prepareAudio should be an alias of extractAudio", () => {

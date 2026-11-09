@@ -55,10 +55,8 @@ import {
   translateSrtEntries,
 } from "./gemini.js";
 import { computeGlossaryHash, extractWhisperPromptHints, parseGlossary } from "./glossary.js";
-import { transcribeAudioSegments } from "./groq.js";
 import { getI18n, type SupportedLanguage } from "./i18n/index.js";
 import { getLanguageDisplayName, parseTargetLanguages, resolveTargetLang } from "./languages.js";
-
 import { type EnsureWritableResult, ensureWritableTargets } from "./safety.js";
 import {
   type BilingualOrder,
@@ -67,6 +65,8 @@ import {
   reflowSrtEntries,
   type SrtEntry,
 } from "./srt.js";
+import { createTranscriber } from "./transcribe/select.js";
+import { transcribeAudioSegments } from "./transcribe/transcriber.js";
 import { createSpinner, formatFileSize, formatSummaryBox } from "./ui.js";
 
 /**
@@ -525,7 +525,13 @@ export async function processMediaPipeline(
     // 1. Audio extraction / optimization
     const audioStartMsg = isAudio ? m.step1Optimizing : m.step1Extracting;
     spinner.start(`${prefix}${audioStartMsg}`);
-    const extractResult = await extractAudio(resolvedMediaPath, config.ffmpegPath, verbose);
+    const transcriber = createTranscriber(config);
+    const extractResult = await extractAudio(
+      resolvedMediaPath,
+      config.ffmpegPath,
+      transcriber.limits,
+      verbose,
+    );
     audioPaths = extractResult.audioPaths;
     cleanupAudio = extractResult.cleanup;
 
@@ -552,7 +558,7 @@ export async function processMediaPipeline(
 
     const transcriptResult = await transcribeAudioSegments(
       audioPaths,
-      config.groqApiKey,
+      transcriber,
       verbose,
       (current, total) => {
         if (total > 1) {
@@ -1025,13 +1031,19 @@ export async function resolveTranscriptEntries(
   await checkFfmpeg(config.ffmpegPath);
 
   const verbose = Boolean(options.verbose);
-  const extractResult = await extractAudio(resolvedPath, config.ffmpegPath, verbose);
+  const transcriber = createTranscriber(config);
+  const extractResult = await extractAudio(
+    resolvedPath,
+    config.ffmpegPath,
+    transcriber.limits,
+    verbose,
+  );
   const audioPaths = extractResult.audioPaths;
 
   try {
     const transcriptResult = await transcribeAudioSegments(
       audioPaths,
-      config.groqApiKey,
+      transcriber,
       verbose,
       undefined,
       {

@@ -6,8 +6,8 @@ import { findMediaFiles, runBatchPipeline } from "./batch.js";
 import * as configModule from "./config.js";
 import * as ffmpegModule from "./ffmpeg.js";
 import * as geminiModule from "./gemini.js";
-import * as groqModule from "./groq.js";
 import * as pipelineModule from "./pipeline.js";
+import * as transcriberModule from "./transcribe/transcriber.js";
 
 describe("batch.ts", () => {
   let tempDir: string;
@@ -411,7 +411,7 @@ describe("batch.ts", () => {
         vi.spyOn(ffmpegModule, "embedSubtitlesToVideo").mockImplementation(
           async (_video, _sub, out) => out,
         );
-        vi.spyOn(groqModule, "transcribeAudioSegments").mockResolvedValue({
+        vi.spyOn(transcriberModule, "transcribeAudioSegments").mockResolvedValue({
           entries: [{ id: 1, startTime: "00:00:00,000", endTime: "00:00:02,000", text: "Line" }],
           detectedLanguage: "en",
         });
@@ -441,7 +441,7 @@ describe("batch.ts", () => {
         expect(ep2Result?.error).toContain('Cannot embed subtitle tracks into "ep2.embedded.avi"');
         expect(ep3Result?.status).toBe("success");
 
-        expect(groqModule.transcribeAudioSegments).toHaveBeenCalledTimes(2);
+        expect(transcriberModule.transcribeAudioSegments).toHaveBeenCalledTimes(2);
         expect(geminiModule.translateSrtEntries).toHaveBeenCalledTimes(2);
         expect(ffmpegModule.embedSubtitlesToVideo).toHaveBeenCalledTimes(2);
       });

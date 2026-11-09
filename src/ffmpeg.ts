@@ -4,6 +4,7 @@ import path from "node:path";
 import { execa } from "execa";
 import { getI18n } from "./i18n/index.js";
 import { getLanguageDisplayName, toIso6392 } from "./languages.js";
+import type { TranscriberLimits } from "./transcribe/transcriber.js";
 
 export interface ExtractedAudioResult {
   audioPaths: string[];
@@ -150,11 +151,12 @@ export function isSupportedMediaFile(filePath: string): boolean {
 
 /**
  * Extracts and optimizes lightweight 16kHz mono audio from a video or audio file.
- * Handles audio splitting if the file size exceeds 24.5MB.
+ * Handles audio splitting if the file size exceeds the given limit.
  */
 export async function extractAudio(
   mediaPath: string,
   ffmpegPath: string,
+  splitLimits: TranscriberLimits,
   verbose = false,
 ): Promise<ExtractedAudioResult> {
   if (!fs.existsSync(mediaPath)) {
@@ -190,7 +192,7 @@ export async function extractAudio(
   }
 
   const stats = fs.statSync(tempAudioFile);
-  const maxSizeBytes = 24.5 * 1024 * 1024; // 24.5MB threshold for Groq
+  const maxSizeBytes = splitLimits.maxFileBytes;
 
   const createdTempFiles: string[] = [tempAudioFile];
 
@@ -206,7 +208,7 @@ export async function extractAudio(
       );
     }
 
-    // Split audio into 20-minute segments (1200 seconds)
+    // Split audio into segments of the provider's chunk length
     const segmentPattern = path.join(tempDir, "segment_%03d.m4a");
     const splitArgs = [
       "-i",
@@ -214,7 +216,7 @@ export async function extractAudio(
       "-f",
       "segment",
       "-segment_time",
-      "1200",
+      String(splitLimits.segmentSeconds),
       "-c",
       "copy",
       "-y",
@@ -238,9 +240,9 @@ export async function extractAudio(
       for (const segmentPath of segments) {
         try {
           const dur = await getMediaDurationInSeconds(segmentPath, ffmpegPath);
-          segmentDurations.push(dur > 0 ? dur : 1200);
+          segmentDurations.push(dur > 0 ? dur : splitLimits.segmentSeconds);
         } catch {
-          segmentDurations.push(1200);
+          segmentDurations.push(splitLimits.segmentSeconds);
         }
       }
       finalDurations = segmentDurations;

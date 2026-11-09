@@ -6,10 +6,10 @@ import { createCachedTranslation, saveTranscriptionCache, saveTranslationCache }
 import { DEFAULT_GEMINI_MODEL } from "./config.js";
 import { checkFfmpeg, extractAudio } from "./ffmpeg.js";
 import { DEFAULT_CONTEXT_WINDOW_SIZE, translateSrtEntries } from "./gemini.js";
-import { transcribeAudioSegments } from "./groq.js";
 import { processMediaPipeline } from "./pipeline.js";
 import { ensureWritableTargets } from "./safety.js";
 import { isolateConfigAndEnv } from "./test-support/isolate-config-env.js";
+import { transcribeAudioSegments } from "./transcribe/transcriber.js";
 
 const mustNotBeCalled = vi.hoisted(
   () => (name: string) => new Error(`${name} must not be called: cache should be hit`),
@@ -27,8 +27,8 @@ vi.mock("./gemini.js", async (importOriginal) => {
   };
 });
 
-vi.mock("./groq.js", async (importOriginal) => {
-  const actual = await importOriginal<typeof import("./groq.js")>();
+vi.mock("./transcribe/transcriber.js", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("./transcribe/transcriber.js")>();
   return {
     ...actual,
     transcribeAudioSegments: vi.fn().mockRejectedValue(mustNotBeCalled("transcribeAudioSegments")),

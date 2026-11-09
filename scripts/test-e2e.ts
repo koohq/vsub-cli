@@ -4,6 +4,7 @@ import { execa } from "execa";
 import pc from "picocolors";
 import { getConfig } from "../src/config.js";
 import { extractAudio } from "../src/ffmpeg.js";
+import { GROQ_LIMITS } from "../src/transcribe/groq.js";
 import { generateFixtures } from "./setup-fixtures.js";
 
 const FIXTURES_DIR = path.resolve(process.cwd(), "fixtures");
@@ -26,7 +27,7 @@ async function runE2ETest(): Promise<void> {
   // 3. Offline Pipeline Verification (FFmpeg media extraction & optimization)
   console.log("\n🔊 [3/4] Verifying local FFmpeg audio extraction & optimization pipeline...");
   const config = getConfig();
-  const extractVideoResult = await extractAudio(videoPath, config.ffmpegPath);
+  const extractVideoResult = await extractAudio(videoPath, config.ffmpegPath, GROQ_LIMITS);
   if (
     extractVideoResult.audioPaths.length === 0 ||
     !fs.existsSync(extractVideoResult.audioPaths[0] ?? "")
@@ -36,7 +37,7 @@ async function runE2ETest(): Promise<void> {
   const videoAudioSize = fs.statSync(extractVideoResult.audioPaths[0] ?? "").size;
   await extractVideoResult.cleanup();
 
-  const extractAudioResult = await extractAudio(audioPath, config.ffmpegPath);
+  const extractAudioResult = await extractAudio(audioPath, config.ffmpegPath, GROQ_LIMITS);
   if (
     extractAudioResult.audioPaths.length === 0 ||
     !fs.existsSync(extractAudioResult.audioPaths[0] ?? "")
