@@ -2,6 +2,32 @@
 
 All notable changes to this project will be documented in this file. See [standard-version](https://github.com/conventional-changelog/standard-version) for commit guidelines.
 
+## [1.5.1](https://github.com/koohq/vsub-cli/compare/vsub-cli-v1.5.0...vsub-cli-v1.5.1) (2026-11-09)
+
+
+### Bug Fixes
+
+* accept --cache-dir on the translate subcommand ([d6697dd](https://github.com/koohq/vsub-cli/commit/d6697dd8b204e055cadbd99383950bf6d4610eb9))
+* always pre-check the Groq API key in batch with --no-translate ([f1e164c](https://github.com/koohq/vsub-cli/commit/f1e164c69a8bb001e89e9ead3f42721c49879a24))
+* bind the translation cache to its source subtitles and settings ([26c565a](https://github.com/koohq/vsub-cli/commit/26c565acdc1593656fb368c78fb0915a695b7b27))
+* bind transcription, chapters and summary caches to their inputs ([85e1911](https://github.com/koohq/vsub-cli/commit/85e19110054205770f6b84696cb23603ad19fbcd))
+* burn top and center subtitles at the requested position ([e6d95c2](https://github.com/koohq/vsub-cli/commit/e6d95c27c710f8aac5970f0bdbf6044cdd8a68cb))
+* escape subtitle paths for the ffmpeg filtergraph so quotes work ([1daeff0](https://github.com/koohq/vsub-cli/commit/1daeff0f944ffadac366101bcc437c8cf5bc101b))
+* harden self-update verification, replacement and binary detection ([020f2db](https://github.com/koohq/vsub-cli/commit/020f2dbe568464fc242f8014c13676e8e2269ea9))
+* keep subtitle and video outputs apart when -o names a video ([ccd5653](https://github.com/koohq/vsub-cli/commit/ccd5653a90cbc6618f1fff8e4badda4dbe2fb824))
+* keep tests out of the npm package and refresh bundled license data at build ([1cdb64c](https://github.com/koohq/vsub-cli/commit/1cdb64c10dcd1ec69378a9cd79f62b2b8d8666f8))
+* keep the init wizard in the --lang language through the preferences step ([36e4ab9](https://github.com/koohq/vsub-cli/commit/36e4ab95be1101784694f490d1c39dd9a4283713))
+* make --no-translate, --no-cache, --no-reflow and --no-update-check take effect ([926ae5a](https://github.com/koohq/vsub-cli/commit/926ae5a659e71f5e219ccf30ee6b9792bda0017e))
+* make the self-update fallback and old-binary cleanup safe for renamed binaries ([4750d2f](https://github.com/koohq/vsub-cli/commit/4750d2fab3af6bc969bb68b09846ac036b321a08))
+* pass --lang to the init setup wizard ([72a9718](https://github.com/koohq/vsub-cli/commit/72a97186d912141ad734013f2bb508438b672e4f))
+* reject unsupported --embed containers before calling any API ([aa9c8e7](https://github.com/koohq/vsub-cli/commit/aa9c8e79b6ba9b893e72598f14f32fcb00ca75d5))
+* respect declined overwrite prompt for --save-original ([48b56d9](https://github.com/koohq/vsub-cli/commit/48b56d9b6f0ab2128b7c7e52d5185e351fedd906))
+* silence the Expand-Archive progress bar so the update fallback is fast ([eed3fca](https://github.com/koohq/vsub-cli/commit/eed3fca36cb5d30bff1d408395d7641fa88a7a1f))
+* stop printing the dotenv log line on every command ([bb3ae8e](https://github.com/koohq/vsub-cli/commit/bb3ae8e378239fa32d94b98237a9692df2c8be2a))
+* stop root options from overriding subcommand options ([502452f](https://github.com/koohq/vsub-cli/commit/502452f3b1a5efcd662082c0b5c12094cc91ed1f))
+* use the configured default target language when -t is omitted ([84f274d](https://github.com/koohq/vsub-cli/commit/84f274d10c394f098e10727710ed4d657b05be6e))
+* write the global config with private permissions and never clobber a broken one ([8df9ce1](https://github.com/koohq/vsub-cli/commit/8df9ce18222944d19f2b0759bfc001066810c3a8))
+
 ## [1.5.0](https://github.com/koohq/vsub-cli/compare/vsub-cli-v1.4.0...vsub-cli-v1.5.0) (2026-10-30)
 
 
