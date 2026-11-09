@@ -10,11 +10,11 @@ A fast, resilient CLI tool that extracts and optimizes audio from video or audio
 
 * ⚡ **Ultra-Fast Transcription**: Powered by `whisper-large-v3-turbo` running on Groq LPUs for near-instant speech recognition.
 * 🎵 **Video & Audio File Support**: Directly accepts video files (`.mp4`, `.mkv`, `.mov`, etc.) and audio files (`.mp3`, `.wav`, `.m4a`, `.aac`, `.flac`, `.ogg`, `.opus`, etc.).
-* 🔊 **Automated Audio Optimization**: Compresses media to 16kHz mono (32–48kbps) via `ffmpeg` to stay under Groq's 25MB limit. Automatically splits ultra-long media and calculates timecodes with millisecond precision based on measured segment durations.
+* 🔊 **Automated Audio Optimization**: Compresses media to 16kHz mono (48kbps) via `ffmpeg` to stay under Groq's 25MB limit. Automatically splits ultra-long media and calculates timecodes with millisecond precision based on measured segment durations.
 * 🎯 **Timecode-Preserving & Context-Aware Translation**: Translates subtitle text in structured chunks via Google Gemini (`gemini-3.8-flash`) using Structured Outputs (`responseSchema`) and a sliding context window (`--context-window`), eliminating timecode corruption or line drift while maintaining natural tone across chunk boundaries.
 * ✂️ **Smart Subtitle Reflow**: Automatically splits overly long Whisper segments at natural punctuation or clause boundaries with millisecond-proportional timecode allocation (`--max-length`, `--max-duration`, `--no-reflow`).
 * 🚀 **Concurrent Translation Control**: Translates subtitle chunks concurrently using an asynchronous worker pool (`--concurrency`, default: 3) with jittered exponential backoff for 429/rate-limit recovery.
-* 💾 **Smart Intermediate Caching**: Automatically caches transcriptions, translations, chapters, and summaries by media content hash (size + mtime). Re-run or add new target languages immediately without repeating API calls (`vsub cache`).
+* 💾 **Smart Intermediate Caching**: Automatically caches transcriptions, translations, chapters, and summaries, keyed by a SHA-256 hash of the media file's path, size, and modification time (the file content is not read). Re-run or add new target languages immediately without repeating API calls (`vsub cache`).
 * 📖 **Glossary & Custom Prompting**: Pass custom translation instructions (`--prompt`), domain glossaries (`--glossary` via JSON or inline `Key=Val`), and Whisper recognition hints (`--whisper-prompt`).
 * 🌍 **Simultaneous Multi-Language & Bilingual Output**: Generate subtitles for multiple target languages in one pass (e.g., `-t ja,en,zh`) or pair original and translated text into dual-language subtitles (`-b, --bilingual`).
 * 📄 **Multi-Format & Stdout Streaming**: Export to `.srt` (SubRip), `.vtt` (WebVTT), `.txt` (plain text), and `.json` (structured data), or stream directly to `stdout` (`--stdout` / `-o -`) for UNIX pipes (`jq`, `pbcopy`) and AI agent workflows.
@@ -127,16 +127,16 @@ pnpm dev path/to/video.mp4
 ### Command Line Help
 
 ```text
-Usage: vsub [options] [command] <media-file>
+Usage: vsub [options] [command] [media-file]
 
 Arguments:
   media-file                    Target video or audio file path (.mp4, .mp3, .wav, .m4a, .mov, etc.)
 
 Options:
   -l, --lang <lang>             UI display language: en (default), ja
-  -t, --target-lang <langs>     Target language code(s), comma-separated (e.g., ja,en,es) (default: "ja")
+  -t, --target-lang <langs>     Target language code(s), comma-separated (e.g., ja,en,es) (default: config or ja)
   -f, --format <formats>        Output formats: comma-separated list of srt, vtt, txt, json (default: "srt")
-  -o, --output <path>           Output path for the generated subtitle file (or '-' for stdout)
+  -o, --output <path>           Output path or base name for the generated subtitle file(s) (or '-' for stdout); with --embed or --burn and a video path (e.g. out.mkv), subtitles are saved as out.<lang>.<format>
   --stdout                      Output subtitles directly to stdout instead of saving to file (default: false)
   -w, --overwrite               Overwrite existing output files without confirmation prompt (default: false)
   --backup                      Create backup (.bak) of existing output files before overwriting (default: false)

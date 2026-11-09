@@ -37,12 +37,17 @@ pnpm dev path/to/sample.mp4
 # 3. Check linting and formatting (Biome)
 pnpm check
 
-# 4. Run tests (Vitest)
+# 4. Type-check (src/, scripts/, vitest.config.ts)
+pnpm typecheck
+
+# 5. Run tests (Vitest)
 pnpm test
 
-# 5. Build executable bundle
+# 6. Build (cleans dist/, regenerates src/licenses.data.ts, compiles to dist/)
 pnpm build
 ```
+
+`pnpm build` regenerates `src/licenses.data.ts` from the installed dependencies in `node_modules`. After adding or updating dependencies, run `pnpm build` and commit the resulting change to `src/licenses.data.ts` together with the dependency update.
 
 ---
 
@@ -50,7 +55,7 @@ pnpm build
 
 1. Ensure all checks pass locally:
    ```bash
-   pnpm check && pnpm test && pnpm build
+   pnpm check && pnpm typecheck && pnpm test && pnpm build
    ```
 2. Write conventional commit messages (`feat: ...`, `fix: ...`, `chore: ...`, `docs: ...`).
 3. Open a Pull Request referencing any relevant issues.
