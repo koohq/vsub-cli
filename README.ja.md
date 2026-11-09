@@ -1,5 +1,9 @@
 # vsub-cli (Video & Audio Subtitle CLI)
 
+[![npm version](https://img.shields.io/npm/v/vsub-cli)](https://www.npmjs.com/package/vsub-cli)
+[![CI](https://img.shields.io/github/actions/workflow/status/koohq/vsub-cli/ci.yml?branch=main&label=CI)](https://github.com/koohq/vsub-cli/actions/workflows/ci.yml?query=branch%3Amain)
+[![License](https://img.shields.io/github/license/koohq/vsub-cli)](https://github.com/koohq/vsub-cli/blob/main/LICENSE)
+
 [English](README.md) | [日本語](README.ja.md)
 
 動画ファイルおよび音声ファイルから音声を最適化抽出し、**Groq API (`whisper-large-v3-turbo`)** で高速文字起こしを行った後、**Google Gemini API (`@google/genai`)** を用いて多言語字幕・テキスト・チャプター・要約を自動生成する CLI ツールです。
@@ -60,6 +64,8 @@ chmod +x vsub
 Windows の場合は、ダウンロードした `vsub-windows-x64.zip` を展開し、`vsub.exe init` を実行してください（`PATH` の通ったフォルダに `vsub.exe` を配置すると、どのディレクトリからでも `vsub` コマンドとして呼び出せます）。
 
 ### 方法 2: npm / pnpm によるグローバルインストール（Node.js 環境向け）
+パッケージは [npm](https://www.npmjs.com/package/vsub-cli) で公開しています。
+
 ```bash
 # npm でインストール
 npm install -g vsub-cli

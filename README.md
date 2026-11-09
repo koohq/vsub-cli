@@ -1,5 +1,9 @@
 # vsub-cli (Video & Audio Subtitle CLI)
 
+[![npm version](https://img.shields.io/npm/v/vsub-cli)](https://www.npmjs.com/package/vsub-cli)
+[![CI](https://img.shields.io/github/actions/workflow/status/koohq/vsub-cli/ci.yml?branch=main&label=CI)](https://github.com/koohq/vsub-cli/actions/workflows/ci.yml?query=branch%3Amain)
+[![License](https://img.shields.io/github/license/koohq/vsub-cli)](https://github.com/koohq/vsub-cli/blob/main/LICENSE)
+
 [English](README.md) | [日本語](README.ja.md)
 
 A fast, resilient CLI tool that extracts and optimizes audio from video or audio files, performs ultra-fast speech recognition with the **Groq API (`whisper-large-v3-turbo`)**, and generates multilingual subtitles, transcripts, chapters, and summaries using the **Google Gemini API (`@google/genai`)**.
@@ -60,6 +64,8 @@ chmod +x vsub
 On Windows, extract `vsub-windows-x64.zip` and run `vsub.exe init` (place `vsub.exe` in a directory on your `PATH` to invoke `vsub` from anywhere).
 
 ### Method 2: Global Install via npm / pnpm (For Node.js environments)
+The package is published on [npm](https://www.npmjs.com/package/vsub-cli).
+
 ```bash
 # Install via npm
 npm install -g vsub-cli
