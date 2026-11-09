@@ -67,6 +67,7 @@ import {
 } from "./srt.js";
 import { createTranscriber } from "./transcribe/select.js";
 import { transcribeAudioSegments } from "./transcribe/transcriber.js";
+import { buildEntriesFromWords, type WordChunk } from "./transcribe/words.js";
 import { createSpinner, formatFileSize, formatSummaryBox } from "./ui.js";
 
 /**
@@ -497,6 +498,7 @@ export async function processMediaPipeline(
   const mediaCache = useCache ? loadMediaCache(resolvedMediaPath, options.cacheDir) : null;
 
   let srtEntries: SrtEntry[] = [];
+  let wordChunks: WordChunk[] | undefined;
   let detectedLanguage: string | undefined;
   let transcriptionCacheHit = false;
   let audioPaths: string[] = [];
@@ -509,6 +511,7 @@ export async function processMediaPipeline(
   if (isTranscriptionCacheMatch && mediaCache?.transcription) {
     transcriptionCacheHit = true;
     srtEntries = mediaCache.transcription.entries;
+    wordChunks = mediaCache.transcription.wordChunks;
     detectedLanguage = mediaCache.transcription.detectedLanguage;
 
     const langDisplay = detectedLanguage ? ` (${detectedLanguage.toUpperCase()})` : "";
@@ -573,6 +576,7 @@ export async function processMediaPipeline(
     );
 
     srtEntries = transcriptResult.entries;
+    wordChunks = transcriptResult.wordChunks;
     detectedLanguage = transcriptResult.detectedLanguage;
 
     if (srtEntries.length === 0) {
@@ -584,7 +588,7 @@ export async function processMediaPipeline(
       if (!options.noCache) {
         saveTranscriptionCache(
           resolvedMediaPath,
-          createCachedTranscription(transcriptionContext, srtEntries, detectedLanguage),
+          createCachedTranscription(transcriptionContext, srtEntries, detectedLanguage, wordChunks),
           options.cacheDir,
         );
       }
@@ -592,7 +596,13 @@ export async function processMediaPipeline(
   }
 
   const rawEntriesCount = srtEntries.length;
-  if (!noReflow && srtEntries.length > 0) {
+  if (wordChunks) {
+    srtEntries = buildEntriesFromWords(wordChunks, {
+      maxLength: resolvedMaxLength,
+      maxDuration: resolvedMaxDuration,
+      noLimits: noReflow,
+    });
+  } else if (!noReflow && srtEntries.length > 0) {
     srtEntries = reflowSrtEntries(srtEntries, {
       maxLength: resolvedMaxLength,
       maxDuration: resolvedMaxDuration,
@@ -1060,6 +1070,7 @@ export async function resolveTranscriptEntries(
           transcriptionContext,
           transcriptResult.entries,
           transcriptResult.detectedLanguage,
+          transcriptResult.wordChunks,
         ),
         options.cacheDir,
       );

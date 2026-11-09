@@ -1,4 +1,5 @@
 import { formatSrtTime, type SrtEntry } from "../srt.js";
+import { buildEntriesFromWords, type WordChunk } from "./words.js";
 
 /** A span of recognized text. Times are seconds relative to the start of the audio chunk. */
 export interface TimedText {
@@ -10,7 +11,10 @@ export interface TimedText {
 /** What one provider call returns for one audio chunk. */
 export interface ChunkTranscription {
   segments?: TimedText[] | undefined;
-  /** Word-level timestamps. Not produced or consumed yet (used from T-027). */
+  /**
+   * Word-level timestamps. When present (even empty), subtitles are built from the words and
+   * `segments` is ignored.
+   */
   words?: TimedText[] | undefined;
   /** Raw language as the provider reports it (normalized by the caller). */
   language?: string | undefined;
@@ -40,6 +44,8 @@ export interface Transcriber {
 export interface TranscriptionResult {
   entries: SrtEntry[];
   detectedLanguage?: string | undefined;
+  /** Raw word timings per chunk. Present only when the provider returned words. */
+  wordChunks?: WordChunk[] | undefined;
 }
 
 const LANGUAGE_NAME_TO_CODE: Record<string, string> = {
@@ -96,6 +102,7 @@ export async function transcribeAudioSegments(
   options?: TranscribeAudioSegmentsOptions,
 ): Promise<TranscriptionResult> {
   const allEntries: SrtEntry[] = [];
+  const wordChunks: WordChunk[] = [];
   let timeOffsetSeconds = 0;
   let detectedLanguage: string | undefined;
 
@@ -124,20 +131,29 @@ export async function transcribeAudioSegments(
       detectedLanguage = segmentLang;
     }
 
-    for (const seg of chunk.segments ?? []) {
-      const text = seg.text.trim();
-      if (!text) continue;
-      allEntries.push({
-        id: allEntries.length + 1,
-        startTime: formatSrtTime(seg.start + timeOffsetSeconds),
-        endTime: formatSrtTime(seg.end + timeOffsetSeconds),
-        text,
-      });
-    }
-
     // Use accurately measured duration if available, otherwise the provider's chunk length
     const segmentDuration = options?.durations?.[i] ?? transcriber.limits.segmentSeconds;
+
+    if (Array.isArray(chunk.words)) {
+      wordChunks.push({ offsetSeconds: timeOffsetSeconds, words: chunk.words });
+    } else {
+      for (const seg of chunk.segments ?? []) {
+        const text = seg.text.trim();
+        if (!text) continue;
+        allEntries.push({
+          id: allEntries.length + 1,
+          startTime: formatSrtTime(seg.start + timeOffsetSeconds),
+          endTime: formatSrtTime(seg.end + timeOffsetSeconds),
+          text,
+        });
+      }
+    }
+
     timeOffsetSeconds += segmentDuration;
+  }
+
+  if (wordChunks.length > 0) {
+    return { entries: buildEntriesFromWords(wordChunks), detectedLanguage, wordChunks };
   }
 
   return { entries: allEntries, detectedLanguage };

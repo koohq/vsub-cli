@@ -6,6 +6,7 @@ import {
   type Transcriber,
   transcribeAudioSegments,
 } from "./transcriber.js";
+import { buildEntriesFromWords } from "./words.js";
 
 /** Builds a fake Transcriber that returns the given chunk results in order. */
 function createFakeTranscriber(
@@ -168,11 +169,77 @@ describe("transcriber.ts", () => {
     });
 
     it("should treat a response without segments as zero segments", async () => {
-      const transcriber = createFakeTranscriber([{ words: [{ start: 0, end: 1, text: "word" }] }]);
+      const transcriber = createFakeTranscriber([{ language: "en" }]);
 
       const result = await transcribeAudioSegments(["a.m4a"], transcriber);
 
       expect(result.entries).toEqual([]);
+    });
+
+    describe("word timings", () => {
+      const wordsA = [
+        { start: 0, end: 0.5, text: "あ" },
+        { start: 0.5, end: 1, text: "い" },
+      ];
+      const wordsB = [{ start: 0, end: 0.5, text: "う" }];
+
+      it("should build entries from words, ignore segments, and offset chunks by durations", async () => {
+        const transcriber = createFakeTranscriber([
+          { words: wordsA, segments: [{ start: 0, end: 1, text: "ignored" }] },
+          { words: wordsB },
+        ]);
+
+        const result = await transcribeAudioSegments(
+          ["a.m4a", "b.m4a"],
+          transcriber,
+          false,
+          undefined,
+          {
+            durations: [100.5],
+          },
+        );
+
+        expect(result.wordChunks).toEqual([
+          { offsetSeconds: 0, words: wordsA },
+          { offsetSeconds: 100.5, words: wordsB },
+        ]);
+        expect(result.entries).toEqual(buildEntriesFromWords(result.wordChunks ?? []));
+        expect(result.entries.map((e) => e.text)).toEqual(["あい", "う"]);
+      });
+
+      it("should use limits.segmentSeconds as the offset when durations are missing", async () => {
+        const transcriber = createFakeTranscriber([{ words: wordsA }, { words: wordsB }]);
+
+        const result = await transcribeAudioSegments(["a.m4a", "b.m4a"], transcriber);
+
+        expect(result.wordChunks?.map((c) => c.offsetSeconds)).toEqual([0, 300]);
+      });
+
+      it("should align mixed chunks to the word form and ignore segments of chunks without words", async () => {
+        const transcriber = createFakeTranscriber([
+          { segments: [{ start: 0, end: 1, text: "ignored" }] },
+          { words: wordsB },
+          { words: [], segments: [{ start: 0, end: 1, text: "ignored too" }] },
+        ]);
+
+        const result = await transcribeAudioSegments(["a.m4a", "b.m4a", "c.m4a"], transcriber);
+
+        expect(result.wordChunks).toEqual([
+          { offsetSeconds: 300, words: wordsB },
+          { offsetSeconds: 600, words: [] },
+        ]);
+        expect(result.entries.map((e) => e.text)).toEqual(["う"]);
+      });
+
+      it("should not add the wordChunks key when no chunk has words", async () => {
+        const transcriber = createFakeTranscriber([
+          { segments: [{ start: 0, end: 1, text: "A" }] },
+        ]);
+
+        const result = await transcribeAudioSegments(["a.m4a"], transcriber);
+
+        expect("wordChunks" in result).toBe(false);
+      });
     });
 
     it("should forward prompt, model and verbose to transcribe()", async () => {

@@ -187,6 +187,31 @@ describe("cache module", () => {
       expect(cache?.transcription?.model).toBe("whisper-large-v3-turbo");
     });
 
+    it("should store wordChunks in createCachedTranscription only when given", () => {
+      const wordChunks = [{ offsetSeconds: 0, words: [{ start: 0, end: 0.5, text: "あ" }] }];
+
+      expect(createCachedTranscription({}, sampleEntries, "en", wordChunks).wordChunks).toEqual(
+        wordChunks,
+      );
+      expect("wordChunks" in createCachedTranscription({}, sampleEntries, "en")).toBe(false);
+    });
+
+    it("should round-trip wordChunks through saveTranscriptionCache and loadMediaCache", () => {
+      const wordChunks = [
+        { offsetSeconds: 0, words: [{ start: 0, end: 0.5, text: "あ" }] },
+        { offsetSeconds: 300, words: [] },
+      ];
+      saveTranscriptionCache(
+        testMediaFile,
+        createCachedTranscription({}, sampleEntries, "en", wordChunks),
+        customCacheDir,
+      );
+
+      expect(loadMediaCache(testMediaFile, customCacheDir)?.transcription?.wordChunks).toEqual(
+        wordChunks,
+      );
+    });
+
     it("should invalidate cache if target media file was modified", async () => {
       saveTranscriptionCache(
         testMediaFile,

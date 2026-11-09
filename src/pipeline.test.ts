@@ -34,6 +34,7 @@ import {
 import { reflowSrtEntries, type SrtEntry } from "./srt.js";
 import { isolateConfigAndEnv } from "./test-support/isolate-config-env.js";
 import { transcribeAudioSegments } from "./transcribe/transcriber.js";
+import { buildEntriesFromWords, type WordChunk } from "./transcribe/words.js";
 
 vi.mock("./gemini.js", async (importOriginal) => {
   const actual = await importOriginal<typeof import("./gemini.js")>();
@@ -1986,6 +1987,118 @@ describe("pipeline.ts", () => {
       await runChapters();
 
       expect(transcribeAudioSegments).not.toHaveBeenCalled();
+    });
+  });
+
+  describe("word timings (wordChunks)", () => {
+    let cacheDir: string;
+    let mediaFile: string;
+
+    // Group A: 6.5s of Latin words, extended to 7.5s by the 1.5s room before group B.
+    // Group B: 40 kana words, which the default limits split.
+    const wordChunks: WordChunk[] = [
+      {
+        offsetSeconds: 0,
+        words: [
+          ...Array.from({ length: 13 }, (_, i) => ({
+            start: i * 0.5,
+            end: (i + 1) * 0.5,
+            text: `w${i + 1}`,
+          })),
+          ...Array.from({ length: 40 }, (_, i) => ({
+            start: 8 + i * 0.1,
+            end: 8 + (i + 1) * 0.1,
+            text: "あ",
+          })),
+        ],
+      },
+    ];
+
+    beforeEach(() => {
+      vi.clearAllMocks();
+      cacheDir = path.join(tempDir, "cache-words");
+      mediaFile = path.join(tempDir, "sample-words.mp4");
+      fs.writeFileSync(mediaFile, "dummy video data");
+      vi.spyOn(console, "log").mockImplementation(() => {});
+      vi.spyOn(process.stdout, "write").mockReturnValue(true);
+      saveTranscriptionCache(
+        mediaFile,
+        {
+          detectedLanguage: "en",
+          entries: buildEntriesFromWords(wordChunks),
+          wordChunks,
+          createdAt: Date.now(),
+        },
+        cacheDir,
+      );
+    });
+
+    function runMain(options: Partial<Parameters<typeof processMediaPipeline>[0]> = {}) {
+      return processMediaPipeline({
+        mediaFile,
+        targetLang: "ja",
+        cacheDir,
+        stdout: true,
+        ...options,
+      });
+    }
+
+    function translatedSource(callIndex = 0): SrtEntry[] {
+      return vi.mocked(translateSrtEntries).mock.calls[callIndex]?.[0] as SrtEntry[];
+    }
+
+    it("rebuilds subtitles from cached wordChunks without reflow, using the current limits", async () => {
+      await runMain({ maxLength: 20, maxDuration: 8 });
+      await runMain({ maxLength: 30, maxDuration: 8 });
+
+      const first = buildEntriesFromWords(wordChunks, { maxLength: 20, maxDuration: 8 });
+      const second = buildEntriesFromWords(wordChunks, { maxLength: 30, maxDuration: 8 });
+      expect(first).not.toEqual(second);
+      expect(translatedSource(0)).toEqual(first);
+      expect(translatedSource(1)).toEqual(second);
+      expect(transcribeAudioSegments).not.toHaveBeenCalled();
+    });
+
+    it("does not split an entry that exceeds the default duration after extension", async () => {
+      await runMain();
+
+      const source = translatedSource();
+      expect(source).toEqual(buildEntriesFromWords(wordChunks, {}));
+      expect(source[0]?.endTime).toBe("00:00:07,500");
+    });
+
+    it("removes only the limits with noReflow", async () => {
+      await runMain({ noReflow: true });
+
+      const source = translatedSource();
+      expect(source).toEqual(buildEntriesFromWords(wordChunks, { noLimits: true }));
+      expect(source).toHaveLength(2);
+    });
+
+    it.each([
+      {
+        name: "processMediaPipeline",
+        run: () => runMain(),
+      },
+      {
+        name: "processChaptersPipeline",
+        run: () => processChaptersPipeline({ inputFile: mediaFile, cacheDir, stdout: true }),
+      },
+    ])("saves wordChunks to the cache after transcribing ($name)", async ({ run }) => {
+      const entries = buildEntriesFromWords(wordChunks);
+      vi.mocked(transcribeAudioSegments).mockResolvedValueOnce({
+        entries,
+        detectedLanguage: "en",
+        wordChunks,
+      });
+      fs.rmSync(cacheDir, { recursive: true, force: true });
+
+      await run();
+
+      expect(transcribeAudioSegments).toHaveBeenCalledTimes(1);
+      const cached = loadMediaCache(mediaFile, cacheDir)?.transcription;
+      expect(cached?.wordChunks).toEqual(wordChunks);
+      expect(cached?.entries).toEqual(entries);
     });
   });
 });

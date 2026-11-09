@@ -5,10 +5,13 @@ import path from "node:path";
 import { DEFAULT_GROQ_MODEL } from "./config.js";
 import type { ChapterItem, SummaryResult } from "./formatter.js";
 import type { SrtEntry } from "./srt.js";
+import type { WordChunk } from "./transcribe/words.js";
 
 export interface CachedTranscription {
   detectedLanguage?: string | undefined;
   entries: SrtEntry[];
+  /** Raw word timings; subtitles are rebuilt from these with the current options. */
+  wordChunks?: WordChunk[] | undefined;
   model?: string | undefined;
   prompt?: string | undefined;
   createdAt: number;
@@ -81,12 +84,14 @@ export function createCachedTranscription(
   context: TranscriptionCacheContext,
   entries: SrtEntry[],
   detectedLanguage?: string | undefined,
+  wordChunks?: WordChunk[] | undefined,
 ): CachedTranscription {
   return {
     detectedLanguage,
     model: context.model,
     prompt: context.prompt,
     entries,
+    ...(wordChunks ? { wordChunks } : {}),
     createdAt: Date.now(),
   };
 }
