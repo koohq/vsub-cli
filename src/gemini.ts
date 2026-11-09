@@ -1,4 +1,4 @@
-import { GoogleGenAI, Type } from "@google/genai";
+import { GoogleGenAI, type ThinkingConfig, ThinkingLevel, Type } from "@google/genai";
 import { DEFAULT_GEMINI_MODEL } from "./config.js";
 import {
   type ChapterItem,
@@ -38,6 +38,25 @@ export interface SummaryOptions {
   targetLang?: string | undefined;
   lang?: SupportedLanguage | undefined;
   verbose?: boolean | undefined;
+}
+
+/**
+ * Builds the thinking config for models known to be Gemini 3 or newer.
+ * Gemini 3 models support thinkingLevel: LOW to reduce latency and token usage
+ * without degrading translation/chapter/summary quality. Non-matching or older
+ * models (such as Gemini 2.x) are left unchanged without thinkingConfig.
+ */
+export function buildThinkingConfig(modelName: string): { thinkingConfig?: ThinkingConfig } {
+  const normalized = modelName.replace(/^models\//, "");
+  const match = normalized.match(/^gemini-(\d+)(?:[.-]|$)/);
+  if (match && match[1] !== undefined && Number.parseInt(match[1], 10) >= 3) {
+    return {
+      thinkingConfig: {
+        thinkingLevel: ThinkingLevel.LOW,
+      },
+    };
+  }
+  return {};
 }
 
 /**
@@ -184,6 +203,7 @@ async function translateChunkWithRetry(
             },
             description: `Array of translated subtitle texts matching 1-to-1 with the input array (${texts.length} items).`,
           },
+          ...buildThinkingConfig(modelName),
         },
       });
 
@@ -397,6 +417,7 @@ STRICT RULES:
             },
             description: "Chronological list of video chapters",
           },
+          ...buildThinkingConfig(modelName),
         },
       });
 
@@ -577,6 +598,7 @@ STRICT RULES:
             },
             required: ["title", "summary", "keyPoints", "topics"],
           },
+          ...buildThinkingConfig(modelName),
         },
       });
 

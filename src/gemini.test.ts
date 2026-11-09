@@ -1,6 +1,7 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   asyncPool,
+  buildThinkingConfig,
   buildTranslationPrompt,
   DEFAULT_CONTEXT_WINDOW_SIZE,
   formatModelNotFoundError,
@@ -28,12 +29,19 @@ vi.mock("@google/genai", () => {
       BOOLEAN: "BOOLEAN",
       OBJECT: "OBJECT",
     },
+    ThinkingLevel: {
+      LOW: "LOW",
+    },
   };
 });
 
 describe("gemini.ts", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+  });
+
+  afterEach(() => {
+    vi.unstubAllEnvs();
   });
 
   describe("asyncPool", () => {
@@ -437,6 +445,8 @@ describe("gemini.ts", () => {
     });
 
     it("should send responseSchema with Type.ARRAY of Type.STRING in generateContent config", async () => {
+      vi.stubEnv("VSUB_GEMINI_MODEL", "");
+      vi.stubEnv("GEMINI_MODEL", "");
       const entries: SrtEntry[] = [
         {
           id: 1,
@@ -464,6 +474,9 @@ describe("gemini.ts", () => {
           description: expect.stringContaining(
             "Array of translated subtitle texts matching 1-to-1",
           ),
+        },
+        thinkingConfig: {
+          thinkingLevel: "LOW",
         },
       });
     });
@@ -747,6 +760,123 @@ describe("gemini.ts", () => {
       expect(summary.title).toBe("Quarterly Review");
       expect(summary.keyPoints).toHaveLength(2);
       expect(summary.topics[1]?.timestamp).toBe("02:10");
+    });
+  });
+
+  describe("Gemini thinking level", () => {
+    const ENV_VARS = ["VSUB_GEMINI_MODEL", "GEMINI_MODEL"] as const;
+    const sampleEntries: SrtEntry[] = [
+      {
+        id: 1,
+        startTime: "00:00:00,000",
+        endTime: "00:00:10,000",
+        text: "Hello and welcome",
+      },
+    ];
+
+    beforeEach(() => {
+      for (const name of ENV_VARS) {
+        vi.stubEnv(name, "");
+      }
+    });
+
+    it.each([
+      {
+        name: "translateSrtEntries",
+        execute: () => translateSrtEntries(sampleEntries, "ja", "fake-key"),
+        mockResponse: { text: JSON.stringify(["こんにちは"]) },
+      },
+      {
+        name: "generateChapters",
+        execute: () => generateChapters(sampleEntries, "fake-key"),
+        mockResponse: {
+          text: JSON.stringify([{ timestamp: "00:00", seconds: 0, title: "Intro" }]),
+        },
+      },
+      {
+        name: "generateSummary",
+        execute: () => generateSummary(sampleEntries, "fake-key"),
+        mockResponse: {
+          text: JSON.stringify({
+            title: "Summary Title",
+            summary: "Executive summary text.",
+            keyPoints: ["Point 1"],
+            topics: [{ timestamp: "00:00", title: "Intro", description: "Desc" }],
+          }),
+        },
+      },
+    ])(
+      "should send thinkingConfig with LOW for $name under default model",
+      async ({ execute, mockResponse }) => {
+        mockGenerateContent.mockResolvedValueOnce(mockResponse);
+        await execute();
+        expect(mockGenerateContent).toHaveBeenCalledTimes(1);
+        const callArgs = mockGenerateContent.mock.calls[0]?.[0];
+        expect(callArgs.config?.thinkingConfig).toEqual({ thinkingLevel: "LOW" });
+      },
+    );
+
+    it("should not include thinkingConfig when non-target model is specified", async () => {
+      mockGenerateContent.mockResolvedValueOnce({
+        text: JSON.stringify(["こんにちは"]),
+      });
+      await translateSrtEntries(sampleEntries, "ja", "fake-key", false, undefined, {
+        model: "gemini-2.5-flash",
+      });
+      expect(mockGenerateContent).toHaveBeenCalledTimes(1);
+      const callArgs = mockGenerateContent.mock.calls[0]?.[0];
+      expect(callArgs.config).not.toHaveProperty("thinkingConfig");
+    });
+
+    describe("buildThinkingConfig", () => {
+      it.each([
+        {
+          model: "gemini-3.8-flash",
+          expected: { thinkingConfig: { thinkingLevel: "LOW" } },
+        },
+        {
+          model: "models/gemini-3.8-flash",
+          expected: { thinkingConfig: { thinkingLevel: "LOW" } },
+        },
+        {
+          model: "gemini-3-pro-preview",
+          expected: { thinkingConfig: { thinkingLevel: "LOW" } },
+        },
+        {
+          model: "gemini-3.5-flash-lite",
+          expected: { thinkingConfig: { thinkingLevel: "LOW" } },
+        },
+        {
+          model: "gemini-4-argon",
+          expected: { thinkingConfig: { thinkingLevel: "LOW" } },
+        },
+        {
+          model: "gemini-2.5-flash",
+          expected: {},
+        },
+        {
+          model: "gemini-2.0-flash",
+          expected: {},
+        },
+        {
+          model: "gemini-1.5-pro",
+          expected: {},
+        },
+        {
+          model: "gemini-flash-latest",
+          expected: {},
+        },
+        {
+          model: "gemma-3-27b-it",
+          expected: {},
+        },
+        {
+          model: "tunedModels/my-model",
+          expected: {},
+        },
+      ])("should return $expected for model '$model'", ({ model, expected }) => {
+        expect(buildThinkingConfig(model)).toEqual(expected);
+      });
     });
   });
 });
