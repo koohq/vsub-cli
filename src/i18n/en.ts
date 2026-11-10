@@ -71,6 +71,8 @@ export const en = {
       `Invalid target language code: "${token}". Valid examples: "ja", "en", "zh", "zh-CN", "pt-BR"`,
     invalidSttProvider: (provider: string) =>
       `Unsupported transcription provider: "${provider}". Supported: openrouter, groq`,
+    invalidLlmProvider: (provider: string) =>
+      `Unsupported text generation provider: "${provider}". Supported: gemini, openrouter`,
     sttGroqAutoHint:
       "💡 Transcribing with Groq because VSUB_OPENROUTER_API_KEY is not set. The default is now OpenRouter (elevenlabs/scribe-v2). To keep Groq and hide this tip, set VSUB_STT_PROVIDER=groq.",
     step1SkipCache:
@@ -93,6 +95,7 @@ export const en = {
     step3Cached: (lang: string, count: number) =>
       `  ✔ ${lang} translation (cached: ${count} lines)`,
     step3TranslatingMulti: (
+      provider: string,
       model: string,
       currentLangIdx: number,
       totalLangs: number,
@@ -100,18 +103,19 @@ export const en = {
       currentChunk: number,
       totalChunks: number,
     ) =>
-      `🌐 [3/4] Translating via Gemini (${model}) (${currentLangIdx}/${totalLangs} languages: ${lang} [${currentChunk}/${totalChunks} chunks])...`,
+      `🌐 [3/4] Translating via ${provider} (${model}) (${currentLangIdx}/${totalLangs} languages: ${lang} [${currentChunk}/${totalChunks} chunks])...`,
     step3TranslatingSingle: (
+      provider: string,
       model: string,
       lang: string,
       currentChunk: number,
       totalChunks: number,
     ) =>
-      `🌐 [3/4] Translating into ${lang} via Gemini (${model}) [${currentChunk}/${totalChunks} chunks]...`,
+      `🌐 [3/4] Translating into ${lang} via ${provider} (${model}) [${currentChunk}/${totalChunks} chunks]...`,
     step3LangDone: (lang: string, count: number) =>
       `  ✔ ${lang} translation complete (${count} lines)`,
-    step3AllDone: (langs: string, count: number) =>
-      `🌐 [3/4] Gemini translation complete (${langs}) - ${count} lines`,
+    step3AllDone: (provider: string, langs: string, count: number) =>
+      `🌐 [3/4] ${provider} translation complete (${langs}) - ${count} lines`,
     step3SkippedSameLang: (detected: string, target: string) =>
       `🌐 [3/4] Skipped translation because detected language matches target language (${detected} -> ${target})`,
     step4Saving: "💾 [4/4] Saving subtitle files...",
@@ -144,6 +148,7 @@ export const en = {
     step1NoEntries: (name: string) =>
       `Failed to read entries from subtitle file (ensure it is in SRT format): ${name}`,
     step2TranslatingMulti: (
+      provider: string,
       model: string,
       currentLangIdx: number,
       totalLangs: number,
@@ -151,16 +156,17 @@ export const en = {
       currentChunk: number,
       totalChunks: number,
     ) =>
-      `🌐 [2/3] Translating via Gemini (${model}) (${currentLangIdx}/${totalLangs} languages: ${lang} [${currentChunk}/${totalChunks} chunks])...`,
+      `🌐 [2/3] Translating via ${provider} (${model}) (${currentLangIdx}/${totalLangs} languages: ${lang} [${currentChunk}/${totalChunks} chunks])...`,
     step2TranslatingSingle: (
+      provider: string,
       model: string,
       lang: string,
       currentChunk: number,
       totalChunks: number,
     ) =>
-      `🌐 [2/3] Translating into ${lang} via Gemini (${model}) [${currentChunk}/${totalChunks} chunks]...`,
-    step2Done: (langs: string, count: number) =>
-      `🌐 [2/3] Gemini translation complete (${langs}) - ${count} lines`,
+      `🌐 [2/3] Translating into ${lang} via ${provider} (${model}) [${currentChunk}/${totalChunks} chunks]...`,
+    step2Done: (provider: string, langs: string, count: number) =>
+      `🌐 [2/3] ${provider} translation complete (${langs}) - ${count} lines`,
     step3Saving: "💾 [3/3] Saving subtitle files...",
     step3Saved: (formats: string) => `💾 [3/3] Subtitle files saved successfully (${formats})`,
     stdoutSingleFormatOnly:
@@ -173,8 +179,8 @@ export const en = {
     started: (file: string) => `vsub-cli chapters - Generating chapters: ${file}`,
     step1Resolve: "Resolving transcript entries...",
     step1Parsed: (count: number) => `Parsed ${count} subtitle entries`,
-    step2Generating: (model: string, lang: string) =>
-      `Generating chapters with Gemini (${model}) [${lang}]...`,
+    step2Generating: (provider: string, model: string, lang: string) =>
+      `Generating chapters with ${provider} (${model}) [${lang}]...`,
     step2Done: (count: number) => `Generated ${count} chapters`,
     step2Cached: (count: number) => `Loaded ${count} chapters [⚡ Cached]`,
     step3Saving: "Saving chapters file...",
@@ -185,8 +191,8 @@ export const en = {
     started: (file: string) => `vsub-cli summarize - Generating summary: ${file}`,
     step1Resolve: "Resolving transcript entries...",
     step1Parsed: (count: number) => `Parsed ${count} subtitle entries`,
-    step2Generating: (model: string, lang: string) =>
-      `Generating summary with Gemini (${model}) [${lang}]...`,
+    step2Generating: (provider: string, model: string, lang: string) =>
+      `Generating summary with ${provider} (${model}) [${lang}]...`,
     step2Done: "Generated summary successfully",
     step2Cached: "Loaded summary [⚡ Cached]",
     step3Saving: "Saving summary file...",
@@ -299,6 +305,20 @@ export const en = {
     modelNotFoundCustom: (model: string) =>
       `Specified Gemini model '${model}' was not found. Please check model name or API permissions.\n` +
       `  • Available models: https://ai.google.dev/gemini-api/docs/models`,
+  },
+  openrouter: {
+    modelRetiredDefault: (model: string) =>
+      `Default OpenRouter model '${model}' not found.\n` +
+      `  • Please update vsub-cli or check available models at https://openrouter.ai/models\n` +
+      `  • Or specify an alternative model with --llm-model`,
+    modelNotFoundCustom: (model: string) =>
+      `Specified OpenRouter model '${model}' was not found. Please check model name or API permissions.\n` +
+      `  • Available models: https://openrouter.ai/models\n` +
+      `  • Or specify an alternative model with --llm-model`,
+    insufficientCredits:
+      "OpenRouter returned 402 Insufficient Credits.\n" +
+      "  • Check your credit balance: https://openrouter.ai/credits\n" +
+      "  • Lower --concurrency if running concurrent requests exceeds reserved credit limits",
   },
   licenses: {
     bannerTitle: "                  vsub-cli Third-Party Software Licenses                  ",

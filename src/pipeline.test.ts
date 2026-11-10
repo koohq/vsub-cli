@@ -12,6 +12,7 @@ import {
   saveTranscriptionCache,
   saveTranslationCache,
 } from "./cache.js";
+import * as configModule from "./config.js";
 import { DEFAULT_GEMINI_MODEL, DEFAULT_GROQ_MODEL, saveGlobalConfig } from "./config.js";
 import { burnSubtitlesToVideo, embedSubtitlesToVideo, extractAudio } from "./ffmpeg.js";
 import {
@@ -28,6 +29,8 @@ import {
 import * as safetyModule from "./safety.js";
 import { reflowSrtEntries, type SrtEntry } from "./srt.js";
 import { isolateConfigAndEnv } from "./test-support/isolate-config-env.js";
+import { DEFAULT_OPENROUTER_LLM_MODEL } from "./text/openrouter.js";
+import * as selectModule from "./text/select.js";
 import {
   DEFAULT_CONTEXT_WINDOW_SIZE,
   generateChapters,
@@ -2310,6 +2313,434 @@ describe("pipeline.ts", () => {
       expect(result.fromCache).toBe(false);
       const cached = loadMediaCache(mediaFile, cacheDir)?.transcription;
       expect(cached?.provider).toBe("openrouter");
+    });
+  });
+
+  describe("LLM provider selection, caching, and key reuse in pipeline", () => {
+    let mediaFile: string;
+    let cacheDir: string;
+
+    function mockSpinner() {
+      const spinnerInfoSpy = vi.fn();
+      const spinnerStartSpy = vi.fn();
+      const spinnerUpdateSpy = vi.fn();
+      vi.spyOn(ui, "createSpinner").mockReturnValue({
+        start: spinnerStartSpy.mockReturnThis(),
+        succeed: vi.fn().mockReturnThis(),
+        fail: vi.fn().mockReturnThis(),
+        warn: vi.fn().mockReturnThis(),
+        info: spinnerInfoSpy,
+        updateText: spinnerUpdateSpy.mockReturnThis(),
+        stop: vi.fn().mockReturnThis(),
+      });
+      return { spinnerInfoSpy, spinnerStartSpy, spinnerUpdateSpy };
+    }
+
+    beforeEach(() => {
+      mediaFile = path.join(tempDir, "test_llm_video.mp4");
+      fs.writeFileSync(mediaFile, "dummy video content for llm test");
+      cacheDir = path.join(tempDir, "cache");
+      vi.clearAllMocks();
+    });
+
+    it("existing user with Groq and Gemini keys uses Gemini for translation, checks keys correctly, matches UI wording, and hits legacy cache", async () => {
+      delete process.env["VSUB_OPENROUTER_API_KEY"];
+      delete process.env["OPENROUTER_API_KEY"];
+      delete process.env["VSUB_LLM_PROVIDER"];
+      delete process.env["VSUB_LLM_MODEL"];
+      delete process.env["VSUB_STT_PROVIDER"];
+      process.env["VSUB_GROQ_API_KEY"] = "test-groq-key";
+      process.env["VSUB_GEMINI_API_KEY"] = "test-gemini-key";
+
+      const ensureApiKeysSpy = vi.spyOn(configModule, "ensureApiKeys");
+      const createTextModelSpy = vi.spyOn(selectModule, "createTextModel");
+      const { spinnerStartSpy } = mockSpinner();
+
+      const result = await processMediaPipeline({
+        mediaFile,
+        cacheDir,
+        targetLang: "ja",
+      });
+
+      expect(result.llmProvider).toBe("gemini");
+      expect(result.llmModel).toBe(DEFAULT_GEMINI_MODEL);
+
+      // Verify ensureApiKeys calls:
+      // Call 0: STT (groq) -> requireGroq: true, requireOpenRouter: false, requireGemini: false
+      // Call 1: LLM (gemini) -> requireGroq: false, requireGemini: true, requireOpenRouter: false
+      expect(ensureApiKeysSpy).toHaveBeenCalledTimes(2);
+      expect(ensureApiKeysSpy.mock.calls[1]?.[1]).toEqual(
+        expect.objectContaining({
+          requireGemini: true,
+          requireOpenRouter: false,
+          requireGroq: false,
+        }),
+      );
+
+      // Verify createTextModel was called for Gemini
+      expect(createTextModelSpy).toHaveBeenCalledTimes(1);
+      expect(createTextModelSpy.mock.calls[0]?.[1]).toEqual(
+        expect.objectContaining({
+          provider: "gemini",
+          model: DEFAULT_GEMINI_MODEL,
+        }),
+      );
+
+      // Verify spinner wording contains Gemini (gemini-3.8-flash)
+      expect(spinnerStartSpy).toHaveBeenCalledWith(
+        expect.stringContaining("Gemini (gemini-3.8-flash)"),
+      );
+
+      // Verify summary table wording contains Gemini (gemini-3.8-flash)
+      const summaryBox = ui.formatSummaryBox(result, "en");
+      expect(summaryBox).toContain("Gemini");
+      expect(summaryBox).toContain(DEFAULT_GEMINI_MODEL);
+
+      // Verify legacy cache hit without provider
+      createTextModelSpy.mockClear();
+      ensureApiKeysSpy.mockClear();
+
+      fs.rmSync(cacheDir, { recursive: true, force: true });
+      const cachedEntries = [
+        { id: 1, startTime: "00:00:00,000", endTime: "00:00:02,000", text: "Hello mock groq" },
+      ];
+      saveTranscriptionCache(
+        mediaFile,
+        {
+          detectedLanguage: "en",
+          entries: cachedEntries,
+          createdAt: Date.now(),
+          model: DEFAULT_GROQ_MODEL,
+        },
+        cacheDir,
+      );
+      saveTranslationCache(
+        mediaFile,
+        "ja",
+        createCachedTranslation(
+          "ja",
+          {
+            sourceEntries: cachedEntries,
+            model: DEFAULT_GEMINI_MODEL,
+            contextWindowSize: DEFAULT_CONTEXT_WINDOW_SIZE,
+          },
+          [{ id: 1, startTime: "00:00:00,000", endTime: "00:00:02,000", text: "こんにちは" }],
+        ),
+        cacheDir,
+      );
+
+      const cachedResult = await processMediaPipeline({
+        mediaFile,
+        cacheDir,
+        targetLang: "ja",
+        overwrite: true,
+      });
+
+      expect(cachedResult.cacheStatus?.cachedLanguages).toContain("ja");
+      expect(createTextModelSpy).not.toHaveBeenCalled();
+    });
+
+    it("uses OpenRouter for translation, chapters, and summary when only OpenRouter key is set, and records provider in cache", async () => {
+      delete process.env["VSUB_GROQ_API_KEY"];
+      delete process.env["VSUB_GEMINI_API_KEY"];
+      delete process.env["VSUB_LLM_PROVIDER"];
+      delete process.env["VSUB_STT_PROVIDER"];
+      process.env["VSUB_OPENROUTER_API_KEY"] = "test-openrouter-key";
+
+      const createTextModelSpy = vi.spyOn(selectModule, "createTextModel");
+
+      // 1. Translation in processMediaPipeline
+      const mediaResult = await processMediaPipeline({
+        mediaFile,
+        cacheDir,
+        targetLang: "ja",
+      });
+
+      expect(mediaResult.llmProvider).toBe("openrouter");
+      expect(mediaResult.llmModel).toBe(DEFAULT_OPENROUTER_LLM_MODEL);
+      expect(createTextModelSpy).toHaveBeenCalledWith(
+        expect.anything(),
+        expect.objectContaining({
+          provider: "openrouter",
+          model: DEFAULT_OPENROUTER_LLM_MODEL,
+        }),
+        expect.anything(),
+      );
+
+      const cachedTranslation = loadMediaCache(mediaFile, cacheDir)?.translations?.["ja"];
+      expect(cachedTranslation?.provider).toBe("openrouter");
+      expect(cachedTranslation?.model).toBe(DEFAULT_OPENROUTER_LLM_MODEL);
+
+      // 2. Chapters in processChaptersPipeline
+      createTextModelSpy.mockClear();
+      await processChaptersPipeline({
+        inputFile: mediaFile,
+        cacheDir,
+        targetLang: "ja",
+        stdout: true,
+      });
+
+      expect(createTextModelSpy).toHaveBeenCalledWith(
+        expect.anything(),
+        expect.objectContaining({
+          provider: "openrouter",
+          model: DEFAULT_OPENROUTER_LLM_MODEL,
+        }),
+        expect.anything(),
+      );
+      const cachedChapters = loadMediaCache(mediaFile, cacheDir)?.chapters?.["ja"];
+      expect(cachedChapters?.provider).toBe("openrouter");
+      expect(cachedChapters?.model).toBe(DEFAULT_OPENROUTER_LLM_MODEL);
+
+      // 3. Summary in processSummaryPipeline
+      createTextModelSpy.mockClear();
+      await processSummaryPipeline({
+        inputFile: mediaFile,
+        cacheDir,
+        targetLang: "ja",
+        stdout: true,
+      });
+
+      expect(createTextModelSpy).toHaveBeenCalledWith(
+        expect.anything(),
+        expect.objectContaining({
+          provider: "openrouter",
+          model: DEFAULT_OPENROUTER_LLM_MODEL,
+        }),
+        expect.anything(),
+      );
+      const cachedSummary = loadMediaCache(mediaFile, cacheDir)?.summaries?.["ja"];
+      expect(cachedSummary?.provider).toBe("openrouter");
+      expect(cachedSummary?.model).toBe(DEFAULT_OPENROUTER_LLM_MODEL);
+    });
+
+    it("reuses API key resolved in step 1 for step 3 ensureApiKeys", async () => {
+      delete process.env["VSUB_GROQ_API_KEY"];
+      delete process.env["VSUB_GEMINI_API_KEY"];
+      delete process.env["VSUB_OPENROUTER_API_KEY"];
+      delete process.env["OPENROUTER_API_KEY"];
+
+      const ensureApiKeysSpy = vi.spyOn(configModule, "ensureApiKeys");
+      // Step 1 mock: user entered openrouter key interactively
+      ensureApiKeysSpy.mockImplementationOnce(async (cfg) => ({
+        ...cfg,
+        openrouterApiKey: "user-entered-openrouter-key",
+      }));
+      // Step 3 mock: should receive the config with openrouterApiKey already set
+      ensureApiKeysSpy.mockImplementationOnce(async (cfg) => ({
+        ...cfg,
+      }));
+
+      await processMediaPipeline({
+        mediaFile,
+        cacheDir,
+        sttProvider: "openrouter",
+        llmProvider: "openrouter",
+        targetLang: "ja",
+      });
+
+      expect(ensureApiKeysSpy).toHaveBeenCalledTimes(2);
+      // Verify step 1 call
+      expect(ensureApiKeysSpy.mock.calls[0]?.[1]).toEqual(
+        expect.objectContaining({
+          requireOpenRouter: true,
+          requireGroq: false,
+          requireGemini: false,
+        }),
+      );
+      // Verify step 3 received the config returned by step 1
+      const step3Config = ensureApiKeysSpy.mock.calls[1]?.[0];
+      expect(step3Config?.openrouterApiKey).toBe("user-entered-openrouter-key");
+      expect(ensureApiKeysSpy.mock.calls[1]?.[1]).toEqual(
+        expect.objectContaining({
+          requireOpenRouter: true,
+          requireGemini: false,
+        }),
+      );
+    });
+
+    it.each([
+      {
+        task: "chapters",
+        run: (opts: { llmProvider: "openrouter" | "gemini" }) =>
+          processChaptersPipeline({
+            inputFile: mediaFile,
+            cacheDir,
+            targetLang: "ja",
+            sttProvider: "groq",
+            llmProvider: opts.llmProvider,
+            llmModel: DEFAULT_GEMINI_MODEL,
+            stdout: true,
+          }),
+        setupLegacyCache: () => {
+          saveChaptersCache(
+            mediaFile,
+            "ja",
+            createCachedChapters(
+              "ja",
+              {
+                sourceEntries: [
+                  {
+                    id: 1,
+                    startTime: "00:00:00,000",
+                    endTime: "00:00:02,000",
+                    text: "Hello mock groq",
+                  },
+                ],
+                model: DEFAULT_GEMINI_MODEL,
+              },
+              [{ timestamp: "00:00", seconds: 0, title: "Intro" }],
+            ),
+            cacheDir,
+          );
+        },
+      },
+      {
+        task: "summary",
+        run: (opts: { llmProvider: "openrouter" | "gemini" }) =>
+          processSummaryPipeline({
+            inputFile: mediaFile,
+            cacheDir,
+            targetLang: "ja",
+            sttProvider: "groq",
+            llmProvider: opts.llmProvider,
+            llmModel: DEFAULT_GEMINI_MODEL,
+            stdout: true,
+          }),
+        setupLegacyCache: () => {
+          saveSummaryCache(
+            mediaFile,
+            "ja",
+            createCachedSummary(
+              "ja",
+              {
+                sourceEntries: [
+                  {
+                    id: 1,
+                    startTime: "00:00:00,000",
+                    endTime: "00:00:02,000",
+                    text: "Hello mock groq",
+                  },
+                ],
+                model: DEFAULT_GEMINI_MODEL,
+              },
+              {
+                title: "Cached Title",
+                summary: "Cached Summary",
+                keyPoints: ["Point"],
+                topics: [],
+              },
+            ),
+            cacheDir,
+          );
+        },
+      },
+    ])(
+      "does not reuse legacy gemini cache when provider is openrouter for $task, but reuses it for gemini",
+      async ({ run, setupLegacyCache }) => {
+        process.env["VSUB_GROQ_API_KEY"] = "test-groq-key";
+        process.env["VSUB_GEMINI_API_KEY"] = "test-gemini-key";
+        process.env["VSUB_OPENROUTER_API_KEY"] = "test-openrouter-key";
+        const createTextModelSpy = vi.spyOn(selectModule, "createTextModel");
+
+        saveTranscriptionCache(
+          mediaFile,
+          {
+            detectedLanguage: "en",
+            entries: [
+              {
+                id: 1,
+                startTime: "00:00:00,000",
+                endTime: "00:00:02,000",
+                text: "Hello mock groq",
+              },
+            ],
+            createdAt: Date.now(),
+            model: DEFAULT_GROQ_MODEL,
+            provider: "groq",
+          },
+          cacheDir,
+        );
+
+        // 1. With OpenRouter: legacy gemini cache should NOT be valid, so createTextModel is called
+        setupLegacyCache();
+        createTextModelSpy.mockClear();
+
+        await run({ llmProvider: "openrouter" });
+        expect(createTextModelSpy).toHaveBeenCalledTimes(1);
+
+        // 2. With Gemini: legacy gemini cache SHOULD be valid, so createTextModel is NOT called
+        setupLegacyCache();
+        createTextModelSpy.mockClear();
+
+        await run({ llmProvider: "gemini" });
+        expect(createTextModelSpy).not.toHaveBeenCalled();
+      },
+    );
+
+    it.each([
+      {
+        task: "chapters",
+        provider: "gemini",
+        expected: { requireGemini: true, requireOpenRouter: false, requireGroq: false },
+        run: (inputFile: string) =>
+          processChaptersPipeline({
+            inputFile,
+            cacheDir,
+            llmProvider: "gemini",
+            stdout: true,
+          }),
+      },
+      {
+        task: "chapters",
+        provider: "openrouter",
+        expected: { requireGemini: false, requireOpenRouter: true, requireGroq: false },
+        run: (inputFile: string) =>
+          processChaptersPipeline({
+            inputFile,
+            cacheDir,
+            llmProvider: "openrouter",
+            stdout: true,
+          }),
+      },
+      {
+        task: "summary",
+        provider: "gemini",
+        expected: { requireGemini: true, requireOpenRouter: false, requireGroq: false },
+        run: (inputFile: string) =>
+          processSummaryPipeline({
+            inputFile,
+            cacheDir,
+            llmProvider: "gemini",
+            stdout: true,
+          }),
+      },
+      {
+        task: "summary",
+        provider: "openrouter",
+        expected: { requireGemini: false, requireOpenRouter: true, requireGroq: false },
+        run: (inputFile: string) =>
+          processSummaryPipeline({
+            inputFile,
+            cacheDir,
+            llmProvider: "openrouter",
+            stdout: true,
+          }),
+      },
+    ])("requires correct API keys for $task with $provider", async ({ run, expected }) => {
+      const srtFile = path.join(tempDir, "input_for_keys.srt");
+      fs.writeFileSync(srtFile, "1\n00:00:00,000 --> 00:00:01,000\nHello\n");
+      process.env["VSUB_GEMINI_API_KEY"] = "test-gemini-key";
+      process.env["VSUB_OPENROUTER_API_KEY"] = "test-openrouter-key";
+      const ensureApiKeysSpy = vi.spyOn(configModule, "ensureApiKeys");
+
+      await run(srtFile);
+
+      expect(ensureApiKeysSpy).toHaveBeenCalledTimes(1);
+      expect(ensureApiKeysSpy).toHaveBeenCalledWith(
+        expect.anything(),
+        expect.objectContaining(expected),
+      );
     });
   });
 });

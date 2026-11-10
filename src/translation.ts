@@ -9,6 +9,7 @@ import { computeGlossaryHash, parseGlossary } from "./glossary.js";
 import { getI18n, type SupportedLanguage } from "./i18n/index.js";
 import type { SrtEntry } from "./srt.js";
 import type { TextModel } from "./text/model.js";
+import { LLM_PROVIDER_LABELS, type LlmProvider } from "./text/providers.js";
 import { DEFAULT_CONTEXT_WINDOW_SIZE, translateSrtEntries } from "./text/tasks.js";
 import type { ProgressSpinner } from "./ui.js";
 
@@ -25,15 +26,25 @@ export interface TranslateToTargetsParams {
   glossaryInput?: string | undefined;
   contextWindowSize: number;
   concurrency?: number | undefined;
-  /** Model name shown in the spinner and stored in the cache (resolveGeminiModel). */
-  modelName: string;
+  /** LLM provider and model shown in the spinner and stored in the cache. */
+  llm: {
+    provider: LlmProvider;
+    model: string;
+  };
   /** Called at most once, on the first cache miss (pipeline checks the key lazily). */
   getTextModel: () => Promise<TextModel>;
   /** Returns true to skip a language; the caller prints its own reason. */
   shouldSkip?: ((targetLang: string) => boolean) | undefined;
   messages: {
-    translatingSingle: (model: string, lang: string, current: number, total: number) => string;
+    translatingSingle: (
+      provider: string,
+      model: string,
+      lang: string,
+      current: number,
+      total: number,
+    ) => string;
     translatingMulti: (
+      provider: string,
       model: string,
       langIdx: number,
       langs: number,
@@ -114,11 +125,14 @@ export async function translateToTargets(
       totalGlossaryTerms = Math.max(totalGlossaryTerms, Object.keys(glossaryMap).length);
     }
 
+    const providerLabel = LLM_PROVIDER_LABELS[params.llm.provider];
+
     const cacheContext: TranslationCacheContext = {
       sourceEntries: params.sourceEntries,
       prompt: params.prompt,
       glossaryHash,
-      model: params.modelName,
+      provider: params.llm.provider,
+      model: params.llm.model,
       contextWindowSize: params.contextWindowSize,
     };
 
@@ -144,8 +158,8 @@ export async function translateToTargets(
     }
 
     const initialText = isMultiLang
-      ? `${params.prefix}${params.messages.translatingMulti(params.modelName, i + 1, params.targetLanguages.length, targetL.toUpperCase(), 1, totalChunks)}`
-      : `${params.prefix}${params.messages.translatingSingle(params.modelName, targetL, 1, totalChunks)}`;
+      ? `${params.prefix}${params.messages.translatingMulti(providerLabel, params.llm.model, i + 1, params.targetLanguages.length, targetL.toUpperCase(), 1, totalChunks)}`
+      : `${params.prefix}${params.messages.translatingSingle(providerLabel, params.llm.model, targetL, 1, totalChunks)}`;
 
     params.spinner.start(initialText);
 
@@ -157,11 +171,11 @@ export async function translateToTargets(
       (currentChunk, chunksCount) => {
         if (isMultiLang) {
           params.spinner.updateText(
-            `${params.prefix}${params.messages.translatingMulti(params.modelName, i + 1, params.targetLanguages.length, targetL.toUpperCase(), currentChunk, chunksCount)}`,
+            `${params.prefix}${params.messages.translatingMulti(providerLabel, params.llm.model, i + 1, params.targetLanguages.length, targetL.toUpperCase(), currentChunk, chunksCount)}`,
           );
         } else {
           params.spinner.updateText(
-            `${params.prefix}${params.messages.translatingSingle(params.modelName, targetL, currentChunk, chunksCount)}`,
+            `${params.prefix}${params.messages.translatingSingle(providerLabel, params.llm.model, targetL, currentChunk, chunksCount)}`,
           );
         }
       },

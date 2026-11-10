@@ -74,6 +74,8 @@ export const ja: typeof en = {
       `無効なターゲット言語コードです: "${token}". 有効な形式の例: "ja", "en", "zh", "zh-CN", "pt-BR"`,
     invalidSttProvider: (provider: string) =>
       `サポートされていない文字起こし提供元です: "${provider}". 利用可能な提供元: openrouter, groq`,
+    invalidLlmProvider: (provider: string) =>
+      `サポートされていない文章生成提供元です: "${provider}". 利用可能な提供元: gemini, openrouter`,
     sttGroqAutoHint:
       "💡 VSUB_OPENROUTER_API_KEY が無いため、Groq で文字起こしします。既定は OpenRouter（elevenlabs/scribe-v2）になりました。Groq を使い続けるなら、VSUB_STT_PROVIDER=groq を設定すると、この表示は消えます。",
     step1SkipCache:
@@ -95,6 +97,7 @@ export const ja: typeof en = {
       `🎙️ [2/4] 文字起こし完了${lang} - ${count} 行の字幕を生成`,
     step3Cached: (lang: string, count: number) => `  ✔ ${lang} 翻訳 (キャッシュ利用: ${count} 行)`,
     step3TranslatingMulti: (
+      provider: string,
       model: string,
       currentLangIdx: number,
       totalLangs: number,
@@ -102,17 +105,18 @@ export const ja: typeof en = {
       currentChunk: number,
       totalChunks: number,
     ) =>
-      `🌐 [3/4] Gemini (${model}) で翻訳中 (${currentLangIdx}/${totalLangs} 言語: ${lang} [${currentChunk}/${totalChunks} チャンク])...`,
+      `🌐 [3/4] ${provider} (${model}) で翻訳中 (${currentLangIdx}/${totalLangs} 言語: ${lang} [${currentChunk}/${totalChunks} チャンク])...`,
     step3TranslatingSingle: (
+      provider: string,
       model: string,
       lang: string,
       currentChunk: number,
       totalChunks: number,
     ) =>
-      `🌐 [3/4] Gemini (${model}) で ${lang} に翻訳中 [${currentChunk}/${totalChunks} チャンク]...`,
+      `🌐 [3/4] ${provider} (${model}) で ${lang} に翻訳中 [${currentChunk}/${totalChunks} チャンク]...`,
     step3LangDone: (lang: string, count: number) => `  ✔ ${lang} 翻訳完了 (${count} 行)`,
-    step3AllDone: (langs: string, count: number) =>
-      `🌐 [3/4] Gemini 翻訳完了 (${langs}) - ${count} 行`,
+    step3AllDone: (provider: string, langs: string, count: number) =>
+      `🌐 [3/4] ${provider} 翻訳完了 (${langs}) - ${count} 行`,
     step3SkippedSameLang: (detected: string, target: string) =>
       `🌐 [3/4] 検出言語と出力言語が同一のため翻訳をスキップ (${detected} -> ${target})`,
     step4Saving: "💾 [4/4] 字幕ファイルを保存中...",
@@ -147,6 +151,7 @@ export const ja: typeof en = {
     step1NoEntries: (name: string) =>
       `字幕ファイルからエントリを読み取れませんでした（SRT 形式であることを確認してください）: ${name}`,
     step2TranslatingMulti: (
+      provider: string,
       model: string,
       currentLangIdx: number,
       totalLangs: number,
@@ -154,16 +159,17 @@ export const ja: typeof en = {
       currentChunk: number,
       totalChunks: number,
     ) =>
-      `🌐 [2/3] Gemini (${model}) で翻訳中 (${currentLangIdx}/${totalLangs} 言語: ${lang} [${currentChunk}/${totalChunks} チャンク])...`,
+      `🌐 [2/3] ${provider} (${model}) で翻訳中 (${currentLangIdx}/${totalLangs} 言語: ${lang} [${currentChunk}/${totalChunks} チャンク])...`,
     step2TranslatingSingle: (
+      provider: string,
       model: string,
       lang: string,
       currentChunk: number,
       totalChunks: number,
     ) =>
-      `🌐 [2/3] Gemini (${model}) で ${lang} に翻訳中 [${currentChunk}/${totalChunks} チャンク]...`,
-    step2Done: (langs: string, count: number) =>
-      `🌐 [2/3] Gemini 翻訳完了 (${langs}) - ${count} 行`,
+      `🌐 [2/3] ${provider} (${model}) で ${lang} に翻訳中 [${currentChunk}/${totalChunks} チャンク]...`,
+    step2Done: (provider: string, langs: string, count: number) =>
+      `🌐 [2/3] ${provider} 翻訳完了 (${langs}) - ${count} 行`,
     step3Saving: "💾 [3/3] 字幕ファイルを保存中...",
     step3Saved: (formats: string) => `💾 [3/3] 字幕ファイルを保存完了 (${formats})`,
     stdoutSingleFormatOnly:
@@ -176,8 +182,8 @@ export const ja: typeof en = {
     started: (file: string) => `vsub-cli chapters - チャプター生成開始: ${file}`,
     step1Resolve: "文字起こしデータを取得中...",
     step1Parsed: (count: number) => `字幕データ ${count} 行を解析完了`,
-    step2Generating: (model: string, lang: string) =>
-      `Gemini (${model}) でチャプターを生成中 [${lang}]...`,
+    step2Generating: (provider: string, model: string, lang: string) =>
+      `${provider} (${model}) でチャプターを生成中 [${lang}]...`,
     step2Done: (count: number) => `チャプター ${count} 件を生成完了`,
     step2Cached: (count: number) =>
       `キャッシュ済みチャプター ${count} 件を適用 [⚡ キャッシュ利用]`,
@@ -189,8 +195,8 @@ export const ja: typeof en = {
     started: (file: string) => `vsub-cli summarize - 要約生成開始: ${file}`,
     step1Resolve: "文字起こしデータを取得中...",
     step1Parsed: (count: number) => `字幕データ ${count} 行を解析完了`,
-    step2Generating: (model: string, lang: string) =>
-      `Gemini (${model}) で要約を生成中 [${lang}]...`,
+    step2Generating: (provider: string, model: string, lang: string) =>
+      `${provider} (${model}) で要約を生成中 [${lang}]...`,
     step2Done: "要約の生成が完了しました",
     step2Cached: "キャッシュ済み要約を適用 [⚡ キャッシュ利用]",
     step3Saving: "要約ファイルを保存中...",
@@ -300,6 +306,20 @@ export const ja: typeof en = {
     modelNotFoundCustom: (model: string) =>
       `指定された Gemini モデル '${model}' が見つかりませんでした。モデル名または API の利用権限を確認してください。\n` +
       `  • 利用可能なモデル一覧: https://ai.google.dev/gemini-api/docs/models`,
+  },
+  openrouter: {
+    modelRetiredDefault: (model: string) =>
+      `既定の OpenRouter モデル '${model}' が見つかりませんでした。\n` +
+      `  • vsub-cli を更新するか、https://openrouter.ai/models でモデルを確認してください\n` +
+      `  • または --llm-model で別のモデルを指定してください`,
+    modelNotFoundCustom: (model: string) =>
+      `指定された OpenRouter モデル '${model}' が見つかりませんでした。モデル名または API 権限を確認してください。\n` +
+      `  • 利用可能なモデル一覧: https://openrouter.ai/models\n` +
+      `  • または --llm-model で別のモデルを指定してください`,
+    insufficientCredits:
+      "OpenRouter から 402 Insufficient Credits (残高不足) が返されました。\n" +
+      "  • クレジット残高を確認してください: https://openrouter.ai/credits\n" +
+      "  • 見込み額が残高を超えている場合は --concurrency で並行数を下げてください",
   },
   licenses: {
     bannerTitle: "                  vsub-cli サードパーティライセンス一覧                  ",

@@ -152,6 +152,8 @@ describe("batch.ts", () => {
             outputFiles: [path.join(tempDir, `${path.basename(opts.mediaFile)}.ja.srt`)],
             sttProvider: "groq",
             sttModel: "whisper-large-v3",
+            llmProvider: "gemini",
+            llmModel: "gemini-3.8-flash",
           };
         });
 
@@ -202,6 +204,8 @@ describe("batch.ts", () => {
           outputFiles: [path.join(tempDir, "ep2.mp4.ja.srt")],
           sttProvider: "groq",
           sttModel: "whisper-large-v3",
+          llmProvider: "gemini",
+          llmModel: "gemini-3.8-flash",
         };
       });
 
@@ -253,6 +257,8 @@ describe("batch.ts", () => {
             outputFiles: [],
             sttProvider: "groq",
             sttModel: "whisper-large-v3",
+            llmProvider: "gemini",
+            llmModel: "gemini-3.8-flash",
           };
         });
 
@@ -299,6 +305,8 @@ describe("batch.ts", () => {
           outputFiles: [path.join(tempDir, "ep1.embedded.mp4")],
           sttProvider: "groq",
           sttModel: "whisper-large-v3",
+          llmProvider: "gemini",
+          llmModel: "gemini-3.8-flash",
         };
       });
 
@@ -349,6 +357,8 @@ describe("batch.ts", () => {
             outputFiles: [],
             sttProvider: "groq",
             sttModel: "whisper-large-v3",
+            llmProvider: "gemini",
+            llmModel: "gemini-3.8-flash",
           });
       });
 
@@ -373,6 +383,33 @@ describe("batch.ts", () => {
           },
           options: {},
           expected: { requireGroq: false, requireGemini: true, requireOpenRouter: true },
+        },
+        {
+          description: "llmProvider: openrouter with groq STT",
+          options: { sttProvider: "groq", llmProvider: "openrouter" },
+          mockConfig: {
+            openrouterApiKey: "vsub-openrouter-key",
+            groqApiKey: "gsk-mock",
+            geminiApiKey: "",
+            ffmpegPath: "ffmpeg",
+          },
+          expected: { requireGroq: true, requireGemini: false, requireOpenRouter: true },
+        },
+        {
+          description: "llmProvider: openrouter but noTranslate is true",
+          options: { llmProvider: "openrouter", noTranslate: true },
+          expected: { requireGroq: true, requireGemini: false, requireOpenRouter: false },
+        },
+        {
+          description: "sttProvider: openrouter and llmProvider: openrouter",
+          options: { sttProvider: "openrouter", llmProvider: "openrouter" },
+          mockConfig: {
+            openrouterApiKey: "vsub-openrouter-key",
+            groqApiKey: "",
+            geminiApiKey: "",
+            ffmpegPath: "ffmpeg",
+          },
+          expected: { requireGroq: false, requireGemini: false, requireOpenRouter: true },
         },
       ])(
         "should call ensureApiKeys with correct requirements ($description)",

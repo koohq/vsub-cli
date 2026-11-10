@@ -218,6 +218,37 @@ describe("config.ts", () => {
       expect(config.sttProvider).toBe("corrupted-provider-value");
     });
 
+    it("should read new LLM settings (llmProvider, openrouterLlmModel), prioritizing environment variables over config file", () => {
+      vi.mocked(fs.existsSync).mockReturnValue(true);
+      vi.mocked(fs.readFileSync).mockReturnValue(
+        JSON.stringify({
+          llmProvider: "file-llm-provider",
+          openrouterLlmModel: "file-openrouter-llm-model",
+        }),
+      );
+
+      process.env["VSUB_LLM_PROVIDER"] = "openrouter";
+      process.env["VSUB_OPENROUTER_LLM_MODEL"] = "env-openrouter-llm-model";
+
+      let config = getConfig();
+      expect(config.llmProvider).toBe("openrouter");
+      expect(config.openrouterLlmModel).toBe("env-openrouter-llm-model");
+
+      delete process.env["VSUB_LLM_PROVIDER"];
+      delete process.env["VSUB_OPENROUTER_LLM_MODEL"];
+
+      config = getConfig();
+      expect(config.llmProvider).toBe("file-llm-provider");
+      expect(config.openrouterLlmModel).toBe("file-openrouter-llm-model");
+    });
+
+    it("should not throw on invalid/corrupted VSUB_LLM_PROVIDER value in getConfig", () => {
+      process.env["VSUB_LLM_PROVIDER"] = "corrupted-llm-provider";
+      expect(() => getConfig()).not.toThrow();
+      const config = getConfig();
+      expect(config.llmProvider).toBe("corrupted-llm-provider");
+    });
+
     it("should fallback to default values when nothing is configured", () => {
       const config = getConfig();
       expect(config.groqApiKey).toBe("");
@@ -317,6 +348,20 @@ describe("config.ts", () => {
           { requireOpenRouter: true },
         );
       }).toThrow(/VSUB_OPENROUTER_API_KEY/);
+    });
+
+    it("should include guidance for --llm-provider, VSUB_LLM_PROVIDER, and Gemini keys in OpenRouter missing error", () => {
+      expect(() => {
+        validateApiKeys(
+          {
+            groqApiKey: "g-key",
+            geminiApiKey: "gem-key",
+            ffmpegPath: "ffmpeg",
+            openrouterApiKey: "",
+          },
+          { requireOpenRouter: true },
+        );
+      }).toThrow(/--llm-provider openrouter.*VSUB_LLM_PROVIDER=openrouter.*Gemini keys/s);
     });
 
     it("should not throw error if OpenRouter key is present when requireOpenRouter is true", () => {

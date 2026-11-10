@@ -76,12 +76,12 @@ describe("src/translation.ts", () => {
         useCache: true,
         noCache: false,
         contextWindowSize: 5,
-        modelName: "gemini-3.8-flash",
+        llm: { provider: "gemini", model: "gemini-3.8-flash" },
         getTextModel: vi.fn().mockResolvedValue(mockModel),
         messages: {
-          translatingSingle: (model, lang, cur, tot) =>
+          translatingSingle: (_provider, model, lang, cur, tot) =>
             `Translating to ${lang} (${cur}/${tot}) via ${model}`,
-          translatingMulti: (model, idx, total, lang, cur, tot) =>
+          translatingMulti: (_provider, model, idx, total, lang, cur, tot) =>
             `Translating [${idx}/${total}] to ${lang} (${cur}/${tot}) via ${model}`,
         },
         spinner: mockSpinner,

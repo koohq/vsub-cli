@@ -27,6 +27,7 @@ const { mockConfig } = vi.hoisted(() => ({
   mockConfig: {
     groqApiKey: "test-groq-key",
     geminiApiKey: "test-gemini-key",
+    openrouterApiKey: "test-openrouter-key",
     ffmpegPath: "ffmpeg",
     lang: "en" as const,
     disableUpdateCheck: false,
@@ -529,6 +530,22 @@ describe("CLI integration harness", () => {
       expect(exitSpy).not.toHaveBeenCalled();
     });
 
+    it("requires OpenRouter key when --llm-provider openrouter is specified in translate command", async () => {
+      const { ensureApiKeys } = await import("./config.js");
+      vi.mocked(ensureApiKeys).mockClear();
+
+      await runCli("translate", dummySrtPath, "-t", "ja", "--llm-provider", "openrouter");
+
+      expect(ensureApiKeys).toHaveBeenCalledWith(
+        expect.anything(),
+        expect.objectContaining({
+          requireGemini: false,
+          requireOpenRouter: true,
+          requireGroq: false,
+        }),
+      );
+    });
+
     describe("translate translation cache", () => {
       let sourceEntries: ReturnType<typeof parseSrt>;
 
@@ -905,6 +922,84 @@ describe("CLI integration harness", () => {
         expect(getMock()).toHaveBeenCalledWith(expect.objectContaining(expected));
       },
     );
+
+    it.each([
+      {
+        cmd: "root",
+        args: [
+          "video.mp4",
+          "--llm-provider",
+          "openrouter",
+          "--llm-model",
+          "google/gemini-3.8-flash",
+        ],
+        getMock: () => processMediaPipeline,
+        expected: { llmProvider: "openrouter", llmModel: "google/gemini-3.8-flash" },
+      },
+      {
+        cmd: "batch",
+        args: [
+          "batch",
+          "./videos",
+          "--llm-provider",
+          "openrouter",
+          "--llm-model",
+          "google/gemini-3.8-flash",
+        ],
+        getMock: () => runBatchPipeline,
+        expected: { llmProvider: "openrouter", llmModel: "google/gemini-3.8-flash" },
+      },
+      {
+        cmd: "chapters",
+        args: [
+          "chapters",
+          "dummy.mp4",
+          "--llm-provider",
+          "openrouter",
+          "--llm-model",
+          "google/gemini-3.8-flash",
+        ],
+        getMock: () => processChaptersPipeline,
+        expected: { llmProvider: "openrouter", llmModel: "google/gemini-3.8-flash" },
+      },
+      {
+        cmd: "summarize",
+        args: [
+          "summarize",
+          "dummy.mp4",
+          "--llm-provider",
+          "openrouter",
+          "--llm-model",
+          "google/gemini-3.8-flash",
+        ],
+        getMock: () => processSummaryPipeline,
+        expected: { llmProvider: "openrouter", llmModel: "google/gemini-3.8-flash" },
+      },
+    ])(
+      "passes --llm-provider and --llm-model to $cmd pipeline",
+      async ({ args, getMock, expected }) => {
+        const resolvedArgs = args.map((a) => (a === "dummy.mp4" ? dummyVideoPath : a));
+        await runCli(...resolvedArgs);
+        expect(getMock()).toHaveBeenCalledWith(expect.objectContaining(expected));
+      },
+    );
+
+    it("passes --llm-provider and --llm-model to translate command", async () => {
+      await runCli(
+        "translate",
+        dummySrtPath,
+        "-t",
+        "ja",
+        "--llm-provider",
+        "openrouter",
+        "--llm-model",
+        "google/gemini-3.8-flash",
+      );
+      expect(translateSrtEntries).toHaveBeenCalled();
+      const model = vi.mocked(translateSrtEntries).mock.calls[0]?.[2];
+      expect(model?.logLabel).toBe("OpenRouter API");
+      expect(model?.model).toBe("google/gemini-3.8-flash");
+    });
   });
 
   describe("config set and show STT provider options", () => {

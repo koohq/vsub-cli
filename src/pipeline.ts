@@ -15,7 +15,7 @@ import {
   saveTranscriptionCache,
   type TranscriptionCacheContext,
 } from "./cache.js";
-import { type AppConfig, DEFAULT_GEMINI_MODEL, ensureApiKeys, getConfig } from "./config.js";
+import { type AppConfig, ensureApiKeys, getConfig } from "./config.js";
 import {
   burnSubtitlesToVideo,
   checkFfmpeg,
@@ -49,7 +49,8 @@ import {
   reflowSrtEntries,
   type SrtEntry,
 } from "./srt.js";
-import { createGeminiTextModel, resolveGeminiModel } from "./text/gemini.js";
+import { LLM_PROVIDER_LABELS, type LlmProvider } from "./text/providers.js";
+import { createTextModel, resolveLlmSettings } from "./text/select.js";
 import { generateChapters, generateSummary } from "./text/tasks.js";
 import {
   createTranscriber,
@@ -214,6 +215,8 @@ export interface ProcessMediaOptions {
   bilingualOrder?: string | undefined;
   ffmpegPath?: string | undefined;
   geminiModel?: string | undefined;
+  llmProvider?: string | undefined;
+  llmModel?: string | undefined;
   groqModel?: string | undefined;
   sttProvider?: string | undefined;
   sttModel?: string | undefined;
@@ -263,7 +266,8 @@ export interface ProcessMediaResult {
   backedUpFiles?: string[] | undefined;
   sttProvider: SttProvider;
   sttModel: string;
-  geminiModel?: string | undefined;
+  llmProvider: LlmProvider;
+  llmModel: string;
   cacheStatus?:
     | {
         transcriptionHit?: boolean | undefined;
@@ -328,7 +332,16 @@ export async function processMediaPipeline(
     },
     lang,
   );
-  rawConfig = resolvedSttConfig;
+  const { config: resolvedLlmConfig, llm } = resolveLlmSettings(
+    resolvedSttConfig,
+    {
+      llmProvider: options.llmProvider,
+      llmModel: options.llmModel,
+      geminiModel: options.geminiModel,
+    },
+    lang,
+  );
+  rawConfig = resolvedLlmConfig;
 
   const outputFormats = parseOutputFormats(options.format || "srt", lang);
   const targetLanguages = parseTargetLanguages(
@@ -473,7 +486,6 @@ export async function processMediaPipeline(
     }
   }
 
-  const geminiModel = resolveGeminiModel(options.geminiModel, rawConfig);
   const glossaryInput = options.glossary?.trim() || rawConfig.glossary;
   const transcriptionContext = resolveTranscriptionContext(rawConfig, stt, {
     whisperPrompt: options.whisperPrompt,
@@ -535,6 +547,7 @@ export async function processMediaPipeline(
       requireGemini: false,
       lang,
     });
+    rawConfig = config;
     await checkFfmpeg(config.ffmpegPath);
 
     if (stt.source === "auto" && stt.provider === "groq" && !isStdout && !options.silentSttHint) {
@@ -669,7 +682,7 @@ export async function processMediaPipeline(
       }
     }
 
-    // 3. Gemini Translation for each target language
+    // 3. Text Generation Translation for each target language
     let activeConfig: ReturnType<typeof getConfig> | null = null;
     const translationPrompt = options.prompt?.trim() || rawConfig.prompt;
     const resolvedContextWindow = resolveContextWindowSize(options.contextWindow);
@@ -693,15 +706,20 @@ export async function processMediaPipeline(
       glossaryInput,
       contextWindowSize: resolvedContextWindow,
       concurrency: resolvedConcurrency,
-      modelName: geminiModel,
+      llm: {
+        provider: llm.provider,
+        model: llm.model,
+      },
       getTextModel: async () => {
         if (!activeConfig) {
           activeConfig = await ensureApiKeys(rawConfig, {
             requireGroq: false,
-            requireGemini: true,
+            requireGemini: llm.provider === "gemini",
+            requireOpenRouter: llm.provider === "openrouter",
+            lang,
           });
         }
-        return createGeminiTextModel(activeConfig.geminiApiKey, geminiModel);
+        return createTextModel(activeConfig, llm, { lang });
       },
       shouldSkip: (targetL) => {
         const isSameLanguage = Boolean(
@@ -723,10 +741,10 @@ export async function processMediaPipeline(
         return shouldSkip;
       },
       messages: {
-        translatingSingle: (model, targetL, cur, tot) =>
-          m.step3TranslatingSingle(model, targetL, cur, tot),
-        translatingMulti: (model, idx, cnt, targetL, cur, tot) =>
-          m.step3TranslatingMulti(model, idx, cnt, targetL, cur, tot),
+        translatingSingle: (provider, model, targetL, cur, tot) =>
+          m.step3TranslatingSingle(provider, model, targetL, cur, tot),
+        translatingMulti: (provider, model, idx, cnt, targetL, cur, tot) =>
+          m.step3TranslatingMulti(provider, model, idx, cnt, targetL, cur, tot),
       },
       spinner,
       prefix,
@@ -736,7 +754,10 @@ export async function processMediaPipeline(
 
     if (translatedLanguages.length > 0) {
       const langListDisplay = translatedLanguages.map((l) => l.toUpperCase()).join(", ");
-      spinner.succeed(`${prefix}${m.step3AllDone(langListDisplay, srtEntries.length)}`);
+      const providerLabel = LLM_PROVIDER_LABELS[llm.provider];
+      spinner.succeed(
+        `${prefix}${m.step3AllDone(providerLabel, langListDisplay, srtEntries.length)}`,
+      );
     }
 
     // 4. Save output subtitle files / generate stdout content
@@ -891,7 +912,8 @@ export async function processMediaPipeline(
       glossaryTermsCount: totalGlossaryTerms > 0 ? totalGlossaryTerms : undefined,
       sttProvider: stt.provider,
       sttModel: stt.model,
-      geminiModel: geminiModel || DEFAULT_GEMINI_MODEL,
+      llmProvider: llm.provider,
+      llmModel: llm.model,
       cacheStatus:
         transcriptionCacheHit || cachedLanguages.length > 0
           ? {
@@ -1058,6 +1080,8 @@ export interface ProcessChaptersOptions {
   overwrite?: boolean | undefined;
   backup?: boolean | undefined;
   geminiModel?: string | undefined;
+  llmProvider?: string | undefined;
+  llmModel?: string | undefined;
   groqModel?: string | undefined;
   sttProvider?: string | undefined;
   sttModel?: string | undefined;
@@ -1109,8 +1133,16 @@ export async function processChaptersPipeline(
     },
     lang,
   );
-  const targetLang = resolveTargetLang(options.targetLang, resolvedConfig.targetLang);
-  const geminiModel = resolveGeminiModel(options.geminiModel, resolvedConfig);
+  const { config: resolvedLlmConfig, llm } = resolveLlmSettings(
+    resolvedConfig,
+    {
+      llmProvider: options.llmProvider,
+      llmModel: options.llmModel,
+      geminiModel: options.geminiModel,
+    },
+    lang,
+  );
+  const targetLang = resolveTargetLang(options.targetLang, resolvedLlmConfig.targetLang);
   const transcriptionContext = resolveTranscriptionContext(resolvedConfig, stt, {
     whisperPrompt: options.whisperPrompt,
   });
@@ -1155,8 +1187,9 @@ export async function processChaptersPipeline(
     mediaCache?.transcription &&
     isChaptersCacheValid(cachedChapters, {
       sourceEntries: mediaCache.transcription.entries,
+      provider: llm.provider,
       prompt: options.prompt,
-      model: geminiModel,
+      model: llm.model,
     });
 
   if (isChaptersValid && cachedChapters) {
@@ -1182,13 +1215,14 @@ export async function processChaptersPipeline(
     };
   }
 
-  // Ensure Gemini API Key
-  const config = await ensureApiKeys(resolvedConfig, {
-    requireGemini: true,
+  // Ensure Text Model API Key
+  const config = await ensureApiKeys(resolvedLlmConfig, {
+    requireGemini: llm.provider === "gemini",
+    requireOpenRouter: llm.provider === "openrouter",
     requireGroq: false,
     lang,
   });
-  const textModel = createGeminiTextModel(config.geminiApiKey, geminiModel);
+  const textModel = createTextModel(config, llm, { lang });
 
   // Step 1: Resolve transcript entries
   spinner.start(cm.step1Resolve);
@@ -1212,8 +1246,9 @@ export async function processChaptersPipeline(
   }
   spinner.succeed(cm.step1Parsed(transcriptResult.entries.length));
 
-  // Step 2: Generate chapters with Gemini
-  spinner.start(cm.step2Generating(geminiModel, targetLang.toUpperCase()));
+  // Step 2: Generate chapters with LLM
+  const providerLabel = LLM_PROVIDER_LABELS[llm.provider];
+  spinner.start(cm.step2Generating(providerLabel, llm.model, targetLang.toUpperCase()));
   const chapters = await generateChapters(transcriptResult.entries, textModel, {
     targetLang,
     prompt: options.prompt,
@@ -1231,8 +1266,9 @@ export async function processChaptersPipeline(
         targetLang,
         {
           sourceEntries: transcriptResult.entries,
+          provider: llm.provider,
           prompt: options.prompt,
-          model: geminiModel,
+          model: llm.model,
         },
         chapters,
       ),
@@ -1270,6 +1306,8 @@ export interface ProcessSummaryOptions {
   overwrite?: boolean | undefined;
   backup?: boolean | undefined;
   geminiModel?: string | undefined;
+  llmProvider?: string | undefined;
+  llmModel?: string | undefined;
   groqModel?: string | undefined;
   sttProvider?: string | undefined;
   sttModel?: string | undefined;
@@ -1321,8 +1359,16 @@ export async function processSummaryPipeline(
     },
     lang,
   );
-  const targetLang = resolveTargetLang(options.targetLang, resolvedConfig.targetLang);
-  const geminiModel = resolveGeminiModel(options.geminiModel, resolvedConfig);
+  const { config: resolvedLlmConfig, llm } = resolveLlmSettings(
+    resolvedConfig,
+    {
+      llmProvider: options.llmProvider,
+      llmModel: options.llmModel,
+      geminiModel: options.geminiModel,
+    },
+    lang,
+  );
+  const targetLang = resolveTargetLang(options.targetLang, resolvedLlmConfig.targetLang);
   const transcriptionContext = resolveTranscriptionContext(resolvedConfig, stt, {
     whisperPrompt: options.whisperPrompt,
   });
@@ -1367,8 +1413,9 @@ export async function processSummaryPipeline(
     mediaCache?.transcription &&
     isSummaryCacheValid(cachedSummary, {
       sourceEntries: mediaCache.transcription.entries,
+      provider: llm.provider,
       prompt: options.prompt,
-      model: geminiModel,
+      model: llm.model,
     });
 
   if (isSummaryValid && cachedSummary) {
@@ -1394,13 +1441,14 @@ export async function processSummaryPipeline(
     };
   }
 
-  // Ensure Gemini API Key
-  const config = await ensureApiKeys(resolvedConfig, {
-    requireGemini: true,
+  // Ensure Text Model API Key
+  const config = await ensureApiKeys(resolvedLlmConfig, {
+    requireGemini: llm.provider === "gemini",
+    requireOpenRouter: llm.provider === "openrouter",
     requireGroq: false,
     lang,
   });
-  const textModel = createGeminiTextModel(config.geminiApiKey, geminiModel);
+  const textModel = createTextModel(config, llm, { lang });
 
   // Step 1: Resolve transcript entries
   spinner.start(sm.step1Resolve);
@@ -1424,8 +1472,9 @@ export async function processSummaryPipeline(
   }
   spinner.succeed(sm.step1Parsed(transcriptResult.entries.length));
 
-  // Step 2: Generate summary with Gemini
-  spinner.start(sm.step2Generating(geminiModel, targetLang.toUpperCase()));
+  // Step 2: Generate summary with LLM
+  const providerLabel = LLM_PROVIDER_LABELS[llm.provider];
+  spinner.start(sm.step2Generating(providerLabel, llm.model, targetLang.toUpperCase()));
   const summary = await generateSummary(transcriptResult.entries, textModel, {
     targetLang,
     prompt: options.prompt,
@@ -1443,8 +1492,9 @@ export async function processSummaryPipeline(
         targetLang,
         {
           sourceEntries: transcriptResult.entries,
+          provider: llm.provider,
           prompt: options.prompt,
-          model: geminiModel,
+          model: llm.model,
         },
         summary,
       ),

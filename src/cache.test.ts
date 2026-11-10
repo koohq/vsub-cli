@@ -621,7 +621,7 @@ describe("cache module", () => {
       const baseContext: GeneratedCacheContext = {
         sourceEntries: defaultSource,
         prompt: "Base prompt",
-        model: "gemini-3.8-flash",
+        model: "gemini-3.7-flash",
       };
 
       type GeneratedCacheItem = CachedChapters | CachedSummary;
@@ -665,14 +665,14 @@ describe("cache module", () => {
         },
         {
           name: "model attached first, then detached",
-          savedContext: { ...baseContext, model: "gemini-3.8-flash" },
+          savedContext: { ...baseContext, model: "gemini-3.7-flash" },
           currentContext: { ...baseContext, model: undefined },
           expected: false,
         },
         {
           name: "model omitted first, then attached",
           savedContext: { ...baseContext, model: undefined },
-          currentContext: { ...baseContext, model: "gemini-3.8-flash" },
+          currentContext: { ...baseContext, model: "gemini-3.7-flash" },
           expected: false,
         },
         {
@@ -710,6 +710,238 @@ describe("cache module", () => {
           expect(validateFn(cached as never, currentContext)).toBe(expected);
         },
       );
+    });
+
+    describe("LLM provider cache validity (translation, chapters, summary)", () => {
+      const defaultSource: SrtEntry[] = [
+        { id: 1, startTime: "00:00:00,000", endTime: "00:00:02,000", text: "Hello" },
+      ];
+      const defaultTranslated: SrtEntry[] = [
+        { id: 1, startTime: "00:00:00,000", endTime: "00:00:02,000", text: "こんにちは" },
+      ];
+
+      it("should treat legacy translation cache without provider as gemini", () => {
+        const cached = createCachedTranslation(
+          "ja",
+          {
+            sourceEntries: defaultSource,
+            model: "gemini-3.8-flash",
+            contextWindowSize: DEFAULT_CONTEXT_WINDOW_SIZE,
+          },
+          defaultTranslated,
+        );
+        delete (cached as { provider?: string }).provider;
+
+        // Matches gemini context (default or explicit)
+        expect(
+          isTranslationCacheValid(cached, {
+            sourceEntries: defaultSource,
+            provider: "gemini",
+            model: "gemini-3.8-flash",
+            contextWindowSize: DEFAULT_CONTEXT_WINDOW_SIZE,
+          }),
+        ).toBe(true);
+        expect(
+          isTranslationCacheValid(cached, {
+            sourceEntries: defaultSource,
+            model: "gemini-3.8-flash",
+            contextWindowSize: DEFAULT_CONTEXT_WINDOW_SIZE,
+          }),
+        ).toBe(true);
+
+        // Misses when context is openrouter
+        expect(
+          isTranslationCacheValid(cached, {
+            sourceEntries: defaultSource,
+            provider: "openrouter",
+            model: "gemini-3.8-flash",
+            contextWindowSize: DEFAULT_CONTEXT_WINDOW_SIZE,
+          }),
+        ).toBe(false);
+      });
+
+      it("should match openrouter translation cache on openrouter and miss on gemini", () => {
+        const cached = createCachedTranslation(
+          "ja",
+          {
+            sourceEntries: defaultSource,
+            provider: "openrouter",
+            model: "google/gemini-3.8-flash",
+            contextWindowSize: DEFAULT_CONTEXT_WINDOW_SIZE,
+          },
+          defaultTranslated,
+        );
+
+        expect(
+          isTranslationCacheValid(cached, {
+            sourceEntries: defaultSource,
+            provider: "openrouter",
+            model: "google/gemini-3.8-flash",
+            contextWindowSize: DEFAULT_CONTEXT_WINDOW_SIZE,
+          }),
+        ).toBe(true);
+
+        expect(
+          isTranslationCacheValid(cached, {
+            sourceEntries: defaultSource,
+            provider: "gemini",
+            model: "google/gemini-3.8-flash",
+            contextWindowSize: DEFAULT_CONTEXT_WINDOW_SIZE,
+          }),
+        ).toBe(false);
+      });
+
+      it("should normalize empty or omitted model to provider default model in translation", () => {
+        const cachedGemini = createCachedTranslation(
+          "ja",
+          {
+            sourceEntries: defaultSource,
+            provider: "gemini",
+            model: undefined,
+            contextWindowSize: DEFAULT_CONTEXT_WINDOW_SIZE,
+          },
+          defaultTranslated,
+        );
+        expect(
+          isTranslationCacheValid(cachedGemini, {
+            sourceEntries: defaultSource,
+            provider: "gemini",
+            model: "gemini-3.8-flash",
+            contextWindowSize: DEFAULT_CONTEXT_WINDOW_SIZE,
+          }),
+        ).toBe(true);
+
+        const cachedOpenRouter = createCachedTranslation(
+          "ja",
+          {
+            sourceEntries: defaultSource,
+            provider: "openrouter",
+            model: "google/gemini-3.8-flash",
+            contextWindowSize: DEFAULT_CONTEXT_WINDOW_SIZE,
+          },
+          defaultTranslated,
+        );
+        expect(
+          isTranslationCacheValid(cachedOpenRouter, {
+            sourceEntries: defaultSource,
+            provider: "openrouter",
+            model: undefined,
+            contextWindowSize: DEFAULT_CONTEXT_WINDOW_SIZE,
+          }),
+        ).toBe(true);
+      });
+
+      it("should treat legacy chapters and summary cache without provider as gemini", () => {
+        const chaptersCached = createCachedChapters(
+          "ja",
+          {
+            sourceEntries: defaultSource,
+            model: "gemini-3.8-flash",
+          },
+          [{ timestamp: "00:00", seconds: 0, title: "Intro" }],
+        );
+        delete (chaptersCached as { provider?: string }).provider;
+
+        expect(
+          isChaptersCacheValid(chaptersCached, {
+            sourceEntries: defaultSource,
+            provider: "gemini",
+            model: "gemini-3.8-flash",
+          }),
+        ).toBe(true);
+        expect(
+          isChaptersCacheValid(chaptersCached, {
+            sourceEntries: defaultSource,
+            provider: "openrouter",
+            model: "gemini-3.8-flash",
+          }),
+        ).toBe(false);
+
+        const summaryCached = createCachedSummary(
+          "ja",
+          {
+            sourceEntries: defaultSource,
+            model: "gemini-3.8-flash",
+          },
+          {
+            title: "T",
+            summary: "S",
+            keyPoints: [],
+            topics: [],
+          },
+        );
+        delete (summaryCached as { provider?: string }).provider;
+
+        expect(
+          isSummaryCacheValid(summaryCached, {
+            sourceEntries: defaultSource,
+            provider: "gemini",
+            model: "gemini-3.8-flash",
+          }),
+        ).toBe(true);
+        expect(
+          isSummaryCacheValid(summaryCached, {
+            sourceEntries: defaultSource,
+            provider: "openrouter",
+            model: "gemini-3.8-flash",
+          }),
+        ).toBe(false);
+      });
+
+      it("should match openrouter chapters and summary cache on openrouter and miss on gemini", () => {
+        const chaptersCached = createCachedChapters(
+          "ja",
+          {
+            sourceEntries: defaultSource,
+            provider: "openrouter",
+            model: "google/gemini-3.8-flash",
+          },
+          [{ timestamp: "00:00", seconds: 0, title: "Intro" }],
+        );
+        expect(
+          isChaptersCacheValid(chaptersCached, {
+            sourceEntries: defaultSource,
+            provider: "openrouter",
+            model: "google/gemini-3.8-flash",
+          }),
+        ).toBe(true);
+        expect(
+          isChaptersCacheValid(chaptersCached, {
+            sourceEntries: defaultSource,
+            provider: "gemini",
+            model: "google/gemini-3.8-flash",
+          }),
+        ).toBe(false);
+
+        const summaryCached = createCachedSummary(
+          "ja",
+          {
+            sourceEntries: defaultSource,
+            provider: "openrouter",
+            model: "google/gemini-3.8-flash",
+          },
+          {
+            title: "T",
+            summary: "S",
+            keyPoints: [],
+            topics: [],
+          },
+        );
+        expect(
+          isSummaryCacheValid(summaryCached, {
+            sourceEntries: defaultSource,
+            provider: "openrouter",
+            model: "google/gemini-3.8-flash",
+          }),
+        ).toBe(true);
+        expect(
+          isSummaryCacheValid(summaryCached, {
+            sourceEntries: defaultSource,
+            provider: "gemini",
+            model: "google/gemini-3.8-flash",
+          }),
+        ).toBe(false);
+      });
     });
   });
 

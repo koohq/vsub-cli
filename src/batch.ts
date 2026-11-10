@@ -5,6 +5,7 @@ import { ensureApiKeys, getConfig } from "./config.js";
 import { checkFfmpeg, isAudioFile, isVideoFile } from "./ffmpeg.js";
 import { getI18n } from "./i18n/index.js";
 import { type ProcessMediaOptions, processMediaPipeline } from "./pipeline.js";
+import { resolveLlmSettings } from "./text/select.js";
 import { resolveSttSettings } from "./transcribe/select.js";
 import { type BatchSummaryData, type BatchSummaryItem, formatBatchSummaryBox } from "./ui.js";
 
@@ -150,12 +151,22 @@ export async function runBatchPipeline(options: BatchPipelineOptions): Promise<B
     },
     lang,
   );
+  const { config: resolvedLlmConfig, llm } = resolveLlmSettings(
+    resolvedConfig,
+    {
+      llmProvider: options.llmProvider,
+      llmModel: options.llmModel,
+      geminiModel: options.geminiModel,
+    },
+    lang,
+  );
 
   const requiresGroq = stt.provider === "groq";
-  const requireOpenRouter = stt.provider === "openrouter";
-  const requiresGemini = !options.noTranslate;
+  const requireOpenRouter =
+    stt.provider === "openrouter" || (!options.noTranslate && llm.provider === "openrouter");
+  const requiresGemini = !options.noTranslate && llm.provider === "gemini";
 
-  const config = await ensureApiKeys(resolvedConfig, {
+  const config = await ensureApiKeys(resolvedLlmConfig, {
     requireGroq: requiresGroq,
     requireOpenRouter,
     requireGemini: requiresGemini,

@@ -1,6 +1,7 @@
 import ora, { type Ora } from "ora";
 import pc from "picocolors";
 import { getI18n, type SupportedLanguage } from "./i18n/index.js";
+import { LLM_PROVIDER_LABELS, type LlmProvider } from "./text/providers.js";
 import { STT_PROVIDER_LABELS, type SttProvider } from "./transcribe/providers.js";
 
 /**
@@ -66,7 +67,8 @@ export interface SummaryData {
   backedUpFiles?: string[] | undefined;
   sttProvider?: SttProvider | undefined;
   sttModel?: string | undefined;
-  geminiModel?: string | undefined;
+  llmProvider?: LlmProvider | undefined;
+  llmModel?: string | undefined;
   cacheStatus?:
     | {
         transcriptionHit?: boolean | undefined;
@@ -163,8 +165,9 @@ export function formatSummaryBox(data: SummaryData, lang?: SupportedLanguage | s
     addRow(m.outputLanguages, langDisplays.join(", "));
   }
 
-  if (data.geminiModel && !data.skippedTranslation) {
-    addRow(m.translationModel, `Gemini (${pc.cyan(data.geminiModel)})`);
+  if (data.llmModel && data.llmProvider && !data.skippedTranslation) {
+    const label = LLM_PROVIDER_LABELS[data.llmProvider];
+    addRow(m.translationModel, `${label} (${pc.cyan(data.llmModel)})`);
   }
 
   if (data.bilingual) {

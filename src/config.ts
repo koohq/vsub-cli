@@ -55,6 +55,10 @@ export interface AppConfig {
   sttProvider?: string | undefined;
   /** OpenRouter transcription model: VSUB_OPENROUTER_STT_MODEL, then the config file. */
   openrouterSttModel?: string | undefined;
+  /** Raw text generation provider setting: VSUB_LLM_PROVIDER, then the config file. Not validated here. */
+  llmProvider?: string | undefined;
+  /** OpenRouter text generation model: VSUB_OPENROUTER_LLM_MODEL, then the config file. */
+  openrouterLlmModel?: string | undefined;
 }
 
 export function getGlobalConfigDir(): string {
@@ -268,6 +272,14 @@ export function getConfig(cliFfmpegPath?: string, cliLang?: string): AppConfig {
     globalConfig.openrouterSttModel?.trim() ||
     undefined;
 
+  const llmProvider =
+    process.env["VSUB_LLM_PROVIDER"]?.trim() || globalConfig.llmProvider?.trim() || undefined;
+
+  const openrouterLlmModel =
+    process.env["VSUB_OPENROUTER_LLM_MODEL"]?.trim() ||
+    globalConfig.openrouterLlmModel?.trim() ||
+    undefined;
+
   return {
     groqApiKey,
     geminiApiKey,
@@ -288,6 +300,8 @@ export function getConfig(cliFfmpegPath?: string, cliLang?: string): AppConfig {
     openrouterApiKeyFallback,
     sttProvider,
     openrouterSttModel,
+    llmProvider,
+    openrouterLlmModel,
   };
 }
 
@@ -385,7 +399,7 @@ export function validateApiKeys(
 
   if (requireOpenRouter && !config.openrouterApiKey) {
     missingKeys.push(
-      "VSUB_OPENROUTER_API_KEY (Get at: https://openrouter.ai/keys; the generic OPENROUTER_API_KEY is read only with --stt-provider openrouter or VSUB_STT_PROVIDER=openrouter)",
+      "VSUB_OPENROUTER_API_KEY (Get at: https://openrouter.ai/keys; the generic OPENROUTER_API_KEY is read only with --stt-provider openrouter, --llm-provider openrouter, VSUB_STT_PROVIDER=openrouter, or VSUB_LLM_PROVIDER=openrouter; Gemini keys VSUB_GEMINI_API_KEY / GEMINI_API_KEY can also be used for translation)",
     );
   }
   if (requireGroq && !config.groqApiKey) {

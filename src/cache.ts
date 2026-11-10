@@ -2,9 +2,11 @@ import crypto from "node:crypto";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { DEFAULT_GROQ_MODEL } from "./config.js";
+import { DEFAULT_GEMINI_MODEL, DEFAULT_GROQ_MODEL } from "./config.js";
 import type { ChapterItem, SummaryResult } from "./formatter.js";
 import type { SrtEntry } from "./srt.js";
+import { DEFAULT_OPENROUTER_LLM_MODEL } from "./text/openrouter.js";
+import type { LlmProvider } from "./text/providers.js";
 import { DEFAULT_OPENROUTER_STT_MODEL } from "./transcribe/openrouter.js";
 import type { SttProvider } from "./transcribe/providers.js";
 import type { WordChunk } from "./transcribe/words.js";
@@ -22,6 +24,7 @@ export interface CachedTranscription {
 
 export interface CachedTranslation {
   targetLang: string;
+  provider?: LlmProvider | undefined;
   model?: string | undefined;
   prompt?: string | undefined;
   glossaryHash?: string | undefined;
@@ -33,6 +36,7 @@ export interface CachedTranslation {
 
 export interface CachedChapters {
   targetLang: string;
+  provider?: LlmProvider | undefined;
   model?: string | undefined;
   prompt?: string | undefined;
   sourceHash?: string | undefined;
@@ -42,6 +46,7 @@ export interface CachedChapters {
 
 export interface CachedSummary {
   targetLang: string;
+  provider?: LlmProvider | undefined;
   model?: string | undefined;
   prompt?: string | undefined;
   sourceHash?: string | undefined;
@@ -63,6 +68,12 @@ function normalizeModelForProvider(provider: SttProvider, model?: string): strin
   const norm = normalizeCacheString(model);
   if (norm !== "") return norm;
   return provider === "openrouter" ? DEFAULT_OPENROUTER_STT_MODEL : DEFAULT_GROQ_MODEL;
+}
+
+function normalizeModelForLlmProvider(provider: LlmProvider, model?: string): string {
+  const norm = normalizeCacheString(model);
+  if (norm !== "") return norm;
+  return provider === "openrouter" ? DEFAULT_OPENROUTER_LLM_MODEL : DEFAULT_GEMINI_MODEL;
 }
 
 /**
@@ -120,6 +131,7 @@ export function computeEntriesHash(entries: SrtEntry[]): string {
 
 export interface TranslationCacheContext {
   sourceEntries: SrtEntry[];
+  provider?: LlmProvider | undefined;
   prompt?: string | undefined;
   glossaryHash?: string | undefined;
   model?: string | undefined;
@@ -146,7 +158,15 @@ export function isTranslationCacheValid(
   if (normalizeCacheString(cached.glossaryHash) !== normalizeCacheString(context.glossaryHash)) {
     return false;
   }
-  if (normalizeCacheString(cached.model) !== normalizeCacheString(context.model)) {
+  const cachedProvider: LlmProvider = cached.provider ?? "gemini";
+  const contextProvider: LlmProvider = context.provider ?? "gemini";
+  if (cachedProvider !== contextProvider) {
+    return false;
+  }
+  if (
+    normalizeModelForLlmProvider(cachedProvider, cached.model) !==
+    normalizeModelForLlmProvider(contextProvider, context.model)
+  ) {
     return false;
   }
   if (cached.contextWindowSize !== context.contextWindowSize) {
@@ -165,6 +185,7 @@ export function createCachedTranslation(
 ): CachedTranslation {
   return {
     targetLang,
+    provider: context.provider,
     model: context.model,
     prompt: context.prompt,
     glossaryHash: context.glossaryHash,
@@ -177,6 +198,7 @@ export function createCachedTranslation(
 
 export interface GeneratedCacheContext {
   sourceEntries: SrtEntry[];
+  provider?: LlmProvider | undefined;
   prompt?: string | undefined;
   model?: string | undefined;
 }
@@ -185,6 +207,7 @@ function isGeneratedCacheValid(
   cached:
     | {
         sourceHash?: string | undefined;
+        provider?: LlmProvider | undefined;
         prompt?: string | undefined;
         model?: string | undefined;
       }
@@ -198,7 +221,15 @@ function isGeneratedCacheValid(
   if (normalizeCacheString(cached.prompt) !== normalizeCacheString(context.prompt)) {
     return false;
   }
-  if (normalizeCacheString(cached.model) !== normalizeCacheString(context.model)) {
+  const cachedProvider: LlmProvider = cached.provider ?? "gemini";
+  const contextProvider: LlmProvider = context.provider ?? "gemini";
+  if (cachedProvider !== contextProvider) {
+    return false;
+  }
+  if (
+    normalizeModelForLlmProvider(cachedProvider, cached.model) !==
+    normalizeModelForLlmProvider(contextProvider, context.model)
+  ) {
     return false;
   }
   return true;
@@ -234,6 +265,7 @@ export function createCachedChapters(
 ): CachedChapters {
   return {
     targetLang,
+    provider: context.provider,
     model: context.model,
     prompt: context.prompt,
     sourceHash: computeEntriesHash(context.sourceEntries),
@@ -252,6 +284,7 @@ export function createCachedSummary(
 ): CachedSummary {
   return {
     targetLang,
+    provider: context.provider,
     model: context.model,
     prompt: context.prompt,
     sourceHash: computeEntriesHash(context.sourceEntries),

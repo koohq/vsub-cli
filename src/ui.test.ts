@@ -294,7 +294,8 @@ describe("ui module", () => {
           targetLanguage: "ja",
           sttProvider: "groq",
           sttModel: "whisper-large-v3-turbo",
-          geminiModel: "gemini-3.8-flash",
+          llmProvider: "gemini",
+          llmModel: "gemini-3.8-flash",
           outputFiles: ["/path/to/speech.ja.srt"],
         },
         "ja",
@@ -328,6 +329,29 @@ describe("ui module", () => {
       expect(summary).toContain("elevenlabs/scribe-v2");
     });
 
+    it("should display OpenRouter model when llmProvider is openrouter", () => {
+      const summary = formatSummaryBox(
+        {
+          mediaFile: "speech.mp4",
+          mediaType: "video",
+          durationMs: 5000,
+          entriesCount: 25,
+          targetLanguage: "ja",
+          sttProvider: "groq",
+          sttModel: "whisper-large-v3-turbo",
+          llmProvider: "openrouter",
+          llmModel: "google/gemini-3.8-flash",
+          outputFiles: ["/path/to/speech.ja.srt"],
+        },
+        "ja",
+      );
+
+      expect(summary).toContain("翻訳モデル");
+      expect(summary).toContain("OpenRouter");
+      expect(summary).toContain("google/gemini-3.8-flash");
+      expect(summary).not.toContain("Gemini");
+    });
+
     it("should not display groq model for subtitle input", () => {
       const summary = formatSummaryBox(
         {
@@ -338,7 +362,8 @@ describe("ui module", () => {
           targetLanguage: "en",
           sttProvider: "groq",
           sttModel: "whisper-large-v3-turbo",
-          geminiModel: "gemini-3.8-flash",
+          llmProvider: "gemini",
+          llmModel: "gemini-3.8-flash",
           outputFiles: ["/path/to/captions.en.srt"],
         },
         "ja",
@@ -362,7 +387,8 @@ describe("ui module", () => {
           skippedTranslation: true,
           sttProvider: "groq",
           sttModel: "whisper-large-v3-turbo",
-          geminiModel: "gemini-3.8-flash",
+          llmProvider: "gemini",
+          llmModel: "gemini-3.8-flash",
           outputFiles: ["/path/to/speech.ja.srt"],
         },
         "ja",
@@ -383,7 +409,8 @@ describe("ui module", () => {
           targetLanguage: "ja",
           sttProvider: "groq",
           sttModel: "whisper-large-v3-turbo",
-          geminiModel: "gemini-3.8-flash",
+          llmProvider: "gemini",
+          llmModel: "gemini-3.8-flash",
           cacheStatus: { transcriptionHit: true },
           outputFiles: ["/path/to/cached.ja.srt"],
         },

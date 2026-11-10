@@ -9,7 +9,8 @@ import { parseTargetLanguages, resolveTargetLang } from "./languages.js";
 import { parseBilingualOrder, resolveOutputFilePaths } from "./pipeline.js";
 import { ensureWritableTargets } from "./safety.js";
 import { mergeBilingualEntries, parseSrt, reflowSrtEntries } from "./srt.js";
-import { createGeminiTextModel, resolveGeminiModel } from "./text/gemini.js";
+import { LLM_PROVIDER_LABELS } from "./text/providers.js";
+import { createTextModel, resolveLlmSettings } from "./text/select.js";
 import { resolveConcurrency, resolveContextWindowSize, translateToTargets } from "./translation.js";
 import { createSpinner, formatSummaryBox } from "./ui.js";
 import { notifyUpdateIfAvailable } from "./updater.js";
@@ -27,6 +28,8 @@ export interface TranslateCommandOptions {
   glossary?: string | undefined;
   concurrency?: string | undefined;
   geminiModel?: string | undefined;
+  llmProvider?: string | undefined;
+  llmModel?: string | undefined;
   noCache?: boolean | undefined;
   fresh?: boolean | undefined;
   cacheDir?: string | undefined;
@@ -137,14 +140,23 @@ export async function runTranslateCommand(
       rawConfig.geminiApiKey = options.geminiKey.trim();
     }
 
-    // Ensure Gemini API key (Groq key not required for translate subcommand)
-    const config = await ensureApiKeys(rawConfig, {
+    const { config: resolvedConfig, llm } = resolveLlmSettings(
+      rawConfig,
+      {
+        llmProvider: options.llmProvider,
+        llmModel: options.llmModel,
+        geminiModel: options.geminiModel,
+      },
+      lang,
+    );
+
+    // Ensure API key for chosen LLM provider (Groq key not required for translate subcommand)
+    const config = await ensureApiKeys(resolvedConfig, {
       requireGroq: false,
-      requireGemini: true,
+      requireGemini: llm.provider === "gemini",
+      requireOpenRouter: llm.provider === "openrouter",
       lang: normalizeLanguage(lang),
     });
-
-    const geminiModel = resolveGeminiModel(options.geminiModel, config);
 
     if (!isStdout) {
       console.log(`\n🌐 ${pc.bold(tm.started(pc.cyan(path.basename(resolvedSubtitlePath))))}`);
@@ -208,11 +220,16 @@ export async function runTranslateCommand(
       glossaryInput,
       contextWindowSize: resolvedContextWindow,
       concurrency: resolvedConcurrency,
-      modelName: geminiModel,
-      getTextModel: async () => createGeminiTextModel(config.geminiApiKey, geminiModel),
+      llm: {
+        provider: llm.provider,
+        model: llm.model,
+      },
+      getTextModel: async () => createTextModel(config, llm, { lang: normalizeLanguage(lang) }),
       messages: {
-        translatingSingle: tm.step2TranslatingSingle,
-        translatingMulti: tm.step2TranslatingMulti,
+        translatingSingle: (provider, model, targetL, cur, tot) =>
+          tm.step2TranslatingSingle(provider, model, targetL, cur, tot),
+        translatingMulti: (provider, model, idx, cnt, targetL, cur, tot) =>
+          tm.step2TranslatingMulti(provider, model, idx, cnt, targetL, cur, tot),
       },
       spinner,
       prefix: "",
@@ -221,7 +238,8 @@ export async function runTranslateCommand(
     });
 
     const langListDisplay = targetLanguages.map((l) => l.toUpperCase()).join(", ");
-    spinner.succeed(tm.step2Done(langListDisplay, srtEntries.length));
+    const providerLabel = LLM_PROVIDER_LABELS[llm.provider];
+    spinner.succeed(tm.step2Done(providerLabel, langListDisplay, srtEntries.length));
 
     // 3. Save output subtitle files or write to stdout
     if (isStdout) {
@@ -282,7 +300,8 @@ export async function runTranslateCommand(
                 translationResult.totalGlossaryTerms > 0
                   ? translationResult.totalGlossaryTerms
                   : undefined,
-              geminiModel,
+              llmProvider: llm.provider,
+              llmModel: llm.model,
               cacheStatus:
                 translationResult.cachedLanguages.length > 0
                   ? { cachedLanguages: translationResult.cachedLanguages }

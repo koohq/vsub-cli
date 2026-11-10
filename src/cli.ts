@@ -192,7 +192,15 @@ function addTranslationOptions(command: Command): Command {
       "Glossary file path (JSON) or inline terms (key=val,key=val)",
     )
     .option("--concurrency <number>", "Number of concurrent translation requests to Gemini API")
-    .option("--gemini-model <model>", "Gemini model to use for translation");
+    .option("--gemini-model <model>", "Gemini model to use for translation")
+    .option(
+      "--llm-provider <provider>",
+      "Text generation provider for translation, chapters and summaries: gemini or openrouter (default: VSUB_LLM_PROVIDER, config, or chosen from your API keys)",
+    )
+    .option(
+      "--llm-model <model>",
+      "Model for the chosen text generation provider (default: gemini-3.8-flash on Gemini, google/gemini-3.8-flash on OpenRouter)",
+    );
 }
 
 function addContextWindowOption(command: Command): Command {
@@ -607,6 +615,14 @@ export function createProgram(): Command {
     .option("--prompt <instruction>", "Additional instruction prompt for Gemini chapter generation")
     .option("--gemini-model <model>", "Gemini model to use for chapters generation")
     .option(
+      "--llm-provider <provider>",
+      "Text generation provider for translation, chapters and summaries: gemini or openrouter (default: VSUB_LLM_PROVIDER, config, or chosen from your API keys)",
+    )
+    .option(
+      "--llm-model <model>",
+      "Model for the chosen text generation provider (default: gemini-3.8-flash on Gemini, google/gemini-3.8-flash on OpenRouter)",
+    )
+    .option(
       "--stt-provider <provider>",
       "Transcription provider: openrouter or groq (default: VSUB_STT_PROVIDER, config, or chosen from your API keys)",
     )
@@ -640,6 +656,8 @@ export function createProgram(): Command {
         stdout?: boolean;
         prompt?: string;
         geminiModel?: string;
+        llmProvider?: string;
+        llmModel?: string;
         sttProvider?: string;
         sttModel?: string;
         groqModel?: string;
@@ -668,6 +686,8 @@ export function createProgram(): Command {
           stdout: options.stdout,
           prompt: options.prompt,
           geminiModel: options.geminiModel,
+          llmProvider: options.llmProvider,
+          llmModel: options.llmModel,
           sttProvider: options.sttProvider,
           sttModel: options.sttModel,
           groqModel: options.groqModel,
@@ -708,6 +728,14 @@ export function createProgram(): Command {
     .option("--prompt <instruction>", "Additional instruction prompt for Gemini summary generation")
     .option("--gemini-model <model>", "Gemini model to use for summary generation")
     .option(
+      "--llm-provider <provider>",
+      "Text generation provider for translation, chapters and summaries: gemini or openrouter (default: VSUB_LLM_PROVIDER, config, or chosen from your API keys)",
+    )
+    .option(
+      "--llm-model <model>",
+      "Model for the chosen text generation provider (default: gemini-3.8-flash on Gemini, google/gemini-3.8-flash on OpenRouter)",
+    )
+    .option(
       "--stt-provider <provider>",
       "Transcription provider: openrouter or groq (default: VSUB_STT_PROVIDER, config, or chosen from your API keys)",
     )
@@ -737,6 +765,8 @@ export function createProgram(): Command {
         stdout?: boolean;
         prompt?: string;
         geminiModel?: string;
+        llmProvider?: string;
+        llmModel?: string;
         sttProvider?: string;
         sttModel?: string;
         groqModel?: string;
@@ -765,6 +795,8 @@ export function createProgram(): Command {
           stdout: options.stdout,
           prompt: options.prompt,
           geminiModel: options.geminiModel,
+          llmProvider: options.llmProvider,
+          llmModel: options.llmModel,
           sttProvider: options.sttProvider,
           sttModel: options.sttModel,
           groqModel: options.groqModel,
