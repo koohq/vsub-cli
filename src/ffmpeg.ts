@@ -199,13 +199,31 @@ export async function extractAudio(
   let finalAudioPaths: string[] = [];
   let finalDurations: number[] | undefined;
 
-  if (stats.size <= maxSizeBytes) {
+  const shouldSplitBySize = stats.size > maxSizeBytes;
+  let shouldSplitByDuration = false;
+
+  if (!shouldSplitBySize && splitLimits.maxChunkSeconds !== undefined) {
+    try {
+      const dur = await getMediaDurationInSeconds(tempAudioFile, ffmpegPath);
+      shouldSplitByDuration = dur <= 0 || dur > splitLimits.maxChunkSeconds;
+    } catch {
+      shouldSplitByDuration = true;
+    }
+  }
+
+  if (!shouldSplitBySize && !shouldSplitByDuration) {
     finalAudioPaths = [tempAudioFile];
   } else {
     if (verbose) {
-      console.log(
-        `[ffmpeg] Extracted audio exceeds 25MB threshold. Starting audio split process (${(stats.size / 1024 / 1024).toFixed(1)}MB)`,
-      );
+      if (shouldSplitBySize) {
+        console.log(
+          `[ffmpeg] Extracted audio exceeds 25MB threshold. Starting audio split process (${(stats.size / 1024 / 1024).toFixed(1)}MB)`,
+        );
+      } else {
+        console.log(
+          `[ffmpeg] Extracted audio is longer than ${splitLimits.maxChunkSeconds}s. Splitting into ${splitLimits.segmentSeconds}s segments`,
+        );
+      }
     }
 
     // Split audio into segments of the provider's chunk length

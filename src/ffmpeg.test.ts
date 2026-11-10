@@ -166,8 +166,12 @@ describe("ffmpeg.ts", () => {
       fs.rmSync(workDir, { recursive: true, force: true });
     });
 
-    /** Fakes ffmpeg: writes the extracted file, then segment files on split. Everything else (ffprobe) fails. */
-    function mockFfmpegWithExtractedSize(sizeBytes: number, segmentCount = 2) {
+    /** Fakes ffmpeg: writes the extracted file, then segment files on split. Everything else (ffprobe) fails unless durationSeconds is given. */
+    function mockFfmpegWithExtractedSize(
+      sizeBytes: number,
+      segmentCount = 2,
+      durationSeconds?: number | undefined,
+    ) {
       mockExeca.mockImplementation(async (_cmd: string, args: string[]) => {
         const outPath = args[args.length - 1] as string;
         if (args.includes("-segment_time")) {
@@ -179,6 +183,9 @@ describe("ffmpeg.ts", () => {
         if (args.includes("-vn")) {
           fs.writeFileSync(outPath, Buffer.alloc(sizeBytes));
           return { stdout: "", stderr: "" };
+        }
+        if (durationSeconds !== undefined && args.includes("format=duration")) {
+          return { stdout: `${durationSeconds}\n`, stderr: "" };
         }
         throw new Error("probe unavailable");
       });
@@ -218,6 +225,78 @@ describe("ffmpeg.ts", () => {
       expect(result.audioPaths).toHaveLength(2);
       // ffprobe/ffmpeg duration measurement fails, so each falls back to segmentSeconds
       expect(result.durations).toEqual([300, 300]);
+    });
+
+    it("should split when duration exceeds maxChunkSeconds even if under maxFileBytes", async () => {
+      const log = vi.spyOn(console, "log").mockImplementation(() => {});
+      mockFfmpegWithExtractedSize(100, 2, 301);
+
+      const result = await extractAudio(
+        inputPath,
+        "ffmpeg",
+        {
+          maxFileBytes: 1000,
+          segmentSeconds: 300,
+          maxChunkSeconds: 300,
+        },
+        true,
+      );
+      cleanups.push(result.cleanup);
+
+      const splitCall = mockExeca.mock.calls.find((c) =>
+        (c[1] as string[]).includes("-segment_time"),
+      );
+      expect(splitCall).toBeDefined();
+      const splitArgs = splitCall?.[1] as string[];
+      expect(splitArgs[splitArgs.indexOf("-segment_time") + 1]).toBe("300");
+      expect(result.audioPaths).toHaveLength(2);
+      expect(log).toHaveBeenCalledWith(
+        "[ffmpeg] Extracted audio is longer than 300s. Splitting into 300s segments",
+      );
+    });
+
+    it("should not split when duration is exactly maxChunkSeconds and under maxFileBytes", async () => {
+      mockFfmpegWithExtractedSize(100, 2, 300);
+
+      const result = await extractAudio(inputPath, "ffmpeg", {
+        maxFileBytes: 1000,
+        segmentSeconds: 300,
+        maxChunkSeconds: 300,
+      });
+      cleanups.push(result.cleanup);
+
+      const splitCall = mockExeca.mock.calls.find((c) =>
+        (c[1] as string[]).includes("-segment_time"),
+      );
+      expect(splitCall).toBeUndefined();
+      expect(result.audioPaths).toHaveLength(1);
+    });
+
+    it("should split when maxChunkSeconds is set but duration cannot be measured", async () => {
+      mockFfmpegWithExtractedSize(100, 2); // probe unavailable (duration = 0)
+
+      const result = await extractAudio(inputPath, "ffmpeg", {
+        maxFileBytes: 1000,
+        segmentSeconds: 300,
+        maxChunkSeconds: 300,
+      });
+      cleanups.push(result.cleanup);
+
+      const splitCall = mockExeca.mock.calls.find((c) =>
+        (c[1] as string[]).includes("-segment_time"),
+      );
+      expect(splitCall).toBeDefined();
+      expect(result.audioPaths).toHaveLength(2);
+    });
+
+    it("should not measure duration when maxChunkSeconds is not set", async () => {
+      mockFfmpegWithExtractedSize(100);
+
+      const result = await extractAudio(inputPath, "ffmpeg", TEST_LIMITS);
+      cleanups.push(result.cleanup);
+
+      expect(mockExeca).toHaveBeenCalledTimes(1);
+      expect(result.audioPaths).toHaveLength(1);
     });
 
     it("prepareAudio should be an alias of extractAudio", () => {

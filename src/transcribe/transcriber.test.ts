@@ -77,6 +77,14 @@ describe("transcriber.ts", () => {
       expect(normalizeLanguageCode("ja-JP")).toBe("ja");
       expect(normalizeLanguageCode("zh-CN")).toBe("zh");
     });
+
+    it("should map ISO-639-3 and ISO-639-2/B 3-letter codes to 2-letter codes", () => {
+      expect(normalizeLanguageCode("jpn")).toBe("ja");
+      expect(normalizeLanguageCode("ENG")).toBe("en");
+      expect(normalizeLanguageCode("ger")).toBe("de");
+      expect(normalizeLanguageCode("cmn")).toBe("zh");
+      expect(normalizeLanguageCode("xyz")).toBe("xyz");
+    });
   });
 
   describe("transcribeAudioSegments", () => {

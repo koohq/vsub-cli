@@ -32,6 +32,8 @@ export interface TranscriberLimits {
   maxFileBytes: number;
   /** Length of each split chunk, also the fallback offset when a chunk's duration is unknown. */
   segmentSeconds: number;
+  /** When set, audio longer than this many seconds is split even if it is under maxFileBytes. */
+  maxChunkSeconds?: number | undefined;
 }
 
 export interface Transcriber {
@@ -69,11 +71,40 @@ const LANGUAGE_NAME_TO_CODE: Record<string, string> = {
   thai: "th",
 };
 
+const ISO_639_3_TO_CODE: Record<string, string> = {
+  jpn: "ja",
+  eng: "en",
+  spa: "es",
+  fra: "fr",
+  fre: "fr",
+  deu: "de",
+  ger: "de",
+  ita: "it",
+  zho: "zh",
+  chi: "zh",
+  cmn: "zh",
+  kor: "ko",
+  rus: "ru",
+  por: "pt",
+  nld: "nl",
+  dut: "nl",
+  tur: "tr",
+  pol: "pl",
+  ara: "ar",
+  hin: "hi",
+  vie: "vi",
+  ind: "id",
+  tha: "th",
+};
+
 export function normalizeLanguageCode(lang?: string): string | undefined {
   if (!lang) return undefined;
   const cleaned = lang.trim().toLowerCase();
   if (LANGUAGE_NAME_TO_CODE[cleaned]) {
     return LANGUAGE_NAME_TO_CODE[cleaned];
+  }
+  if (ISO_639_3_TO_CODE[cleaned]) {
+    return ISO_639_3_TO_CODE[cleaned];
   }
   if (cleaned.length === 2) {
     return cleaned;
