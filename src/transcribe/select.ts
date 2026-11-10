@@ -15,7 +15,10 @@ export interface SttSettings {
   model: string;
 }
 
-function parseSttProvider(raw: string, lang?: SupportedLanguage | string | undefined): SttProvider {
+export function parseSttProvider(
+  raw: string,
+  lang?: SupportedLanguage | string | undefined,
+): SttProvider {
   const normalized = raw.trim().toLowerCase();
   if ((STT_PROVIDERS as readonly string[]).includes(normalized)) {
     return normalized as SttProvider;

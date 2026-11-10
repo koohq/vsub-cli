@@ -240,9 +240,11 @@ export const en = {
     description1:
       "This wizard verifies API keys and FFmpeg connectivity, then configures preferences.",
     description2: "Press Enter to keep current or bracketed values.",
-    step1Title: "▶ [1/4] Groq API Key Setup (for Speech Recognition)",
+    step1Title: "▶ [1/4] Speech Recognition Provider & API Key",
     step1Url: (url: string) => `  Get API key at: ${url}`,
     currentSetting: (val: string) => `  Current: ${val}`,
+    promptSttProvider: (current: string) =>
+      `  Transcription provider (openrouter/groq) [${current}]: `,
     promptGroqCurrent: "  Enter Groq API Key (Enter to keep current): ",
     promptGroqNew: "  Enter Groq API Key (Enter to skip): ",
     skippedGroq: "  ⚠️  Groq API key skipped (can be configured later).\n",
@@ -250,6 +252,14 @@ export const en = {
     groqSuccess: (count: string | number) =>
       `  ✔ Groq API connection successful (${count} models available)`,
     groqFailed: (err: string) => `  ✖ Groq API connection failed: ${err}`,
+    promptOpenRouterCurrent: "  Enter OpenRouter API Key (Enter to keep current): ",
+    promptOpenRouterNew: "  Enter OpenRouter API Key (Enter to skip): ",
+    skippedOpenRouter: "  ⚠️  OpenRouter API key skipped (can be configured later).\n",
+    testingOpenRouter: "  ⏳ Testing OpenRouter API connection...",
+    openrouterSuccess: "  ✔ OpenRouter API connection successful",
+    openrouterFailed: (err: string) => `  ✖ OpenRouter API connection failed: ${err}`,
+    openrouterEnvNotice:
+      "  OPENROUTER_API_KEY is set in the environment; press Enter to use it (it is not saved to the config file).",
     retryPrompt: "  Retry? [Y/n/s (s=save anyway)]: ",
     savedUnverified: "  ⚠️  Saved key without verification.\n",
     step2Title: "▶ [2/4] Google Gemini API Key Setup (for Translation)",
@@ -268,6 +278,8 @@ export const en = {
     step4Title: "▶ [4/4] Default Preferences",
     promptDisplayLang: (current: string) => `  CLI Display Language [${current}] (en/ja): `,
     promptTargetLang: (current: string) => `  Default Target Subtitle Language [${current}]: `,
+    promptOpenRouterModel: (current: string) =>
+      `  Default OpenRouter transcription model [${current}]: `,
     configSaved: (path: string) =>
       `\n🎉 Setup completed successfully!\nSettings saved to: ${path}\n`,
     configNotSaved: "The settings you entered in this wizard were not saved.",

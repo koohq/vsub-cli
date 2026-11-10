@@ -55,6 +55,12 @@ import {
 } from "./pipeline.js";
 import { ensureWritableTargets } from "./safety.js";
 import { mergeBilingualEntries, parseSrt, reflowSrtEntries, type SrtEntry } from "./srt.js";
+import {
+  parseSttProvider,
+  resolveSttSettings,
+  STT_PROVIDER_LABELS,
+  type SttProvider,
+} from "./transcribe/select.js";
 import { createSpinner, formatFileSize, formatSummaryBox } from "./ui.js";
 import {
   checkUpdate,
@@ -208,7 +214,7 @@ export function createProgram(): Command {
     .name("vsub")
     .version(getCurrentVersion())
     .description(
-      "CLI tool to extract audio from video/audio files, transcribe speech via Groq API, and generate multilingual subtitles (.srt, .vtt, .txt, .json) via Gemini API.",
+      "CLI tool to extract audio from video/audio files, transcribe speech via OpenRouter (ElevenLabs Scribe v2, default) or Groq Whisper, and generate multilingual subtitles (.srt, .vtt, .txt, .json) via Gemini API.",
     )
     .enablePositionalOptions()
     .option("-l, --lang <lang>", "UI display language (en, ja)")
@@ -313,6 +319,18 @@ export function createProgram(): Command {
       console.log(
         `Gemini API Key  : ${resolvedConfig.geminiApiKey ? `${resolvedConfig.geminiApiKey.slice(0, 4)}...${resolvedConfig.geminiApiKey.slice(-4)}` : "(Not configured)"}`,
       );
+      console.log(
+        `OpenRouter API Key : ${resolvedConfig.openrouterApiKey ? `${resolvedConfig.openrouterApiKey.slice(0, 4)}...${resolvedConfig.openrouterApiKey.slice(-4)}` : "(Not configured)"}`,
+      );
+      let transcriptionText: string;
+      try {
+        const { stt } = resolveSttSettings(resolvedConfig, {});
+        const label = STT_PROVIDER_LABELS[stt.provider];
+        transcriptionText = `${label} (${stt.model}) [${stt.source}]`;
+      } catch {
+        transcriptionText = `invalid provider "${resolvedConfig.sttProvider}"`;
+      }
+      console.log(`Transcription      : ${transcriptionText}`);
       console.log(`FFmpeg Path     : ${resolvedConfig.ffmpegPath}`);
       if (resolvedConfig.whisperPrompt) {
         console.log(`Whisper Prompt  : "${resolvedConfig.whisperPrompt}"`);
@@ -328,6 +346,9 @@ export function createProgram(): Command {
       }
       if (resolvedConfig.groqModel) {
         console.log(`Groq Model      : ${resolvedConfig.groqModel}`);
+      }
+      if (resolvedConfig.openrouterSttModel) {
+        console.log(`OpenRouter STT Model : ${resolvedConfig.openrouterSttModel}`);
       }
       if (resolvedConfig.maxLength) {
         console.log(`Max Length      : ${resolvedConfig.maxLength} chars`);
@@ -352,6 +373,12 @@ export function createProgram(): Command {
     .option("-l, --lang <lang>", "UI display language (en, ja)")
     .option("--groq-key <key>", "Groq API Key")
     .option("--gemini-key <key>", "Gemini API Key")
+    .option("--openrouter-key <key>", "OpenRouter API Key (for speech recognition)")
+    .option("--stt-provider <provider>", "Default transcription provider: openrouter or groq")
+    .option(
+      "--openrouter-stt-model <model>",
+      "Default OpenRouter transcription model (e.g. elevenlabs/scribe-v2)",
+    )
     .option("--ffmpeg-path <path>", "Path to ffmpeg executable")
     .option("--gemini-model <model>", "Default Gemini translation model (e.g. gemini-3.8-flash)")
     .option(
@@ -377,6 +404,9 @@ export function createProgram(): Command {
         lang?: string;
         groqKey?: string;
         geminiKey?: string;
+        openrouterKey?: string;
+        sttProvider?: string;
+        openrouterSttModel?: string;
         ffmpegPath?: string;
         geminiModel?: string;
         groqModel?: string;
@@ -421,6 +451,16 @@ export function createProgram(): Command {
           process.exit(1);
         }
 
+        let sttProviderVal: SttProvider | undefined;
+        if (options.sttProvider) {
+          try {
+            sttProviderVal = parseSttProvider(options.sttProvider, normalizedLang);
+          } catch (err) {
+            console.error(pc.red(`\n✖ ${err instanceof Error ? err.message : String(err)}\n`));
+            return process.exit(1);
+          }
+        }
+
         let burnPositionVal: string | undefined;
         if (options.burnPosition) {
           try {
@@ -445,6 +485,9 @@ export function createProgram(): Command {
           !options.lang &&
           !options.groqKey &&
           !options.geminiKey &&
+          !options.openrouterKey &&
+          !options.sttProvider &&
+          !options.openrouterSttModel &&
           !options.ffmpegPath &&
           !options.geminiModel &&
           !options.groqModel &&
@@ -469,6 +512,11 @@ export function createProgram(): Command {
               ...(normalizedLang ? { lang: normalizedLang } : {}),
               ...(options.groqKey ? { groqApiKey: options.groqKey.trim() } : {}),
               ...(options.geminiKey ? { geminiApiKey: options.geminiKey.trim() } : {}),
+              ...(options.openrouterKey ? { openrouterApiKey: options.openrouterKey.trim() } : {}),
+              ...(sttProviderVal ? { sttProvider: sttProviderVal } : {}),
+              ...(options.openrouterSttModel
+                ? { openrouterSttModel: options.openrouterSttModel.trim() }
+                : {}),
               ...(options.ffmpegPath ? { ffmpegPath: options.ffmpegPath.trim() } : {}),
               ...(options.geminiModel ? { geminiModel: options.geminiModel.trim() } : {}),
               ...(options.groqModel ? { groqModel: options.groqModel.trim() } : {}),
@@ -502,7 +550,7 @@ export function createProgram(): Command {
   // Subcommand: init (Top-level wizard)
   addInitCommand(
     program,
-    "Interactive setup wizard to verify and configure Groq API, Gemini API, FFmpeg, and preferences",
+    "Interactive setup wizard to choose the transcription provider (OpenRouter or Groq) and verify API keys, FFmpeg, and preferences",
   );
 
   // Subcommand: cache

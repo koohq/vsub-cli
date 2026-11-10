@@ -12,6 +12,7 @@ import {
   verifyFfmpeg,
   verifyGeminiApiKey,
   verifyGroqApiKey,
+  verifyOpenRouterApiKey,
 } from "./init.js";
 import { isolateConfigAndEnv } from "./test-support/isolate-config-env.js";
 
@@ -161,6 +162,92 @@ describe("init.ts", () => {
     });
   });
 
+  describe("verifyOpenRouterApiKey", () => {
+    it("should return error in English by default when key is empty", async () => {
+      const result = await verifyOpenRouterApiKey("");
+      expect(result.success).toBe(false);
+      expect(result.error).toContain("API key not provided");
+    });
+
+    it("should return error in Japanese when lang is ja and key is empty", async () => {
+      const result = await verifyOpenRouterApiKey("", { lang: "ja" });
+      expect(result.success).toBe(false);
+      expect(result.error).toContain("APIキーが指定されていません");
+    });
+
+    it("should succeed and call fetch with correct URL and auth header on 200", async () => {
+      const dummyKey = "sk-or-v1-valid-test-key-1234";
+      const mockFetch = vi.fn().mockResolvedValue({
+        ok: true,
+        status: 200,
+        json: async () => ({ data: { limit: 100 } }),
+      });
+
+      const result = await verifyOpenRouterApiKey(dummyKey, {
+        fetchFn: mockFetch as unknown as typeof fetch,
+      });
+
+      expect(result.success).toBe(true);
+      expect(mockFetch).toHaveBeenCalledWith("https://openrouter.ai/api/v1/key", {
+        headers: {
+          Authorization: `Bearer ${dummyKey}`,
+        },
+      });
+      expect(result.error).toBeUndefined();
+    });
+
+    it("should fail with error.message from response body on 401", async () => {
+      const dummyKey = "sk-or-v1-invalid-key-9999";
+      const mockFetch = vi.fn().mockResolvedValue({
+        ok: false,
+        status: 401,
+        json: async () => ({
+          error: { message: "Invalid API key provided" },
+        }),
+      });
+
+      const result = await verifyOpenRouterApiKey(dummyKey, {
+        fetchFn: mockFetch as unknown as typeof fetch,
+      });
+
+      expect(result.success).toBe(false);
+      expect(result.error).toBe("Invalid API key provided");
+      expect(result.error).not.toContain(dummyKey);
+    });
+
+    it("should fail with HTTP status code when 500 response is not JSON", async () => {
+      const dummyKey = "sk-or-v1-server-err-key";
+      const mockFetch = vi.fn().mockResolvedValue({
+        ok: false,
+        status: 500,
+        json: async () => {
+          throw new Error("Invalid JSON");
+        },
+      });
+
+      const result = await verifyOpenRouterApiKey(dummyKey, {
+        fetchFn: mockFetch as unknown as typeof fetch,
+      });
+
+      expect(result.success).toBe(false);
+      expect(result.error).toBe("HTTP 500");
+      expect(result.error).not.toContain(dummyKey);
+    });
+
+    it("should fail when fetch throws a network exception", async () => {
+      const dummyKey = "sk-or-v1-network-error-key";
+      const mockFetch = vi.fn().mockRejectedValue(new Error("Network connection lost"));
+
+      const result = await verifyOpenRouterApiKey(dummyKey, {
+        fetchFn: mockFetch as unknown as typeof fetch,
+      });
+
+      expect(result.success).toBe(false);
+      expect(result.error).toContain("Network connection lost");
+      expect(result.error).not.toContain(dummyKey);
+    });
+  });
+
   describe("runInitWizard", () => {
     let saveSpy: ReturnType<typeof vi.spyOn>;
     let tempDir: string;
@@ -171,6 +258,8 @@ describe("init.ts", () => {
       tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "vsub-init-test-"));
       process.env = { ...originalEnv };
       isolateConfigAndEnv(tempDir);
+      delete process.env["VSUB_GROQ_API_KEY"];
+      delete process.env["VSUB_GEMINI_API_KEY"];
     });
 
     afterEach(() => {
@@ -204,6 +293,7 @@ describe("init.ts", () => {
 
       const prompts: string[] = [];
       const answers = [
+        "groq",
         "groq-key",
         "gemini-key",
         options.displayLangAnswer ?? "",
@@ -243,6 +333,7 @@ describe("init.ts", () => {
 
       const ask = vi
         .fn()
+        .mockResolvedValueOnce("groq")
         .mockResolvedValueOnce("gsk_new_groq_key")
         .mockResolvedValueOnce("AIza_new_gemini_key")
         .mockResolvedValueOnce("ja") // Display lang
@@ -264,6 +355,7 @@ describe("init.ts", () => {
 
       expect(saveSpy).toHaveBeenCalledWith(
         expect.objectContaining({
+          sttProvider: "groq",
           groqApiKey: "gsk_new_groq_key",
           geminiApiKey: "AIza_new_gemini_key",
           ffmpegPath: "ffmpeg",
@@ -287,6 +379,7 @@ describe("init.ts", () => {
 
       const ask = vi
         .fn()
+        .mockResolvedValueOnce("groq")
         .mockResolvedValueOnce("gsk_new_groq_key")
         .mockResolvedValueOnce("AIza_new_gemini_key")
         .mockResolvedValueOnce("en") // Display lang
@@ -307,6 +400,7 @@ describe("init.ts", () => {
 
       expect(saveSpy).toHaveBeenCalledWith(
         expect.objectContaining({
+          sttProvider: "groq",
           groqApiKey: "gsk_new_groq_key",
           geminiApiKey: "AIza_new_gemini_key",
           ffmpegPath: "ffmpeg",
@@ -327,6 +421,7 @@ describe("init.ts", () => {
       let groqCallCount = 0;
       const ask = vi
         .fn()
+        .mockResolvedValueOnce("groq")
         .mockResolvedValueOnce("bad-key") // Initial bad key
         .mockResolvedValueOnce("y") // Retry choice -> yes
         .mockResolvedValueOnce("good-key") // Good key
@@ -356,6 +451,7 @@ describe("init.ts", () => {
       expect(groqCallCount).toBe(2);
       expect(saveSpy).toHaveBeenCalledWith(
         expect.objectContaining({
+          sttProvider: "groq",
           groqApiKey: "good-key",
           geminiApiKey: "gemini-key",
         }),
@@ -368,6 +464,7 @@ describe("init.ts", () => {
 
       const ask = vi
         .fn()
+        .mockResolvedValueOnce("groq")
         .mockResolvedValueOnce("groq-key")
         .mockResolvedValueOnce("gemini-key")
         .mockResolvedValueOnce("custom/bin/ffmpeg") // Custom ffmpeg path
@@ -391,6 +488,7 @@ describe("init.ts", () => {
 
       expect(saveSpy).toHaveBeenCalledWith(
         expect.objectContaining({
+          sttProvider: "groq",
           ffmpegPath: "custom/bin/ffmpeg",
         }),
         expect.anything(),
@@ -413,6 +511,7 @@ describe("init.ts", () => {
         });
         const ask = vi
           .fn()
+          .mockResolvedValueOnce("groq")
           .mockResolvedValueOnce("groq-key")
           .mockResolvedValueOnce("gemini-key")
           .mockResolvedValueOnce(lang) // Display lang
@@ -536,12 +635,12 @@ describe("init.ts", () => {
           displayLangAnswer,
         });
 
-        const displayPrompt = prompts[2] ?? "";
+        const displayPrompt = prompts[3] ?? "";
         expect(displayPrompt).toContain(expectedPromptName);
         expect(displayPrompt.match(/\[[^\]]*\]/g)).toEqual([expectedBracket]);
         expect(savedConfig.lang).toBe(expectedSavedLang);
 
-        const targetPrompt = prompts[3] ?? "";
+        const targetPrompt = prompts[4] ?? "";
         if (expectedSubsequentLang === "ja") {
           expect(targetPrompt).toContain("デフォルト出力言語");
           expect(output).toContain("初期セットアップが正常に完了しました");
@@ -594,11 +693,232 @@ describe("init.ts", () => {
           targetLangAnswer: "",
         });
 
-        const targetPrompt = prompts[3] ?? "";
+        const targetPrompt = prompts[4] ?? "";
         expect(targetPrompt).toContain(expectedPromptName);
         expect(targetPrompt.match(/\[[^\]]*\]/g)).toEqual([expectedBracket]);
         expect(savedConfig.targetLang).toBe(expectedSavedTargetLang);
       },
     );
+
+    describe("STT provider selection and OpenRouter support in wizard", () => {
+      it("defaults to groq when only Groq API key is in config, and saves sttProvider: 'groq' on Enter", async () => {
+        placeConfig({ groqApiKey: "gsk_existing_groq_key_1234" });
+
+        const output = new PassThrough();
+
+        const prompts: string[] = [];
+        const ask = vi.fn().mockImplementation(async (prompt: string) => {
+          prompts.push(prompt);
+          return ""; // Enter on all prompts
+        });
+
+        await runInitWizard({
+          output,
+          ask,
+          groqVerifier: async () => ({ success: true, modelCount: 3 }),
+          geminiVerifier: async () => ({ success: true }),
+          ffmpegVerifier: async () => ({ success: true, version: "ffmpeg 7.0" }),
+        });
+
+        expect(prompts[0]).toContain("[groq]");
+        expect(saveSpy).toHaveBeenCalledWith(
+          expect.objectContaining({
+            sttProvider: "groq",
+          }),
+          expect.anything(),
+        );
+      });
+
+      it("defaults to openrouter when config is empty, verifies OpenRouter and saves openrouterSttModel without prompting for Groq model", async () => {
+        const output = new PassThrough();
+
+        const openrouterVerifier = vi.fn().mockResolvedValue({ success: true });
+        const groqVerifier = vi.fn().mockResolvedValue({ success: true, modelCount: 5 });
+
+        const prompts: string[] = [];
+        const answers = [
+          "", // Provider prompt -> enter (defaults to openrouter)
+          "sk-or-v1-new-test-key-5678", // OpenRouter key
+          "AIza_gemini_key", // Gemini key
+          "en", // Display lang
+          "ja", // Target lang
+          "gemini-3.8-flash", // Gemini model
+          "custom/openrouter-model", // OpenRouter STT model
+        ];
+
+        const ask = vi.fn().mockImplementation(async (prompt: string) => {
+          prompts.push(prompt);
+          return answers[prompts.length - 1] ?? "";
+        });
+
+        await runInitWizard({
+          output,
+          ask,
+          openrouterVerifier,
+          groqVerifier,
+          geminiVerifier: async () => ({ success: true }),
+          ffmpegVerifier: async () => ({ success: true, version: "ffmpeg 7.0" }),
+        });
+
+        expect(prompts[0]).toContain("[openrouter]");
+        expect(openrouterVerifier).toHaveBeenCalledWith("sk-or-v1-new-test-key-5678");
+        expect(groqVerifier).not.toHaveBeenCalled();
+
+        expect(saveSpy).toHaveBeenCalledWith(
+          expect.objectContaining({
+            sttProvider: "openrouter",
+            openrouterApiKey: "sk-or-v1-new-test-key-5678",
+            openrouterSttModel: "custom/openrouter-model",
+          }),
+          expect.anything(),
+        );
+        const saved = saveSpy.mock.calls[0]?.[0] as Partial<AppConfig>;
+        expect(saved.groqModel).toBeUndefined();
+      });
+
+      it("re-prompts on invalid provider answer (foo) then proceeds with groq", async () => {
+        const output = new PassThrough();
+        let outputData = "";
+        output.on("data", (chunk) => {
+          outputData += chunk.toString();
+        });
+
+        const prompts: string[] = [];
+        const answers = [
+          "foo", // Invalid provider
+          "groq", // Valid provider
+          "gsk_test_key", // Groq key
+          "gemini_key", // Gemini key
+          "", // Display lang
+          "", // Target lang
+          "", // Gemini model
+          "", // Groq model
+        ];
+
+        const ask = vi.fn().mockImplementation(async (prompt: string) => {
+          prompts.push(prompt);
+          return answers[prompts.length - 1] ?? "";
+        });
+
+        await runInitWizard({
+          output,
+          ask,
+          groqVerifier: async () => ({ success: true, modelCount: 5 }),
+          geminiVerifier: async () => ({ success: true }),
+          ffmpegVerifier: async () => ({ success: true, version: "ffmpeg 7.0" }),
+        });
+
+        expect(prompts[0]).toContain("Transcription provider");
+        expect(prompts[1]).toContain("Transcription provider");
+        expect(outputData).toContain("foo");
+        expect(saveSpy).toHaveBeenCalledWith(
+          expect.objectContaining({
+            sttProvider: "groq",
+          }),
+          expect.anything(),
+        );
+      });
+
+      it("notifies generic OPENROUTER_API_KEY from environment, verifies with it on Enter, and does not save openrouterApiKey to config file", async () => {
+        process.env["OPENROUTER_API_KEY"] = "sk-or-v1-env-generic-secret";
+
+        const output = new PassThrough();
+        let outputData = "";
+        output.on("data", (chunk) => {
+          outputData += chunk.toString();
+        });
+
+        const openrouterVerifier = vi.fn().mockResolvedValue({ success: true });
+
+        const prompts: string[] = [];
+        const answers = [
+          "openrouter", // Provider
+          "", // OpenRouter key -> press Enter to use env
+          "gemini_key", // Gemini key
+          "", // Display lang
+          "", // Target lang
+          "", // Gemini model
+          "", // OpenRouter STT model
+        ];
+
+        const ask = vi.fn().mockImplementation(async (prompt: string) => {
+          prompts.push(prompt);
+          return answers[prompts.length - 1] ?? "";
+        });
+
+        await runInitWizard({
+          output,
+          ask,
+          openrouterVerifier,
+          geminiVerifier: async () => ({ success: true }),
+          ffmpegVerifier: async () => ({ success: true, version: "ffmpeg 7.0" }),
+        });
+
+        expect(outputData).toContain("OPENROUTER_API_KEY is set in the environment");
+        expect(prompts).toContain("  Enter OpenRouter API Key (Enter to keep current): ");
+        expect(openrouterVerifier).toHaveBeenCalledWith("sk-or-v1-env-generic-secret");
+
+        expect(saveSpy).toHaveBeenCalledWith(
+          expect.objectContaining({
+            sttProvider: "openrouter",
+          }),
+          expect.anything(),
+        );
+        const saved = saveSpy.mock.calls[0]?.[0] as Partial<AppConfig>;
+        expect(saved.openrouterApiKey).toBeUndefined();
+      });
+
+      it.each([
+        {
+          action: "s",
+          expectedSavedKey: "sk-or-v1-unverified-key",
+          expectedOutput: "Saved key without verification",
+        },
+        {
+          action: "n",
+          expectedSavedKey: undefined,
+          expectedOutput: "OpenRouter API key skipped",
+        },
+      ])(
+        "handles OpenRouter key verification failure with $action action",
+        async ({ action, expectedSavedKey, expectedOutput }) => {
+          const output = new PassThrough();
+          let outputData = "";
+          output.on("data", (chunk) => {
+            outputData += chunk.toString();
+          });
+
+          const prompts: string[] = [];
+          const answers = [
+            "openrouter", // Provider
+            "sk-or-v1-unverified-key", // Bad key
+            action, // Retry prompt answer
+            "gemini_key", // Gemini key
+            "", // Display lang
+            "", // Target lang
+            "", // Gemini model
+            "", // OpenRouter model
+          ];
+
+          const ask = vi.fn().mockImplementation(async (prompt: string) => {
+            prompts.push(prompt);
+            return answers[prompts.length - 1] ?? "";
+          });
+
+          await runInitWizard({
+            output,
+            ask,
+            openrouterVerifier: async () => ({ success: false, error: "401 Unauthorized" }),
+            geminiVerifier: async () => ({ success: true }),
+            ffmpegVerifier: async () => ({ success: true, version: "ffmpeg 7.0" }),
+          });
+
+          expect(outputData).toContain(expectedOutput);
+          const saved = saveSpy.mock.calls[0]?.[0] as Partial<AppConfig>;
+          expect(saved.openrouterApiKey).toBe(expectedSavedKey);
+          expect(saved.sttProvider).toBe("openrouter");
+        },
+      );
+    });
   });
 });

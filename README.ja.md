@@ -6,19 +6,19 @@
 
 [English](README.md) | [日本語](README.ja.md)
 
-動画ファイルおよび音声ファイルから音声を最適化抽出し、**Groq API (`whisper-large-v3-turbo`)** で高速文字起こしを行った後、**Google Gemini API (`@google/genai`)** を用いて多言語字幕・テキスト・チャプター・要約を自動生成する CLI ツールです。
+動画ファイルおよび音声ファイルから音声を最適化抽出し、**OpenRouter（ElevenLabs Scribe v2、既定）** または **Groq (`whisper-large-v3-turbo`)** で音声文字起こしを行った後、**Google Gemini API (`@google/genai`)** を用いて多言語字幕・テキスト・チャプター・要約を自動生成する CLI ツールです。
 
 ---
 
 ## 主な特徴
 
-* ⚡ **超高速文字起こし**: Groq LPU 上で動作する `whisper-large-v3-turbo` を採用し、音声認識を高速処理。
+* ⚡ **高精度・高速な文字起こし**: 既定で OpenRouter 経由の ElevenLabs Scribe v2（`elevenlabs/scribe-v2`）を使用し、高精度な音声認識を実現。Groq 上の超高速な `whisper-large-v3-turbo` も選択可能。
 * 🎵 **動画・音声ファイル両対応**: 動画ファイル（`.mp4`, `.mkv`, `.mov` 等）だけでなく、音声ファイル（`.mp3`, `.wav`, `.m4a`, `.aac`, `.flac`, `.ogg`, `.opus` 等）も直接入力可能。
-* 🔊 **音質・ファイルサイズ自動最適化**: `ffmpeg` を用いて 16kHz モノラル / 低ビットレート（48kbps）に圧縮・最適化し、Groq の 25MB 上限を自動クリア。超長尺メディアの自動分割時も、実測再生時間に基づくミリ秒精度のタイムコード補正で字幕ズレを防止。
+* 🔊 **音質・ファイルサイズ自動最適化**: `ffmpeg` を用いて 16kHz モノラル / 低ビットレート（48kbps）に圧縮・最適化し、提供元ごとの上限に合わせて分割（OpenRouter は 5 分ずつ、Groq は 25MB 超で分割）。実測再生時間に基づくミリ秒精度のタイムコード補正で字幕ズレを防止。
 * 🎯 **タイムコード破綻防止 & 文脈引き継ぎ翻訳**: 字幕テキストのみを Gemini（`gemini-3.8-flash`）の Structured Outputs（`responseSchema`）とスライディングウィンドウ参照（`--context-window`）でチャンク翻訳。タイムコード崩れや行数不一致を 100% 防ぎつつ、チャンク境界でも自然な口調・文脈を維持。
-* ✂️ **長文セグメントのスマート自動分割 (Subtitle Reflow)**: 早口トーク等で長大化したセグメントを、句読点や節の自然な切れ目で読みやすい長さに自動分割し、表示時間をミリ秒単位で比例配分（`--max-length`, `--max-duration`, `--no-reflow`）。
+* ✂️ **長文セグメントのスマート自動分割 (Subtitle Reflow)**: Scribe v2 では単語レベルのタイムスタンプから字幕の区切りを生成。長大化したセグメントを、句読点や節の自然な切れ目で読みやすい長さに自動分割し、表示時間をミリ秒単位で比例配分（`--max-length`, `--max-duration`, `--no-reflow`）。
 * 🚀 **Gemini API 並列リクエスト制御**: 非同期ワーカプール（`--concurrency`、デフォルト 3 並列）による高速並行翻訳と、429 レートリミット時のジッター付き指数バックオフ再試行を搭載。
-* 💾 **スマート中間キャッシュ & 再開機構**: メディアファイルのパス・サイズ・更新日時から作る SHA-256 ハッシュをキーに（ファイルの中身は読まない）、文字起こし・翻訳・チャプター・要約結果を自動キャッシュ。再実行時や別言語追加時に、済んだ API 呼び出しを繰り返さない（`vsub cache`）。
+* 💾 **スマート中間キャッシュ & 再開機構**: メディアファイルのパス・サイズ・更新日時から作る SHA-256 ハッシュをキーに（ファイルの中身は読まない）、文字起こし・翻訳・チャプター・要約結果を自動キャッシュ。文字起こしキャッシュは、提供元・モデル・認識のヒントが同じときだけ再利用。再実行時や別言語追加時に、済んだ API 呼び出しを繰り返さない（`vsub cache`）。
 * 📖 **用語集 (Glossary) & プロンプト制御**: 専門用語の誤訳を防ぐ `--glossary`（JSON またはインライン対訳）、翻訳スタイルを指定する `--prompt`、Whisper の認識精度を高める `--whisper-prompt` をサポート。
 * 🌍 **複数言語一括翻訳 & バイリンガル併記**: `-t ja,en,zh` による 1 回の文字起こしからの多言語一括出力や、原語と訳語を上下 2 段に併記するバイリンガル字幕生成（`-b, --bilingual`）に対応。
 * 📄 **マルチフォーマット出力 & 標準出力ストリーミング**: `.srt` (SubRip), `.vtt` (WebVTT), `.txt` (プレーンテキスト), `.json` (構造化データ) への保存に加え、一時ファイルなしで `stdout` へ直接出力する `--stdout`（または `-o -`）により `jq` や `pbcopy`、AI エージェントとのパイプ連携を実現。
@@ -26,7 +26,7 @@
 * 🎬 **動画への字幕焼き込み (Hardsub) & ソフトサブ高速埋め込み (Softsub)**: 配置位置や文字サイズを調整できる字幕焼き込み（`--burn`, `--burn-position`, `--burn-font-size`）と、無劣化・数秒で複数言語の ON/OFF 可能な字幕トラックを格納するソフトサブ埋め込み（`--embed`, `vsub embed`）の両方に対応。
 * 📁 **ディレクトリ / バッチ一括処理モード**: フォルダ配下の全動画・音声、複数ファイル、glob パターンを一括で自動処理。逐次キュー実行、エラー耐性、総合サマリーレポートを完備（`vsub batch`）。
 * 🛡️ **ファイル上書き防止 & バックアップセーフティ**: 処理開始前の事前衝突検知、対話環境での上書き確認（`y/N`）、強制上書きフラグ（`-w, --overwrite`）、自動連番退避（`--backup` による `.bak` / `.bak.N` 保存）で意図しないデータ消失を防止。
-* 🔄 **既存字幕の直接翻訳サブコマンド**: 動画ファイルや Groq API を介さず、既存の `.srt` ファイルから直接別言語・別フォーマットへ翻訳（`vsub translate`）。
+* 🔄 **既存字幕の直接翻訳サブコマンド**: 動画ファイルや文字起こし API を介さず、既存の `.srt` ファイルから直接別言語・別フォーマットへ翻訳（`vsub translate`）。
 * 🛠️ **対話型セットアップ & 自己更新バイナリ**: 導通確認付きの初期設定ウィザード（`vsub init`）、グローバル設定管理（`vsub config`）、および SHA-256 検証付きの単体バイナリ自己更新（`vsub update`）を内蔵。
 
 ---
@@ -80,8 +80,8 @@ pnpm add -g vsub-cli
 
 1. **ffmpeg / ffprobe**: システムにインストール済みであること（または `--ffmpeg-path` / `VSUB_FFMPEG_PATH` で実行ファイルパスを指定）
 2. **API キー**:
-   * [Groq Console](https://console.groq.com/) にて取得した `VSUB_GROQ_API_KEY`
-   * [Google AI Studio](https://aistudio.google.com/) にて取得した `VSUB_GEMINI_API_KEY`
+   * 文字起こし用 API キー: [OpenRouter](https://openrouter.ai/keys) にて取得した `VSUB_OPENROUTER_API_KEY`（既定）、または [Groq Console](https://console.groq.com/) にて取得した `VSUB_GROQ_API_KEY`
+   * 翻訳用 API キー: [Google AI Studio](https://aistudio.google.com/) にて取得した `VSUB_GEMINI_API_KEY`（翻訳には引き続き Gemini のキーが必要です）
 3. **Node.js**: v26+ または v24+ *(npm パッケージ利用時またはソースからビルドする場合のみ必要)*
 
 ---
@@ -91,29 +91,67 @@ pnpm add -g vsub-cli
 API キーは **3 つの方法** から設定できます：
 
 ### 方法 1: 対話型セットアップウィザード（推奨・一番簡単）
-`vsub init` コマンドを実行すると対話型ウィザードが起動し、Groq API・Gemini API・FFmpeg の疎通確認を行った上でグローバル設定に保存します：
+`vsub init` コマンドを実行すると対話型ウィザードが起動し、文字起こし提供元（OpenRouter または Groq）の選択と API キー・FFmpeg の疎通確認を行った上でグローバル設定に保存します：
 ```bash
 # 対話型セットアップウィザードを起動
 vsub init
 
 # またはコマンドライン引数から直接保存
-vsub config set --groq-key "your_groq_key" --gemini-key "your_gemini_key"
+vsub config set --openrouter-key "your_openrouter_key" --gemini-key "your_gemini_key"
+
+# Groq を使用する場合:
+vsub config set --stt-provider groq --groq-key "your_groq_key" --gemini-key "your_gemini_key"
 ```
 
 ### 方法 2: 環境変数 (`VSUB_` プレフィックス)
 システム環境変数またはシェルの設定ファイルで指定します（他ツールとの競合を防ぐため `VSUB_` プレフィックスを推奨します）：
 ```bash
-export VSUB_GROQ_API_KEY="your_groq_api_key_here"
+export VSUB_OPENROUTER_API_KEY="your_openrouter_api_key_here"
 export VSUB_GEMINI_API_KEY="your_gemini_api_key_here"
+
+# Groq を使用する場合:
+# export VSUB_STT_PROVIDER="groq"
+# export VSUB_GROQ_API_KEY="your_groq_api_key_here"
 ```
-*(プレフィックスなしの `GROQ_API_KEY` / `GEMINI_API_KEY` もフォールバックとしてサポートしています)*
+*(プレフィックスなしの `GROQ_API_KEY`、`GEMINI_API_KEY` もフォールバックとしてサポートしています。汎用の `OPENROUTER_API_KEY` は、OpenRouter を明示したときだけ読み込みます。[文字起こしの提供元の選び方](#文字起こしの提供元の選び方)を参照してください)*
 
 ### 方法 3: `.env` ファイル
 実行時のカレントディレクトリに `.env` ファイルを配置して設定します：
 ```env
-VSUB_GROQ_API_KEY=your_groq_api_key_here
+VSUB_OPENROUTER_API_KEY=your_openrouter_api_key_here
 VSUB_GEMINI_API_KEY=your_gemini_api_key_here
+
+# Groq を使用する場合:
+# VSUB_STT_PROVIDER=groq
+# GROQ_API_KEY=your_groq_api_key_here
 ```
+
+---
+
+## 文字起こしの提供元の選び方
+
+vsub は、以下の優先順位で文字起こしの提供元を決定します：
+1. コマンドラインオプション `--stt-provider <openrouter|groq>`
+2. 環境変数 `VSUB_STT_PROVIDER` または設定ファイルの `sttProvider`
+3. 設定されている API キーによる自動選択:
+   - `VSUB_OPENROUTER_API_KEY`（または保存された OpenRouter キー）がある場合 → **OpenRouter**
+   - 上記がなく、Groq のキーがある場合 → **Groq**
+   - どちらもない場合 → **OpenRouter**
+
+> [!NOTE]
+> 汎用の環境変数 `OPENROUTER_API_KEY` は、オプションや設定で OpenRouter を明示した場合にのみ読み込まれます。これは、他のツール用に設定したキーによって予期せず課金先が変わってしまうのを防ぐためです。
+
+### 今 Groq を使っている人へ
+現在 Groq をご利用中の方は、アップデート後もそのまま Groq で動作し、既存の文字起こしキャッシュもそのまま引き継がれます。自動選択で Groq になった際は OpenRouter をお勧めする案内が 1 行表示されますが、`VSUB_STT_PROVIDER=groq`（または `vsub config set --stt-provider groq`）で提供元を明示すると表示されなくなります。
+
+### モデルと認識のヒント
+* **モデルの指定**:
+  - `--stt-model <model>` で、選択した提供元の文字起こしモデルを一時的に指定できます。
+  - `VSUB_OPENROUTER_STT_MODEL`（設定ファイル: `openrouterSttModel`）で OpenRouter のデフォルトモデルを指定できます（デフォルト: `elevenlabs/scribe-v2`）。
+  - `VSUB_GROQ_MODEL`（設定ファイル: `groqModel`）で Groq のデフォルトモデルを指定できます（デフォルト: `whisper-large-v3-turbo`）。
+  - **動作を確認している OpenRouter のモデルは `elevenlabs/scribe-v2` のみです**。他のモデルも `--stt-model` で指定可能ですが、未検証のため正しく動作しない場合があります。
+* **認識のヒント**:
+  - 認識ヒント（`--whisper-prompt` や用語集 `--glossary` から自動生成されるヒント）は Groq Whisper にのみ送信され、OpenRouter には送信されません。
 
 ---
 
@@ -149,12 +187,14 @@ Options:
   -b, --bilingual               原語と翻訳文を上下2段で併記したバイリンガル字幕を生成 (デフォルト: false)
   --bilingual-order <order>     バイリンガル字幕の並び順: original-first (既定) または target-first
   --ffmpeg-path <path>          ffmpeg 実行ファイルのパス (未指定時は VSUB_FFMPEG_PATH または PATH を探索)
-  --whisper-prompt <text>       Groq Whisper 音声認識のヒントプロンプト (専門用語・固有名詞等)
+  --stt-provider <provider>     文字起こしの提供元: openrouter または groq (デフォルト: VSUB_STT_PROVIDER、設定の値、または API キーから自動選択)
+  --stt-model <model>           選択した提供元の文字起こしモデル (デフォルト: OpenRouter は elevenlabs/scribe-v2、Groq は whisper-large-v3-turbo)
+  --groq-model <model>          文字起こしに使用する Groq Whisper モデル (提供元が groq の場合のみ使用)
+  --whisper-prompt <text>       Groq Whisper 音声認識のヒントプロンプト (Groq のみ有効。OpenRouter には送信されません)
   --prompt <instruction>        Gemini 翻訳時のカスタム指示プロンプト (口調・スタイル・簡潔さ等)
   --glossary <path-or-terms>    用語集 JSON ファイルパスまたはインライン対訳 (Key=Val,Key=Val)
   --concurrency <number>        Gemini API への同時並行リクエスト数 (デフォルト: 3)
   --gemini-model <model>        Gemini 翻訳モデルの指定 (デフォルト: gemini-3.8-flash)
-  --groq-model <model>          Groq Whisper 文字起こしモデルの指定 (デフォルト: whisper-large-v3-turbo)
   --no-cache                    中間キャッシュを使用・保存せずに実行 (デフォルト: false)
   --fresh                       既存キャッシュを無視して新規実行し、結果をキャッシュへ上書き (デフォルト: false)
   --cache-dir <path>            カスタムキャッシュ保存ディレクトリの指定
@@ -167,7 +207,7 @@ Options:
   --burn-font-size <size>       焼き込み字幕のフォントサイズ: small, medium, large, または数値 (デフォルト: auto)
   --embed                       生成された字幕を動画コンテナへ字幕トラックとして埋め込み (softsub) (デフォルト: false)
   --keep-audio                  中間抽出した一時音声ファイルを削除せずに保持 (デフォルト: false)
-  --no-translate                Gemini 翻訳をスキップし、Groq の文字起こし結果（原語字幕）のみを出力 (デフォルト: false)
+  --no-translate                Gemini 翻訳をスキップし、文字起こし結果（原語字幕）のみを出力 (デフォルト: false)
   --save-original               翻訳後字幕に加え、翻訳前の原語文字起こし字幕ファイルも並行保存 (デフォルト: false)
   --force-translate             検出言語と出力言語が同一の場合でも強制的に Gemini 翻訳を実行 (デフォルト: false)
   --no-update-check             新バージョンの自動更新チェックを無効化 (デフォルト: false)
@@ -181,7 +221,7 @@ Commands:
   embed <video> <sub-files...>  既存の動画と字幕 (.srt) を FFmpeg ストリームコピーで字幕トラックとして高速埋め込み (softsub)
   chapters <file>               動画・音声・字幕 (.srt) から Gemini でチャプター（目次）を生成
   summarize <file>              動画・音声・字幕 (.srt) から Gemini で構造化要約・ハイライトを生成
-  init                          API キー・FFmpeg・基本設定を導通確認付きで初期設定する対話ウィザード
+  init                          文字起こしの提供元（OpenRouter / Groq）の選択と API キー・FFmpeg・基本設定の対話型ウィザード
   update [options]              スタンドアロンバイナリを最新リリース版へ自己更新 (エイリアス: upgrade)
   cache (path|stats|clean)      中間キャッシュの確認・統計表示・一括削除
   config (path|show|set|init)   グローバル設定の確認・変更・初期化
@@ -226,7 +266,7 @@ vsub batch ./videos/ --no-recursive --fail-fast
 ```
 
 ### 4. 既存字幕ファイルの直接翻訳 (`vsub translate`)
-動画ファイルや Groq API を介さず、既存の `.srt` ファイルから直接翻訳・フォーマット変換を行います：
+動画ファイルや文字起こし API を介さず、既存の `.srt` ファイルから直接翻訳・フォーマット変換を行います：
 ```bash
 vsub translate sample.ja.srt -t en -f srt,vtt
 ```
@@ -349,6 +389,7 @@ vsub config show
 # デフォルトのCLI表示言語・翻訳プロンプト・用語集・並行数・分割文字数・焼き込みスタイルを永続保存
 vsub config set --lang ja --prompt "丁寧な敬体で翻訳" --glossary "./glossary.json" --concurrency 4
 vsub config set --max-length 32 --burn-position bottom --burn-font-size medium
+vsub config set --stt-provider openrouter --openrouter-key "your_openrouter_key"
 
 # 新バージョンの自動更新チェックを無効化
 vsub config set --disable-update-check true

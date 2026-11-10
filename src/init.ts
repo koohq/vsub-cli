@@ -12,6 +12,8 @@ import {
   saveGlobalConfig,
 } from "./config.js";
 import { getI18n, normalizeLanguage, type SupportedLanguage } from "./i18n/index.js";
+import { DEFAULT_OPENROUTER_STT_MODEL } from "./transcribe/openrouter.js";
+import { parseSttProvider, resolveSttSettings, type SttProvider } from "./transcribe/select.js";
 
 /**
  * Masks an API key for safe terminal display (e.g. "gsk_...3a4b" or "AIza...9z1x").
@@ -86,10 +88,55 @@ export async function verifyFfmpeg(
   }
 }
 
+/**
+ * Verifies connectivity to OpenRouter API using the provided API key.
+ */
+export async function verifyOpenRouterApiKey(
+  apiKey: string,
+  options?: {
+    lang?: SupportedLanguage | string | undefined;
+    fetchFn?: typeof fetch | undefined;
+  },
+): Promise<{ success: boolean; error?: string }> {
+  const i18n = getI18n(options?.lang);
+  const trimmed = apiKey?.trim();
+  if (!trimmed) {
+    return { success: false, error: i18n.init.noApiKeyProvided };
+  }
+  const fetchImpl = options?.fetchFn ?? fetch;
+  try {
+    const res = await fetchImpl("https://openrouter.ai/api/v1/key", {
+      headers: {
+        Authorization: `Bearer ${trimmed}`,
+      },
+    });
+    if (res.ok) {
+      return { success: true };
+    }
+    let errorMsg: string | undefined;
+    try {
+      const data = (await res.json()) as { error?: { message?: string } } | null;
+      if (data?.error?.message) {
+        errorMsg = data.error.message;
+      }
+    } catch {
+      // not JSON or body parse failed
+    }
+    return {
+      success: false,
+      error: errorMsg || `HTTP ${res.status}`,
+    };
+  } catch (error) {
+    const msg = error instanceof Error ? error.message : String(error);
+    return { success: false, error: msg };
+  }
+}
+
 export interface InitWizardOptions {
   input?: NodeJS.ReadableStream;
   output?: NodeJS.WritableStream;
   ask?: (questionText: string) => Promise<string>;
+  openrouterVerifier?: (key: string) => Promise<{ success: boolean; error?: string }>;
   groqVerifier?: (
     key: string,
   ) => Promise<{ success: boolean; modelCount?: number; error?: string }>;
@@ -116,6 +163,9 @@ export async function runInitWizard(options: InitWizardOptions = {}): Promise<vo
 
   const groqVerifier =
     options.groqVerifier || ((k: string) => verifyGroqApiKey(k, { lang: effectiveLang }));
+  const openrouterVerifier =
+    options.openrouterVerifier ||
+    ((k: string) => verifyOpenRouterApiKey(k, { lang: effectiveLang }));
   const geminiVerifier =
     options.geminiVerifier ||
     ((k: string, mod?: string) => verifyGeminiApiKey(k, mod, { lang: effectiveLang }));
@@ -141,51 +191,143 @@ export async function runInitWizard(options: InitWizardOptions = {}): Promise<vo
 
   const updatedConfig: Partial<AppConfig> = {};
 
-  try {
-    // ---------------------------------------------------------
-    // Step 1: Groq API Key
-    // ---------------------------------------------------------
-    out(pc.bold(pc.green(m().step1Title)));
-    out(m().step1Url(pc.cyan("https://console.groq.com/keys")));
+  interface KeyPromptConfig {
+    url: string;
+    currentKey?: string | undefined;
+    fallbackKey?: string | undefined;
+    fallbackNotice?: string | undefined;
+    promptCurrent: string;
+    promptNew: string;
+    skippedMessage: string;
+    testingMessage: string;
+    verify: (
+      key: string,
+    ) => Promise<{ success: boolean; error?: string; modelCount?: number | string }>;
+    formatSuccess: (result: { modelCount?: number | string }) => string;
+    formatFailed: (error: string) => string;
+    onSave: (key: string) => void;
+  }
 
-    let groqKey = currentConfig.groqApiKey;
-    if (groqKey) {
-      out(m().currentSetting(pc.yellow(maskApiKey(groqKey))));
+  async function promptAndVerifyKey(cfg: KeyPromptConfig): Promise<void> {
+    out(m().step1Url(pc.cyan(cfg.url)));
+
+    if (cfg.currentKey) {
+      out(m().currentSetting(pc.yellow(maskApiKey(cfg.currentKey))));
+    } else if (cfg.fallbackKey && cfg.fallbackNotice) {
+      out(cfg.fallbackNotice);
     }
 
+    let activeKey = cfg.currentKey;
+
     while (true) {
-      const promptText = groqKey ? m().promptGroqCurrent : m().promptGroqNew;
+      const promptText = activeKey || cfg.fallbackKey ? cfg.promptCurrent : cfg.promptNew;
       const answer = (await ask(promptText)).trim();
-      const candidateKey = answer || groqKey;
+
+      let candidateKey: string | undefined;
+      let isFromFallback = false;
+
+      if (answer) {
+        candidateKey = answer;
+      } else if (activeKey) {
+        candidateKey = activeKey;
+      } else if (cfg.fallbackKey) {
+        candidateKey = cfg.fallbackKey;
+        isFromFallback = true;
+      }
 
       if (!candidateKey) {
-        out(pc.yellow(m().skippedGroq));
+        out(pc.yellow(cfg.skippedMessage));
         break;
       }
 
-      output.write(m().testingGroq);
-      const result = await groqVerifier(candidateKey);
+      output.write(cfg.testingMessage);
+      const result = await cfg.verify(candidateKey);
       if (result.success) {
         output.write(`\r${" ".repeat(40)}\r`);
-        out(pc.green(m().groqSuccess(result.modelCount ?? "multiple")));
-        updatedConfig.groqApiKey = candidateKey;
-        groqKey = candidateKey;
+        out(pc.green(cfg.formatSuccess(result)));
+        if (!isFromFallback) {
+          cfg.onSave(candidateKey);
+          activeKey = candidateKey;
+        }
         out("");
         break;
       } else {
         output.write(`\r${" ".repeat(40)}\r`);
-        out(pc.red(m().groqFailed(result.error ?? "")));
+        out(pc.red(cfg.formatFailed(result.error ?? "")));
         const retry = (await ask(m().retryPrompt)).trim().toLowerCase();
         if (retry === "s") {
-          updatedConfig.groqApiKey = candidateKey;
+          if (!isFromFallback) {
+            cfg.onSave(candidateKey);
+          }
           out(pc.yellow(m().savedUnverified));
           break;
         }
         if (retry === "n") {
-          out(pc.yellow(m().skippedGroq));
+          out(pc.yellow(cfg.skippedMessage));
           break;
         }
       }
+    }
+  }
+
+  try {
+    // ---------------------------------------------------------
+    // Step 1: Speech Recognition Provider & API Key
+    // ---------------------------------------------------------
+    out(pc.bold(pc.green(m().step1Title)));
+
+    let defaultProvider: SttProvider;
+    try {
+      defaultProvider = resolveSttSettings(currentConfig, {}).stt.provider;
+    } catch {
+      defaultProvider = "openrouter";
+    }
+
+    let chosenProvider: SttProvider;
+    while (true) {
+      const answer = (await ask(m().promptSttProvider(defaultProvider))).trim();
+      const raw = answer || defaultProvider;
+      try {
+        chosenProvider = parseSttProvider(raw, effectiveLang);
+        break;
+      } catch (err) {
+        out(pc.red(`  ✖ ${err instanceof Error ? err.message : String(err)}`));
+      }
+    }
+    updatedConfig.sttProvider = chosenProvider;
+
+    if (chosenProvider === "groq") {
+      await promptAndVerifyKey({
+        url: "https://console.groq.com/keys",
+        currentKey: currentConfig.groqApiKey,
+        promptCurrent: m().promptGroqCurrent,
+        promptNew: m().promptGroqNew,
+        skippedMessage: m().skippedGroq,
+        testingMessage: m().testingGroq,
+        verify: (k) => groqVerifier(k),
+        formatSuccess: (res) => m().groqSuccess(res.modelCount ?? "multiple"),
+        formatFailed: (err) => m().groqFailed(err),
+        onSave: (k) => {
+          updatedConfig.groqApiKey = k;
+        },
+      });
+    } else {
+      await promptAndVerifyKey({
+        url: "https://openrouter.ai/keys",
+        currentKey: currentConfig.openrouterApiKey,
+        fallbackKey: currentConfig.openrouterApiKeyFallback,
+        fallbackNotice: m().openrouterEnvNotice,
+        promptCurrent: m().promptOpenRouterCurrent,
+        promptNew: m().promptOpenRouterNew,
+        skippedMessage: m().skippedOpenRouter,
+        testingMessage: m().testingOpenRouter,
+        verify: async (k) => openrouterVerifier(k),
+        formatSuccess: () => m().openrouterSuccess,
+        formatFailed: (err) => m().openrouterFailed(err),
+        onSave: (k) => {
+          updatedConfig.openrouterApiKey = k;
+        },
+      });
     }
 
     // ---------------------------------------------------------
@@ -295,11 +437,20 @@ export async function runInitWizard(options: InitWizardOptions = {}): Promise<vo
     ).trim();
     updatedConfig.geminiModel = geminiModelAnswer || currentGeminiModel;
 
-    const currentGroqModel = currentConfig.groqModel || DEFAULT_GROQ_MODEL;
-    const groqModelAnswer = (
-      await ask(`  Default Groq Whisper Model [${currentGroqModel}]: `)
-    ).trim();
-    updatedConfig.groqModel = groqModelAnswer || currentGroqModel;
+    if (chosenProvider === "groq") {
+      const currentGroqModel = currentConfig.groqModel || DEFAULT_GROQ_MODEL;
+      const groqModelAnswer = (
+        await ask(`  Default Groq Whisper Model [${currentGroqModel}]: `)
+      ).trim();
+      updatedConfig.groqModel = groqModelAnswer || currentGroqModel;
+    } else {
+      const currentOpenRouterModel =
+        currentConfig.openrouterSttModel || DEFAULT_OPENROUTER_STT_MODEL;
+      const openrouterModelAnswer = (
+        await ask(m().promptOpenRouterModel(currentOpenRouterModel))
+      ).trim();
+      updatedConfig.openrouterSttModel = openrouterModelAnswer || currentOpenRouterModel;
+    }
 
     out("");
 

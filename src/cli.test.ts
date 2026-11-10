@@ -891,4 +891,94 @@ describe("CLI integration harness", () => {
       },
     );
   });
+
+  describe("config set and show STT provider options", () => {
+    it("saves openrouterApiKey, sttProvider, and openrouterSttModel when provided", async () => {
+      await runCli(
+        "config",
+        "set",
+        "--openrouter-key",
+        "sk-or-v1-dummykey12345678",
+        "--stt-provider",
+        "OpenRouter",
+        "--openrouter-stt-model",
+        "custom/scribe-model",
+      );
+
+      expect(saveGlobalConfig).toHaveBeenCalledWith(
+        expect.objectContaining({
+          openrouterApiKey: "sk-or-v1-dummykey12345678",
+          sttProvider: "openrouter",
+          openrouterSttModel: "custom/scribe-model",
+        }),
+        expect.anything(),
+      );
+      expect(exitSpy).not.toHaveBeenCalled();
+    });
+
+    it("exits with code 1 and does not save config when stt-provider is invalid", async () => {
+      let stderrOutput = "";
+      const errorSpy = vi.spyOn(console, "error").mockImplementation((msg: unknown) => {
+        stderrOutput += String(msg);
+      });
+
+      await runCli("config", "set", "--stt-provider", "foo");
+
+      expect(exitSpy).toHaveBeenCalledWith(1);
+      expect(saveGlobalConfig).not.toHaveBeenCalled();
+      expect(stderrOutput).toContain("foo");
+      errorSpy.mockRestore();
+    });
+
+    describe("config show", () => {
+      afterEach(() => {
+        vi.mocked(getConfig).mockReturnValue(mockConfig);
+      });
+
+      it("displays Groq auto transcription when only Groq API key is configured", async () => {
+        vi.mocked(getConfig).mockReturnValue({
+          ...mockConfig,
+          groqApiKey: "gsk_testgroqkey12345678",
+          openrouterApiKey: undefined,
+        });
+
+        await runCli("config", "show");
+
+        const logged = logSpy.mock.calls.map((c: unknown[]) => String(c[0])).join("\n");
+        expect(logged).toContain("Transcription      : Groq (whisper-large-v3-turbo) [auto]");
+        expect(logged).toContain("OpenRouter API Key : (Not configured)");
+        expect(logged).not.toContain("gsk_testgroqkey12345678");
+      });
+
+      it("displays OpenRouter auto transcription and masked key when OpenRouter API key is configured", async () => {
+        vi.mocked(getConfig).mockReturnValue({
+          ...mockConfig,
+          groqApiKey: "",
+          openrouterApiKey: "sk-or-v1-openroutersecret1234",
+          openrouterSttModel: "elevenlabs/scribe-v2",
+        });
+
+        await runCli("config", "show");
+
+        const logged = logSpy.mock.calls.map((c: unknown[]) => String(c[0])).join("\n");
+        expect(logged).toContain("Transcription      : OpenRouter (elevenlabs/scribe-v2) [auto]");
+        expect(logged).toContain("OpenRouter API Key : sk-o...1234");
+        expect(logged).toContain("OpenRouter STT Model : elevenlabs/scribe-v2");
+        expect(logged).not.toContain("sk-or-v1-openroutersecret1234");
+      });
+
+      it("displays invalid provider message without throwing when sttProvider is invalid", async () => {
+        vi.mocked(getConfig).mockReturnValue({
+          ...mockConfig,
+          sttProvider: "bar",
+        });
+
+        await runCli("config", "show");
+
+        const logged = logSpy.mock.calls.map((c: unknown[]) => String(c[0])).join("\n");
+        expect(logged).toContain('Transcription      : invalid provider "bar"');
+        expect(exitSpy).not.toHaveBeenCalled();
+      });
+    });
+  });
 });
