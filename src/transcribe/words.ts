@@ -33,6 +33,8 @@ const MAX_WORD_MS = 1500;
 const MAX_EXTENSION_MS = 1000;
 /** Free time (ms) from which a subtitle's end is not extended any more. */
 const NO_EXTENSION_ROOM_MS = 2000;
+/** Minimum display duration (ms) for a subtitle. */
+const MIN_DISPLAY_MS = 500;
 /** Range of the left side's character share in which a split position is preferred. */
 const SPLIT_FRACTION_MIN = 0.25;
 const SPLIT_FRACTION_MAX = 0.75;
@@ -205,6 +207,17 @@ function extendEnds(groups: TimedGroup[]): TimedGroup[] {
   });
 }
 
+/** Step 8: ensures each subtitle is displayed for at least MIN_DISPLAY_MS. */
+function ensureMinDisplay(groups: TimedGroup[]): TimedGroup[] {
+  return groups.map((group, i) => {
+    if (group.endMs - group.startMs >= MIN_DISPLAY_MS) return group;
+    const next = groups[i + 1];
+    const targetEnd = group.startMs + MIN_DISPLAY_MS;
+    const endMs = next ? Math.max(group.endMs, Math.min(targetEnd, next.startMs)) : targetEnd;
+    return { ...group, endMs };
+  });
+}
+
 /** Builds subtitle entries from word timings (steps 1-8 of the rule). */
 export function buildEntriesFromWords(
   chunks: WordChunk[],
@@ -238,7 +251,7 @@ export function buildEntriesFromWords(
   }
 
   const sorted = [...timedGroups].sort((a, b) => a.startMs - b.startMs);
-  return extendEnds(sorted).map((group, i) => ({
+  return ensureMinDisplay(extendEnds(sorted)).map((group, i) => ({
     id: i + 1,
     startTime: formatSrtTimeMs(group.startMs),
     endTime: formatSrtTimeMs(group.endMs),

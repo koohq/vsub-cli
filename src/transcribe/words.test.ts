@@ -70,17 +70,17 @@ describe("buildEntriesFromWords", () => {
         expected: [[0, 1.6, "ええとそれでいい"]],
       },
       {
-        name: "3: cuts at a sentence end even with a short gap; zero-length punctuation",
+        name: "3: cuts at a sentence end even with a short gap; zero-length punctuation; min display 0.5s for the last",
         chunks: [
           chunk([w(0.2, 0.5, "はい"), w(0.5, 0.5, "。"), w(0.8, 1.1, "了解"), w(1.1, 1.1, "。")]),
         ],
         expected: [
           [0.2, 0.8, "はい。"],
-          [0.8, 1.1, "了解。"],
+          [0.8, 1.3, "了解。"],
         ],
       },
       {
-        name: "4: punctuation keeps the end; opening bracket goes to the next word",
+        name: "4: punctuation keeps the end; opening bracket goes to the next word; min display 0.5s",
         chunks: [
           chunk([
             w(0, 0.45, "行く"),
@@ -91,8 +91,8 @@ describe("buildEntriesFromWords", () => {
           ]),
         ],
         expected: [
-          [0, 0.45, "行く。"],
-          [3.1, 3.4, "「待って」"],
+          [0, 0.5, "行く。"],
+          [3.1, 3.6, "「待って」"],
         ],
       },
       {
@@ -124,19 +124,19 @@ describe("buildEntriesFromWords", () => {
         ],
       },
       {
-        name: "8: clamps a word longer than 1.5s",
+        name: "8: clamps a word longer than 1.5s; min display 0.5s for the last",
         chunks: [chunk([w(1.0, 4.0, "ああ"), w(6.0, 6.3, "うん")])],
         expected: [
           [1.0, 2.5, "ああ"],
-          [6.0, 6.3, "うん"],
+          [6.0, 6.5, "うん"],
         ],
       },
       {
-        name: "9: builds per chunk; extension crosses chunks; chunk boundary always cuts",
+        name: "9: builds per chunk; extension crosses chunks; chunk boundary always cuts; min display 0.5s for the last",
         chunks: [chunk([w(299.0, 299.5, "そう")]), chunk([w(0.3, 0.6, "だね")], 300)],
         expected: [
           [299.0, 300.3, "そう"],
-          [300.3, 300.6, "だね"],
+          [300.3, 300.8, "だね"],
         ],
       },
       {
@@ -171,7 +171,7 @@ describe("buildEntriesFromWords", () => {
         chunk([w(299.5, 300.5, "あ")]),
         chunk([w(0.2, 0.5, "い")], 300),
       ]);
-      expect(result.map((e) => e.endTime)).toEqual(["00:05:00,500", "00:05:00,500"]);
+      expect(result.map((e) => e.endTime)).toEqual(["00:05:00,500", "00:05:00,700"]);
       expect(result.map((e) => e.startTime)).toEqual(["00:04:59,500", "00:05:00,200"]);
     });
 
@@ -190,7 +190,7 @@ describe("buildEntriesFromWords", () => {
 
     it("is not confused by floating point error in the gap (2.3 - 0.3)", () => {
       const result = build([w(0, 0.3, "あ"), w(2.3, 2.5, "い")]);
-      expect(result[0]?.endTime).toBe(formatSrtTime(0.3));
+      expect(result[0]?.endTime).toBe(formatSrtTime(0.5));
     });
 
     it("rounds seconds to whole milliseconds before comparing (1.005 * 1000 is 1004.999...)", () => {
@@ -209,7 +209,7 @@ describe("buildEntriesFromWords", () => {
 
     it("drops empty words and sets end to start when end < start", () => {
       const result = build([w(0, 0.5, "  "), w(0.5, 0.6, ""), w(1, 0.5, " あ ")]);
-      expect(result).toEqual(entries([[1, 1, "あ"]]));
+      expect(result).toEqual(entries([[1, 1.5, "あ"]]));
     });
 
     it("returns nothing for punctuation-only, empty words and empty chunks", () => {
@@ -251,6 +251,68 @@ describe("buildEntriesFromWords", () => {
       const cut = build([...words, ...kanaWords(2, 5.0)], { noLimits: true });
       expect(cut).toHaveLength(2);
       expect(cut[0]?.endTime).toBe(formatSrtTime(4.6));
+    });
+  });
+
+  describe("minimum display duration (step 8)", () => {
+    it("extends a zero-length single-word subtitle followed by a >=2s gap to 0.5s", () => {
+      const result = build([w(1.0, 1.0, "あい"), w(1.0, 1.0, "。"), w(4.0, 4.8, "うえ")]);
+      expect(result).toEqual(
+        entries([
+          [1.0, 1.5, "あい。"],
+          [4.0, 4.8, "うえ"],
+        ]),
+      );
+    });
+
+    it("extends the last subtitle to 0.5s when its duration is zero", () => {
+      const result = build([w(0, 0, "あ")]);
+      expect(result).toEqual(entries([[0, 0.5, "あ"]]));
+    });
+
+    it("does not exceed the start of the next subtitle", () => {
+      const result = build([w(0, 0.1, "あ。"), w(0.3, 1.0, "い")]);
+      expect(result).toEqual(
+        entries([
+          [0, 0.3, "あ。"],
+          [0.3, 1.0, "い"],
+        ]),
+      );
+    });
+
+    it("applies step 7 (extension) before step 8 (min display)", () => {
+      const result = build([w(0, 0.1, "あ"), w(2.3, 2.9, "い")]);
+      expect(result).toEqual(
+        entries([
+          [0, 0.5, "あ"],
+          [2.3, 2.9, "い"],
+        ]),
+      );
+    });
+
+    it("does not shorten overlapping subtitles", () => {
+      const result = buildEntriesFromWords([
+        chunk([w(299.8, 300.0, "あ")]),
+        chunk([w(0, 0.6, "い")], 299.9),
+      ]);
+      expect(result.map((e) => e.startTime)).toEqual(["00:04:59,800", "00:04:59,900"]);
+      expect(result.map((e) => e.endTime)).toEqual(["00:05:00,000", "00:05:00,500"]);
+    });
+
+    it.each([
+      { name: "exactly 0.5s", duration: 0.5, expectedEnd: 0.5 },
+      { name: "0.499s", duration: 0.499, expectedEnd: 0.5 },
+    ])("boundary of $name duration", ({ duration, expectedEnd }) => {
+      const result = build([w(0, duration, "あ"), w(3.0, 3.6, "い")]);
+      expect(result[0]?.endTime).toBe(formatSrtTime(expectedEnd));
+    });
+
+    it("applies minimum display duration even with noLimits: true", () => {
+      const result = build([w(1.0, 1.0, "あい"), w(1.0, 1.0, "。"), w(4.0, 4.8, "うえ")], {
+        noLimits: true,
+      });
+      expect(result[0]?.startTime).toBe(formatSrtTime(1.0));
+      expect(result[0]?.endTime).toBe(formatSrtTime(1.5));
     });
   });
 });
