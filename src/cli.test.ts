@@ -11,9 +11,8 @@ import {
   saveTranslationCache,
 } from "./cache.js";
 import { createProgram } from "./cli.js";
-import { getConfig, saveGlobalConfig } from "./config.js";
+import { DEFAULT_GEMINI_MODEL, getConfig, saveGlobalConfig } from "./config.js";
 import { embedSubtitlesToVideo } from "./ffmpeg.js";
-import { DEFAULT_CONTEXT_WINDOW_SIZE, translateSrtEntries } from "./gemini.js";
 import { runInitWizard } from "./init.js";
 import {
   processChaptersPipeline,
@@ -21,6 +20,7 @@ import {
   processSummaryPipeline,
 } from "./pipeline.js";
 import { parseSrt, reflowSrtEntries } from "./srt.js";
+import { DEFAULT_CONTEXT_WINDOW_SIZE, translateSrtEntries } from "./text/tasks.js";
 import { notifyUpdateIfAvailable } from "./updater.js";
 
 const { mockConfig } = vi.hoisted(() => ({
@@ -30,6 +30,7 @@ const { mockConfig } = vi.hoisted(() => ({
     ffmpegPath: "ffmpeg",
     lang: "en" as const,
     disableUpdateCheck: false,
+    concurrency: undefined as number | undefined,
   },
 }));
 
@@ -38,10 +39,10 @@ vi.mock("./config.js", () => {
     DEFAULT_GEMINI_MODEL: "gemini-3.8-flash",
     DEFAULT_GROQ_MODEL: "whisper-large-v3-turbo",
     getConfig: vi.fn().mockReturnValue(mockConfig),
-    ensureApiKeys: vi.fn().mockResolvedValue({
-      groqApiKey: "test-groq-key",
-      geminiApiKey: "test-gemini-key",
-    }),
+    ensureApiKeys: vi.fn().mockImplementation(async (cfg?: object) => ({
+      ...mockConfig,
+      ...cfg,
+    })),
     getGlobalConfigDir: vi.fn().mockReturnValue("/mock/config/dir"),
     getGlobalConfigPath: vi.fn().mockReturnValue("/mock/config/dir/config.json"),
     loadGlobalConfig: vi.fn().mockReturnValue({}),
@@ -50,8 +51,8 @@ vi.mock("./config.js", () => {
   };
 });
 
-vi.mock("./gemini.js", async (importOriginal) => {
-  const actual = await importOriginal<typeof import("./gemini.js")>();
+vi.mock("./text/tasks.js", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("./text/tasks.js")>();
   return {
     ...actual,
     translateSrtEntries: vi.fn().mockImplementation(async (entries: unknown[]) => entries),
@@ -149,6 +150,7 @@ describe("CLI integration harness", () => {
   });
 
   afterEach(() => {
+    mockConfig.concurrency = undefined;
     exitSpy.mockRestore();
     logSpy.mockRestore();
     if (tmpDir && fs.existsSync(tmpDir)) {
@@ -518,6 +520,15 @@ describe("CLI integration harness", () => {
       });
     });
 
+    it("passes concurrency from config to translateSrtEntries when --concurrency is omitted", async () => {
+      mockConfig.concurrency = 4;
+      await runCli("translate", dummySrtPath, "-t", "ja");
+      expect(translateSrtEntries).toHaveBeenCalled();
+      const callOptions = vi.mocked(translateSrtEntries).mock.calls[0]?.[5];
+      expect(callOptions?.concurrency).toBe(4);
+      expect(exitSpy).not.toHaveBeenCalled();
+    });
+
     describe("translate translation cache", () => {
       let sourceEntries: ReturnType<typeof parseSrt>;
 
@@ -546,7 +557,11 @@ describe("CLI integration harness", () => {
       it("does not call translateSrtEntries when matching cache exists", async () => {
         const cached = createCachedTranslation(
           "ja",
-          { sourceEntries, contextWindowSize: DEFAULT_CONTEXT_WINDOW_SIZE },
+          {
+            sourceEntries,
+            model: DEFAULT_GEMINI_MODEL,
+            contextWindowSize: DEFAULT_CONTEXT_WINDOW_SIZE,
+          },
           sourceEntries.map((e) => ({ ...e, text: `訳: ${e.text}` })),
         );
         mockCacheWithTranslation(cached);

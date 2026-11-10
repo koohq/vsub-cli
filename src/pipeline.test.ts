@@ -12,14 +12,8 @@ import {
   saveTranscriptionCache,
   saveTranslationCache,
 } from "./cache.js";
-import { DEFAULT_GEMINI_MODEL, DEFAULT_GROQ_MODEL } from "./config.js";
+import { DEFAULT_GEMINI_MODEL, DEFAULT_GROQ_MODEL, saveGlobalConfig } from "./config.js";
 import { burnSubtitlesToVideo, embedSubtitlesToVideo, extractAudio } from "./ffmpeg.js";
-import {
-  DEFAULT_CONTEXT_WINDOW_SIZE,
-  generateChapters,
-  generateSummary,
-  translateSrtEntries,
-} from "./gemini.js";
 import {
   findOutputPathConflict,
   parseBilingualOrder,
@@ -34,13 +28,19 @@ import {
 import * as safetyModule from "./safety.js";
 import { reflowSrtEntries, type SrtEntry } from "./srt.js";
 import { isolateConfigAndEnv } from "./test-support/isolate-config-env.js";
+import {
+  DEFAULT_CONTEXT_WINDOW_SIZE,
+  generateChapters,
+  generateSummary,
+  translateSrtEntries,
+} from "./text/tasks.js";
 import { DEFAULT_OPENROUTER_STT_MODEL } from "./transcribe/openrouter.js";
 import { transcribeAudioSegments } from "./transcribe/transcriber.js";
 import { buildEntriesFromWords, type WordChunk } from "./transcribe/words.js";
 import * as ui from "./ui.js";
 
-vi.mock("./gemini.js", async (importOriginal) => {
-  const actual = await importOriginal<typeof import("./gemini.js")>();
+vi.mock("./text/tasks.js", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("./text/tasks.js")>();
   return {
     ...actual,
     translateSrtEntries: vi.fn().mockImplementation(async (entries: unknown[]) => entries),
@@ -1487,6 +1487,25 @@ describe("pipeline.ts", () => {
         }
       },
     );
+
+    it("passes concurrency from config to translateSrtEntries when --concurrency is omitted", async () => {
+      saveGlobalConfig({ concurrency: 4 });
+      const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+      try {
+        await processMediaPipeline({
+          mediaFile,
+          targetLang: "ja",
+          stdout: true,
+          cacheDir,
+        });
+
+        expect(translateSrtEntries).toHaveBeenCalled();
+        const callOptions = vi.mocked(translateSrtEntries).mock.calls[0]?.[5];
+        expect(callOptions?.concurrency).toBe(4);
+      } finally {
+        logSpy.mockRestore();
+      }
+    });
   });
 
   describe("processMediaPipeline translation cache binding", () => {

@@ -6,18 +6,14 @@ import {
   createCachedChapters,
   createCachedSummary,
   createCachedTranscription,
-  createCachedTranslation,
   isChaptersCacheValid,
   isSummaryCacheValid,
   isTranscriptionCacheValid,
-  isTranslationCacheValid,
   loadMediaCache,
   saveChaptersCache,
   saveSummaryCache,
   saveTranscriptionCache,
-  saveTranslationCache,
   type TranscriptionCacheContext,
-  type TranslationCacheContext,
 } from "./cache.js";
 import { type AppConfig, DEFAULT_GEMINI_MODEL, ensureApiKeys, getConfig } from "./config.js";
 import {
@@ -42,13 +38,7 @@ import {
   type SummaryFormat,
   type SummaryResult,
 } from "./formatter.js";
-import {
-  DEFAULT_CONTEXT_WINDOW_SIZE,
-  generateChapters,
-  generateSummary,
-  translateSrtEntries,
-} from "./gemini.js";
-import { computeGlossaryHash, extractWhisperPromptHints, parseGlossary } from "./glossary.js";
+import { extractWhisperPromptHints } from "./glossary.js";
 import { getI18n, type SupportedLanguage } from "./i18n/index.js";
 import { getLanguageDisplayName, parseTargetLanguages, resolveTargetLang } from "./languages.js";
 import { type EnsureWritableResult, ensureWritableTargets } from "./safety.js";
@@ -59,6 +49,8 @@ import {
   reflowSrtEntries,
   type SrtEntry,
 } from "./srt.js";
+import { createGeminiTextModel, resolveGeminiModel } from "./text/gemini.js";
+import { generateChapters, generateSummary } from "./text/tasks.js";
 import {
   createTranscriber,
   resolveSttSettings,
@@ -68,6 +60,7 @@ import {
 } from "./transcribe/select.js";
 import { transcribeAudioSegments } from "./transcribe/transcriber.js";
 import { buildEntriesFromWords, type WordChunk } from "./transcribe/words.js";
+import { resolveConcurrency, resolveContextWindowSize, translateToTargets } from "./translation.js";
 import { createSpinner, formatFileSize, formatSummaryBox } from "./ui.js";
 
 /**
@@ -480,7 +473,7 @@ export async function processMediaPipeline(
     }
   }
 
-  const geminiModel = options.geminiModel?.trim() || rawConfig.geminiModel;
+  const geminiModel = resolveGeminiModel(options.geminiModel, rawConfig);
   const glossaryInput = options.glossary?.trim() || rawConfig.glossary;
   const transcriptionContext = resolveTranscriptionContext(rawConfig, stt, {
     whisperPrompt: options.whisperPrompt,
@@ -677,142 +670,69 @@ export async function processMediaPipeline(
     }
 
     // 3. Gemini Translation for each target language
-    const resultsByLang = new Map<string, SrtEntry[]>();
-    const skippedLanguages: string[] = [];
-    const translatedLanguages: string[] = [];
-    const cachedLanguages: string[] = [];
-
     let activeConfig: ReturnType<typeof getConfig> | null = null;
-    const totalChunks = Math.max(1, Math.ceil(srtEntries.length / 50));
     const translationPrompt = options.prompt?.trim() || rawConfig.prompt;
-    let totalGlossaryTerms = 0;
+    const resolvedContextWindow = resolveContextWindowSize(options.contextWindow);
+    const resolvedConcurrency = resolveConcurrency(options.concurrency, rawConfig.concurrency);
 
-    for (let i = 0; i < targetLanguages.length; i++) {
-      const targetL = targetLanguages[i] ?? "ja";
-      const isSameLanguage = Boolean(
-        detectedLanguage && detectedLanguage.toLowerCase() === targetL.toLowerCase(),
-      );
-      const shouldSkip =
-        Boolean(options.noTranslate) || (isSameLanguage && !options.forceTranslate);
-
-      if (shouldSkip) {
-        skippedLanguages.push(targetL);
-        resultsByLang.set(targetL, srtEntries);
-
-        if (options.noTranslate) {
-          spinner.info(`${prefix}ℹ️ [3/4] [--no-translate] ${targetL.toUpperCase()}`);
-        } else if (isSameLanguage) {
-          spinner.info(
-            `${prefix}ℹ️ [3/4] ${m.step3SkippedSameLang(detectedLanguage?.toUpperCase() ?? "", targetL.toUpperCase())}`,
-          );
+    const {
+      resultsByLang,
+      skippedLanguages,
+      translatedLanguages,
+      cachedLanguages,
+      totalGlossaryTerms,
+    } = await translateToTargets({
+      sourceEntries: srtEntries,
+      targetLanguages,
+      cacheFilePath: resolvedMediaPath,
+      mediaCache,
+      useCache,
+      noCache: Boolean(options.noCache),
+      cacheDir: options.cacheDir,
+      prompt: translationPrompt,
+      glossaryInput,
+      contextWindowSize: resolvedContextWindow,
+      concurrency: resolvedConcurrency,
+      modelName: geminiModel,
+      getTextModel: async () => {
+        if (!activeConfig) {
+          activeConfig = await ensureApiKeys(rawConfig, {
+            requireGroq: false,
+            requireGemini: true,
+          });
         }
-        continue;
-      }
+        return createGeminiTextModel(activeConfig.geminiApiKey, geminiModel);
+      },
+      shouldSkip: (targetL) => {
+        const isSameLanguage = Boolean(
+          detectedLanguage && detectedLanguage.toLowerCase() === targetL.toLowerCase(),
+        );
+        const shouldSkip =
+          Boolean(options.noTranslate) || (isSameLanguage && !options.forceTranslate);
 
-      const glossaryMap = glossaryInput ? parseGlossary(glossaryInput, targetL) : undefined;
-      const glossaryHash = glossaryMap ? computeGlossaryHash(glossaryMap) : undefined;
-      if (glossaryMap) {
-        totalGlossaryTerms = Math.max(totalGlossaryTerms, Object.keys(glossaryMap).length);
-      }
-
-      const contextWindowVal =
-        options.contextWindow !== undefined ? Number(options.contextWindow) : undefined;
-      const resolvedContextWindow =
-        contextWindowVal !== undefined && !Number.isNaN(contextWindowVal)
-          ? Math.max(0, Math.floor(contextWindowVal))
-          : DEFAULT_CONTEXT_WINDOW_SIZE;
-
-      const cacheContext: TranslationCacheContext = {
-        sourceEntries: srtEntries,
-        prompt: translationPrompt,
-        glossaryHash,
-        model: geminiModel,
-        contextWindowSize: resolvedContextWindow,
-      };
-
-      const cachedTranslation = mediaCache?.translations?.[targetL.toLowerCase()];
-      const isCacheValid = useCache && isTranslationCacheValid(cachedTranslation, cacheContext);
-
-      if (isCacheValid && cachedTranslation) {
-        resultsByLang.set(targetL, cachedTranslation.entries);
-        cachedLanguages.push(targetL);
-        translatedLanguages.push(targetL);
-
-        if (isMultiLang) {
-          spinner.info(
-            `${prefix}${m.step3Cached(targetL.toUpperCase(), cachedTranslation.entries.length)}`,
-          );
-        }
-        continue;
-      }
-
-      if (!activeConfig) {
-        activeConfig = await ensureApiKeys(rawConfig, {
-          requireGroq: false,
-          requireGemini: true,
-        });
-      }
-
-      const concurrencyVal = options.concurrency
-        ? Number(options.concurrency)
-        : activeConfig.concurrency;
-      const resolvedConcurrency =
-        concurrencyVal && !Number.isNaN(concurrencyVal) && concurrencyVal > 0
-          ? Math.floor(concurrencyVal)
-          : undefined;
-
-      const effectiveGeminiModel = geminiModel || DEFAULT_GEMINI_MODEL;
-
-      const initialText = isMultiLang
-        ? `${prefix}${m.step3TranslatingMulti(effectiveGeminiModel, i + 1, targetLanguages.length, targetL.toUpperCase(), 1, totalChunks)}`
-        : `${prefix}${m.step3TranslatingSingle(effectiveGeminiModel, targetL, 1, totalChunks)}`;
-
-      spinner.start(initialText);
-
-      const translatedEntries = await translateSrtEntries(
-        srtEntries,
-        targetL,
-        activeConfig.geminiApiKey,
-        verbose,
-        (currentChunk, chunksCount) => {
-          if (isMultiLang) {
-            spinner.updateText(
-              `${prefix}${m.step3TranslatingMulti(effectiveGeminiModel, i + 1, targetLanguages.length, targetL.toUpperCase(), currentChunk, chunksCount)}`,
-            );
-          } else {
-            spinner.updateText(
-              `${prefix}${m.step3TranslatingSingle(effectiveGeminiModel, targetL, currentChunk, chunksCount)}`,
+        if (shouldSkip) {
+          if (options.noTranslate) {
+            spinner.info(`${prefix}ℹ️ [3/4] [--no-translate] ${targetL.toUpperCase()}`);
+          } else if (isSameLanguage) {
+            spinner.info(
+              `${prefix}ℹ️ [3/4] ${m.step3SkippedSameLang(detectedLanguage?.toUpperCase() ?? "", targetL.toUpperCase())}`,
             );
           }
-        },
-        {
-          prompt: translationPrompt,
-          glossary: glossaryMap,
-          concurrency: resolvedConcurrency,
-          model: geminiModel,
-          lang,
-          contextWindowSize: resolvedContextWindow,
-        },
-      );
+        }
 
-      resultsByLang.set(targetL, translatedEntries);
-      translatedLanguages.push(targetL);
-
-      if (!options.noCache) {
-        saveTranslationCache(
-          resolvedMediaPath,
-          targetL,
-          createCachedTranslation(targetL, cacheContext, translatedEntries),
-          options.cacheDir,
-        );
-      }
-
-      if (isMultiLang) {
-        spinner.info(
-          `${prefix}${m.step3LangDone(targetL.toUpperCase(), translatedEntries.length)}`,
-        );
-      }
-    }
+        return shouldSkip;
+      },
+      messages: {
+        translatingSingle: (model, targetL, cur, tot) =>
+          m.step3TranslatingSingle(model, targetL, cur, tot),
+        translatingMulti: (model, idx, cnt, targetL, cur, tot) =>
+          m.step3TranslatingMulti(model, idx, cnt, targetL, cur, tot),
+      },
+      spinner,
+      prefix,
+      verbose,
+      lang,
+    });
 
     if (translatedLanguages.length > 0) {
       const langListDisplay = translatedLanguages.map((l) => l.toUpperCase()).join(", ");
@@ -1190,8 +1110,7 @@ export async function processChaptersPipeline(
     lang,
   );
   const targetLang = resolveTargetLang(options.targetLang, resolvedConfig.targetLang);
-  const geminiModel =
-    options.geminiModel?.trim() || resolvedConfig.geminiModel || DEFAULT_GEMINI_MODEL;
+  const geminiModel = resolveGeminiModel(options.geminiModel, resolvedConfig);
   const transcriptionContext = resolveTranscriptionContext(resolvedConfig, stt, {
     whisperPrompt: options.whisperPrompt,
   });
@@ -1269,6 +1188,7 @@ export async function processChaptersPipeline(
     requireGroq: false,
     lang,
   });
+  const textModel = createGeminiTextModel(config.geminiApiKey, geminiModel);
 
   // Step 1: Resolve transcript entries
   spinner.start(cm.step1Resolve);
@@ -1294,9 +1214,8 @@ export async function processChaptersPipeline(
 
   // Step 2: Generate chapters with Gemini
   spinner.start(cm.step2Generating(geminiModel, targetLang.toUpperCase()));
-  const chapters = await generateChapters(transcriptResult.entries, config.geminiApiKey, {
+  const chapters = await generateChapters(transcriptResult.entries, textModel, {
     targetLang,
-    model: geminiModel,
     prompt: options.prompt,
     lang,
     verbose,
@@ -1403,8 +1322,7 @@ export async function processSummaryPipeline(
     lang,
   );
   const targetLang = resolveTargetLang(options.targetLang, resolvedConfig.targetLang);
-  const geminiModel =
-    options.geminiModel?.trim() || resolvedConfig.geminiModel || DEFAULT_GEMINI_MODEL;
+  const geminiModel = resolveGeminiModel(options.geminiModel, resolvedConfig);
   const transcriptionContext = resolveTranscriptionContext(resolvedConfig, stt, {
     whisperPrompt: options.whisperPrompt,
   });
@@ -1482,6 +1400,7 @@ export async function processSummaryPipeline(
     requireGroq: false,
     lang,
   });
+  const textModel = createGeminiTextModel(config.geminiApiKey, geminiModel);
 
   // Step 1: Resolve transcript entries
   spinner.start(sm.step1Resolve);
@@ -1507,9 +1426,8 @@ export async function processSummaryPipeline(
 
   // Step 2: Generate summary with Gemini
   spinner.start(sm.step2Generating(geminiModel, targetLang.toUpperCase()));
-  const summary = await generateSummary(transcriptResult.entries, config.geminiApiKey, {
+  const summary = await generateSummary(transcriptResult.entries, textModel, {
     targetLang,
-    model: geminiModel,
     prompt: options.prompt,
     lang,
     verbose,

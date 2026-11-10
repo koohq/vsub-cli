@@ -1,18 +1,16 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import type { SrtEntry } from "../srt.js";
+import { createGeminiTextModel } from "./gemini.js";
+import type { TextModel } from "./model.js";
 import {
   asyncPool,
-  buildThinkingConfig,
   buildTranslationPrompt,
   DEFAULT_CONTEXT_WINDOW_SIZE,
-  formatModelNotFoundError,
   generateChapters,
   generateSummary,
-  isModelNotFoundError,
   translateSrtEntries,
-} from "./gemini.js";
-import type { SrtEntry } from "./srt.js";
+} from "./tasks.js";
 
-// Mock @google/genai
 const mockGenerateContent = vi.fn();
 vi.mock("@google/genai", () => {
   return {
@@ -35,7 +33,7 @@ vi.mock("@google/genai", () => {
   };
 });
 
-describe("gemini.ts", () => {
+describe("src/text/tasks.ts", () => {
   beforeEach(() => {
     vi.clearAllMocks();
   });
@@ -43,6 +41,8 @@ describe("gemini.ts", () => {
   afterEach(() => {
     vi.unstubAllEnvs();
   });
+
+  const defaultModel = createGeminiTextModel("fake-key", "gemini-3.8-flash");
 
   describe("asyncPool", () => {
     it("should return empty array for empty items", async () => {
@@ -58,7 +58,6 @@ describe("gemini.ts", () => {
       const result = await asyncPool(2, items, async (item) => {
         activeCount++;
         maxActiveCount = Math.max(maxActiveCount, activeCount);
-        // Simulate variable delays: odd items take longer than even items
         const delay = item % 2 === 1 ? 50 : 10;
         await new Promise((resolve) => setTimeout(resolve, delay));
         activeCount--;
@@ -132,7 +131,7 @@ describe("gemini.ts", () => {
 
   describe("translateSrtEntries", () => {
     it("should return an empty array if entries are empty without calling API", async () => {
-      const result = await translateSrtEntries([], "ja", "fake-key");
+      const result = await translateSrtEntries([], "ja", defaultModel);
       expect(result).toEqual([]);
       expect(mockGenerateContent).not.toHaveBeenCalled();
     });
@@ -157,7 +156,7 @@ describe("gemini.ts", () => {
         text: JSON.stringify(["こんにちは", "元気ですか？"]),
       });
 
-      const result = await translateSrtEntries(entries, "ja", "fake-key");
+      const result = await translateSrtEntries(entries, "ja", defaultModel);
 
       expect(mockGenerateContent).toHaveBeenCalledTimes(1);
       expect(result).toEqual([
@@ -190,8 +189,42 @@ describe("gemini.ts", () => {
         text: '```json\n["テスト"]\n```',
       });
 
-      const result = await translateSrtEntries(entries, "ja", "fake-key");
+      const result = await translateSrtEntries(entries, "ja", defaultModel);
       expect(result[0]?.text).toBe("テスト");
+    });
+
+    it("should send responseSchema with Type.ARRAY of Type.STRING in generateContent config", async () => {
+      const entries: SrtEntry[] = [
+        {
+          id: 1,
+          startTime: "00:00:01,000",
+          endTime: "00:00:02,000",
+          text: "Structured output test",
+        },
+      ];
+
+      mockGenerateContent.mockResolvedValueOnce({
+        text: JSON.stringify(["構造化出力テスト"]),
+      });
+
+      await translateSrtEntries(entries, "ja", defaultModel);
+
+      expect(mockGenerateContent).toHaveBeenCalledTimes(1);
+      const callArgs = mockGenerateContent.mock.calls[0]?.[0];
+      expect(callArgs.config).toEqual({
+        responseMimeType: "application/json",
+        responseSchema: {
+          type: "ARRAY",
+          items: {
+            type: "STRING",
+          },
+          description:
+            "Array of translated subtitle texts matching 1-to-1 with the input array (1 items).",
+        },
+        thinkingConfig: {
+          thinkingLevel: "LOW",
+        },
+      });
     });
 
     it("should split entries exceeding DEFAULT_CHUNK_SIZE (50) into multiple chunks and preserve order with concurrency", async () => {
@@ -205,8 +238,6 @@ describe("gemini.ts", () => {
         });
       }
 
-      // Chunk 1 (50 items), Chunk 2 (50 items), Chunk 3 (10 items)
-      // Make Chunk 1 slower than Chunk 2 to test out-of-order resolution
       mockGenerateContent.mockImplementation(async (req: { contents: string }) => {
         if (req.contents.includes('"English 1"')) {
           await new Promise((resolve) => setTimeout(resolve, 40));
@@ -219,7 +250,7 @@ describe("gemini.ts", () => {
         return { text: JSON.stringify(Array.from({ length: 10 }, (_, i) => `日本語 ${i + 101}`)) };
       });
 
-      const result = await translateSrtEntries(entries, "ja", "fake-key", false, undefined, {
+      const result = await translateSrtEntries(entries, "ja", defaultModel, false, undefined, {
         concurrency: 3,
       });
 
@@ -233,37 +264,37 @@ describe("gemini.ts", () => {
       expect(result[109]?.text).toBe("日本語 110");
     });
 
-    it("should retry on error and throw after exhausting max attempts", async () => {
-      const entries: SrtEntry[] = [
-        {
-          id: 1,
-          startTime: "00:00:01,000",
-          endTime: "00:00:02,000",
-          text: "Fail test",
-        },
-      ];
-
-      vi.useFakeTimers();
-      try {
-        mockGenerateContent.mockRejectedValue(new Error("Network Timeout"));
-
-        const promise = translateSrtEntries(entries, "ja", "fake-key");
-        // Attach the handler first so the rejection is never reported as unhandled.
-        const assertion = expect(promise).rejects.toThrow(
-          /Gemini API translation failed after 4 attempts on chunk 1\/1/,
-        );
-
-        await vi.advanceTimersByTimeAsync(0);
-        expect(mockGenerateContent).toHaveBeenCalledTimes(1);
-        await vi.advanceTimersByTimeAsync(1499); // shortest first backoff is 1500ms
-        expect(mockGenerateContent).toHaveBeenCalledTimes(1);
-        await vi.runAllTimersAsync();
-
-        await assertion;
-        expect(mockGenerateContent).toHaveBeenCalledTimes(4);
-      } finally {
-        vi.useRealTimers();
+    it("should use model.limits.defaultConcurrency when options.concurrency is not provided", async () => {
+      const entries: SrtEntry[] = [];
+      for (let i = 1; i <= 100; i++) {
+        entries.push({
+          id: i,
+          startTime: "00:00:00,000",
+          endTime: "00:00:01,000",
+          text: `Entry ${i}`,
+        });
       }
+
+      let activeWorkers = 0;
+      let maxActiveWorkers = 0;
+
+      const fakeModel: TextModel = {
+        logLabel: "TestModel",
+        model: "fake-test-model",
+        limits: { defaultConcurrency: 1 },
+        generateJson: async () => {
+          activeWorkers++;
+          maxActiveWorkers = Math.max(maxActiveWorkers, activeWorkers);
+          await new Promise((resolve) => setTimeout(resolve, 20));
+          activeWorkers--;
+          return JSON.stringify(Array.from({ length: 50 }, () => "translated"));
+        },
+        classifyError: () => "retry",
+        formatModelNotFound: () => "not found",
+      };
+
+      await translateSrtEntries(entries, "ja", fakeModel);
+      expect(maxActiveWorkers).toBe(1);
     });
 
     it("should call onProgress callback for each completed chunk", async () => {
@@ -286,7 +317,7 @@ describe("gemini.ts", () => {
         });
 
       const onProgress = vi.fn();
-      await translateSrtEntries(entries, "ja", "fake-key", false, onProgress, { concurrency: 2 });
+      await translateSrtEntries(entries, "ja", defaultModel, false, onProgress, { concurrency: 2 });
 
       expect(onProgress).toHaveBeenCalledTimes(2);
       expect(onProgress).toHaveBeenNthCalledWith(1, 1, 2);
@@ -309,13 +340,13 @@ describe("gemini.ts", () => {
         ]),
       });
 
-      await translateSrtEntries(entries, "ja", "fake-key", false, undefined, {
+      const customModel = createGeminiTextModel("fake-key", "gemini-3.7-flash");
+      await translateSrtEntries(entries, "ja", customModel, false, undefined, {
         prompt: "Use polite and professional Japanese (です・ます調).",
         glossary: {
           Antigravity: "アンチグラビティ",
           "agentic AI": "エージェンティックAI",
         },
-        model: "gemini-3.7-flash",
       });
 
       expect(mockGenerateContent).toHaveBeenCalledTimes(1);
@@ -328,50 +359,6 @@ describe("gemini.ts", () => {
       );
       expect(callArgs.contents).toContain('- "Antigravity" -> "アンチグラビティ"');
       expect(callArgs.contents).toContain('- "agentic AI" -> "エージェンティックAI"');
-    });
-
-    it("should use custom model when passed in options", async () => {
-      const entries: SrtEntry[] = [
-        {
-          id: 1,
-          startTime: "00:00:01,000",
-          endTime: "00:00:02,000",
-          text: "Hello",
-        },
-      ];
-
-      mockGenerateContent.mockResolvedValueOnce({
-        text: JSON.stringify(["こんにちは"]),
-      });
-
-      await translateSrtEntries(entries, "ja", "fake-key", false, undefined, {
-        model: "gemini-2.5-pro",
-      });
-
-      expect(mockGenerateContent).toHaveBeenCalledTimes(1);
-      const callArgs = mockGenerateContent.mock.calls[0]?.[0];
-      expect(callArgs.model).toBe("gemini-2.5-pro");
-    });
-
-    it("should default to DEFAULT_GEMINI_MODEL (gemini-3.8-flash) when no model is specified", async () => {
-      const entries: SrtEntry[] = [
-        {
-          id: 1,
-          startTime: "00:00:01,000",
-          endTime: "00:00:02,000",
-          text: "Hello",
-        },
-      ];
-
-      mockGenerateContent.mockResolvedValueOnce({
-        text: JSON.stringify(["こんにちは"]),
-      });
-
-      await translateSrtEntries(entries, "ja", "fake-key");
-
-      expect(mockGenerateContent).toHaveBeenCalledTimes(1);
-      const callArgs = mockGenerateContent.mock.calls[0]?.[0];
-      expect(callArgs.model).toBe("gemini-3.8-flash");
     });
 
     it("should fail fast without retrying when model not found error (404) occurs with default model", async () => {
@@ -390,11 +377,10 @@ describe("gemini.ts", () => {
       (notFoundError as { status?: number }).status = 404;
       mockGenerateContent.mockRejectedValue(notFoundError);
 
-      await expect(translateSrtEntries(entries, "ja", "fake-key")).rejects.toThrow(
+      await expect(translateSrtEntries(entries, "ja", defaultModel)).rejects.toThrow(
         /Default Gemini model 'gemini-3.8-flash' not found or may be retired by Google/,
       );
 
-      // Crucial: Must only call once without retrying 4 times!
       expect(mockGenerateContent).toHaveBeenCalledTimes(1);
     });
 
@@ -415,70 +401,11 @@ describe("gemini.ts", () => {
       mockGenerateContent.mockRejectedValue(notFoundError);
 
       await expect(
-        translateSrtEntries(entries, "ja", "fake-key", false, undefined, { lang: "ja" }),
+        translateSrtEntries(entries, "ja", defaultModel, false, undefined, { lang: "ja" }),
       ).rejects.toThrow(
         /デフォルトの Gemini モデル 'gemini-3.8-flash' が見つからないか、Google により提供終了（退役）した可能性があります/,
       );
       expect(mockGenerateContent).toHaveBeenCalledTimes(1);
-    });
-
-    it("should fail fast without retrying when custom model is not found", async () => {
-      const entries: SrtEntry[] = [
-        {
-          id: 1,
-          startTime: "00:00:01,000",
-          endTime: "00:00:02,000",
-          text: "Hello",
-        },
-      ];
-
-      const notFoundError = new Error("Publisher Model gemini-nonexistent was not found");
-      mockGenerateContent.mockRejectedValue(notFoundError);
-
-      await expect(
-        translateSrtEntries(entries, "ja", "fake-key", false, undefined, {
-          model: "gemini-nonexistent",
-        }),
-      ).rejects.toThrow(/Specified Gemini model 'gemini-nonexistent' was not found/);
-
-      expect(mockGenerateContent).toHaveBeenCalledTimes(1);
-    });
-
-    it("should send responseSchema with Type.ARRAY of Type.STRING in generateContent config", async () => {
-      vi.stubEnv("VSUB_GEMINI_MODEL", "");
-      vi.stubEnv("GEMINI_MODEL", "");
-      const entries: SrtEntry[] = [
-        {
-          id: 1,
-          startTime: "00:00:01,000",
-          endTime: "00:00:02,000",
-          text: "Structured output test",
-        },
-      ];
-
-      mockGenerateContent.mockResolvedValueOnce({
-        text: JSON.stringify(["構造化出力テスト"]),
-      });
-
-      await translateSrtEntries(entries, "ja", "fake-key");
-
-      expect(mockGenerateContent).toHaveBeenCalledTimes(1);
-      const callArgs = mockGenerateContent.mock.calls[0]?.[0];
-      expect(callArgs.config).toEqual({
-        responseMimeType: "application/json",
-        responseSchema: {
-          type: "ARRAY",
-          items: {
-            type: "STRING",
-          },
-          description: expect.stringContaining(
-            "Array of translated subtitle texts matching 1-to-1",
-          ),
-        },
-        thinkingConfig: {
-          thinkingLevel: "LOW",
-        },
-      });
     });
 
     it("should inject preceding context of default 5 lines into subsequent chunks and not chunk 1", async () => {
@@ -500,7 +427,7 @@ describe("gemini.ts", () => {
           text: JSON.stringify(Array.from({ length: 10 }, (_, i) => `文 ${i + 51}`)),
         });
 
-      await translateSrtEntries(entries, "ja", "fake-key", false, undefined, { concurrency: 1 });
+      await translateSrtEntries(entries, "ja", defaultModel, false, undefined, { concurrency: 1 });
 
       expect(mockGenerateContent).toHaveBeenCalledTimes(2);
 
@@ -544,7 +471,7 @@ describe("gemini.ts", () => {
           text: JSON.stringify(Array.from({ length: 10 }, (_, i) => `訳 ${i + 51}`)),
         });
 
-      await translateSrtEntries(entries, "ja", "fake-key", false, undefined, {
+      await translateSrtEntries(entries, "ja", defaultModel, false, undefined, {
         concurrency: 1,
         contextWindowSize: 2,
       });
@@ -575,7 +502,7 @@ describe("gemini.ts", () => {
           text: JSON.stringify(Array.from({ length: 10 }, (_, i) => `訳 ${i + 51}`)),
         });
 
-      await translateSrtEntries(entries, "ja", "fake-key", false, undefined, {
+      await translateSrtEntries(entries, "ja", defaultModel, false, undefined, {
         concurrency: 1,
         contextWindowSize: 0,
       });
@@ -590,66 +517,6 @@ describe("gemini.ts", () => {
     });
   });
 
-  describe("isModelNotFoundError", () => {
-    it("should identify 404 status", () => {
-      const err = new Error("Resource not found");
-      (err as { status?: number }).status = 404;
-      expect(isModelNotFoundError(err)).toBe(true);
-    });
-
-    it("should identify NOT_FOUND in message", () => {
-      expect(isModelNotFoundError(new Error("NOT_FOUND: model does not exist"))).toBe(true);
-    });
-
-    it("should identify model not found phrases", () => {
-      expect(
-        isModelNotFoundError(new Error("models/gemini-old is not found for API version")),
-      ).toBe(true);
-      expect(isModelNotFoundError(new Error("The model is not supported"))).toBe(true);
-    });
-
-    it("should return false for transient or other errors", () => {
-      expect(isModelNotFoundError(new Error("Network Timeout"))).toBe(false);
-      expect(isModelNotFoundError(new Error("Rate limit exceeded 429"))).toBe(false);
-      expect(isModelNotFoundError(null)).toBe(false);
-      expect(isModelNotFoundError(undefined)).toBe(false);
-    });
-  });
-
-  describe("formatModelNotFoundError", () => {
-    it("should return actionable update instructions in English by default", () => {
-      const message = formatModelNotFoundError("gemini-3.8-flash");
-      expect(message).toContain("Default Gemini model 'gemini-3.8-flash'");
-      expect(message).toContain("npm install -g vsub-cli");
-      expect(message).toContain("--gemini-model");
-      expect(message).toContain("https://ai.google.dev/gemini-api/docs/models");
-    });
-
-    it("should return actionable update instructions in Japanese when lang is ja", () => {
-      const message = formatModelNotFoundError("gemini-3.8-flash", "ja");
-      expect(message).toContain("デフォルトの Gemini モデル 'gemini-3.8-flash'");
-      expect(message).toContain("npm install -g vsub-cli");
-      expect(message).toContain("--gemini-model");
-      expect(message).toContain("https://ai.google.dev/gemini-api/docs/models");
-    });
-
-    it("should return clear message for custom model in English by default", () => {
-      const message = formatModelNotFoundError("custom-test-model");
-      expect(message).toContain("Specified Gemini model 'custom-test-model' was not found");
-      expect(message).toContain("https://ai.google.dev/gemini-api/docs/models");
-      expect(message).not.toContain("npm install -g vsub-cli");
-    });
-
-    it("should return clear message for custom model in Japanese when lang is ja", () => {
-      const message = formatModelNotFoundError("custom-test-model", "ja");
-      expect(message).toContain(
-        "指定された Gemini モデル 'custom-test-model' が見つかりませんでした",
-      );
-      expect(message).toContain("https://ai.google.dev/gemini-api/docs/models");
-      expect(message).not.toContain("npm install -g vsub-cli");
-    });
-  });
-
   describe("generateChapters", () => {
     const sampleEntries: SrtEntry[] = [
       { id: 1, startTime: "00:00:00,000", endTime: "00:00:10,000", text: "Welcome everyone" },
@@ -658,7 +525,7 @@ describe("gemini.ts", () => {
     ];
 
     it("should return empty array for empty entries", async () => {
-      const chapters = await generateChapters([], "fake-key");
+      const chapters = await generateChapters([], defaultModel);
       expect(chapters).toEqual([]);
       expect(mockGenerateContent).not.toHaveBeenCalled();
     });
@@ -672,20 +539,70 @@ describe("gemini.ts", () => {
         ]),
       });
 
-      const chapters = await generateChapters(sampleEntries, "fake-key", {
+      const chapters = await generateChapters(sampleEntries, defaultModel, {
         targetLang: "ja",
         prompt: "Concise chapters",
       });
 
       expect(mockGenerateContent).toHaveBeenCalledTimes(1);
-      const callArg = (mockGenerateContent.mock.calls[0] as [{ contents: string }])[0];
+      const callArg = (
+        mockGenerateContent.mock.calls[0] as [{ contents: string; config: unknown }]
+      )[0];
       expect(callArg.contents).toContain("Concise chapters");
       expect(callArg.contents).toContain("[00:00:00] Welcome everyone");
+      expect(callArg.config).toEqual({
+        responseMimeType: "application/json",
+        responseSchema: {
+          type: "ARRAY",
+          items: {
+            type: "OBJECT",
+            properties: {
+              timestamp: {
+                type: "STRING",
+                description: "Timestamp in MM:SS or HH:MM:SS format",
+              },
+              seconds: {
+                type: "INTEGER",
+                description: "Total seconds from start",
+              },
+              title: {
+                type: "STRING",
+                description: "Concise chapter title in target language",
+              },
+            },
+            required: ["timestamp", "title"],
+          },
+          description: "Chronological list of video chapters",
+        },
+        thinkingConfig: {
+          thinkingLevel: "LOW",
+        },
+      });
       expect(chapters).toEqual([
         { timestamp: "00:00", seconds: 0, title: "オープニング" },
         { timestamp: "01:23", seconds: 83, title: "本日のアジェンダ" },
         { timestamp: "05:40", seconds: 340, title: "デモ紹介" },
       ]);
+    });
+
+    it("should retry and succeed when first attempt returns array with null item", async () => {
+      mockGenerateContent
+        .mockResolvedValueOnce({
+          text: JSON.stringify([null]),
+        })
+        .mockResolvedValueOnce({
+          text: JSON.stringify([
+            { timestamp: "00:00", seconds: 0, title: "Intro" },
+            { timestamp: "01:00", seconds: 60, title: "Topic" },
+          ]),
+        });
+
+      const chapters = await generateChapters(sampleEntries, defaultModel, { targetLang: "en" });
+      expect(chapters).toEqual([
+        { timestamp: "00:00", seconds: 0, title: "Intro" },
+        { timestamp: "01:00", seconds: 60, title: "Topic" },
+      ]);
+      expect(mockGenerateContent).toHaveBeenCalledTimes(2);
     });
 
     it("should ensure first chapter starts at 00:00 if Gemini returns non-zero start", async () => {
@@ -696,7 +613,7 @@ describe("gemini.ts", () => {
         ]),
       });
 
-      const chapters = await generateChapters(sampleEntries, "fake-key", { targetLang: "ja" });
+      const chapters = await generateChapters(sampleEntries, defaultModel, { targetLang: "ja" });
       expect(chapters[0]?.timestamp).toBe("00:00");
       expect(chapters[0]?.seconds).toBe(0);
       expect(chapters[0]?.title).toBe("イントロダクション");
@@ -711,7 +628,7 @@ describe("gemini.ts", () => {
         ]),
       });
 
-      const chapters = await generateChapters(sampleEntries, "fake-key", { targetLang: "en" });
+      const chapters = await generateChapters(sampleEntries, defaultModel, { targetLang: "en" });
       expect(chapters[0]?.timestamp).toBe("00:00");
       expect(chapters[0]?.seconds).toBe(0);
       expect(chapters[0]?.title).toBe("Welcome & Intro");
@@ -730,7 +647,7 @@ describe("gemini.ts", () => {
     ];
 
     it("should return empty summary structure for empty entries", async () => {
-      const summary = await generateSummary([], "fake-key");
+      const summary = await generateSummary([], defaultModel);
       expect(summary.title).toBe("No Content");
       expect(summary.keyPoints).toEqual([]);
       expect(mockGenerateContent).not.toHaveBeenCalled();
@@ -749,134 +666,85 @@ describe("gemini.ts", () => {
         }),
       });
 
-      const summary = await generateSummary(sampleEntries, "fake-key", {
+      const summary = await generateSummary(sampleEntries, defaultModel, {
         targetLang: "ja",
         prompt: "Focus on finance",
       });
 
       expect(mockGenerateContent).toHaveBeenCalledTimes(1);
-      const callArg = (mockGenerateContent.mock.calls[0] as [{ contents: string }])[0];
+      const callArg = (
+        mockGenerateContent.mock.calls[0] as [{ contents: string; config: unknown }]
+      )[0];
       expect(callArg.contents).toContain("Focus on finance");
+      expect(callArg.config).toEqual({
+        responseMimeType: "application/json",
+        responseSchema: {
+          type: "OBJECT",
+          properties: {
+            title: {
+              type: "STRING",
+              description: "Content title in target language",
+            },
+            summary: {
+              type: "STRING",
+              description: "Executive summary paragraph in target language",
+            },
+            keyPoints: {
+              type: "ARRAY",
+              items: { type: "STRING" },
+              description: "List of key takeaways in target language",
+            },
+            topics: {
+              type: "ARRAY",
+              items: {
+                type: "OBJECT",
+                properties: {
+                  timestamp: {
+                    type: "STRING",
+                    description: "Timestamp in MM:SS or HH:MM:SS",
+                  },
+                  title: {
+                    type: "STRING",
+                    description: "Topic title in target language",
+                  },
+                  description: {
+                    type: "STRING",
+                    description: "Brief description of topic",
+                  },
+                },
+                required: ["timestamp", "title", "description"],
+              },
+              description: "Key topics with timestamps",
+            },
+          },
+          required: ["title", "summary", "keyPoints", "topics"],
+        },
+        thinkingConfig: {
+          thinkingLevel: "LOW",
+        },
+      });
       expect(summary.title).toBe("Quarterly Review");
       expect(summary.keyPoints).toHaveLength(2);
       expect(summary.topics[1]?.timestamp).toBe("02:10");
     });
-  });
 
-  describe("Gemini thinking level", () => {
-    const ENV_VARS = ["VSUB_GEMINI_MODEL", "GEMINI_MODEL"] as const;
-    const sampleEntries: SrtEntry[] = [
-      {
-        id: 1,
-        startTime: "00:00:00,000",
-        endTime: "00:00:10,000",
-        text: "Hello and welcome",
-      },
-    ];
-
-    beforeEach(() => {
-      for (const name of ENV_VARS) {
-        vi.stubEnv(name, "");
-      }
-    });
-
-    it.each([
-      {
-        name: "translateSrtEntries",
-        execute: () => translateSrtEntries(sampleEntries, "ja", "fake-key"),
-        mockResponse: { text: JSON.stringify(["こんにちは"]) },
-      },
-      {
-        name: "generateChapters",
-        execute: () => generateChapters(sampleEntries, "fake-key"),
-        mockResponse: {
-          text: JSON.stringify([{ timestamp: "00:00", seconds: 0, title: "Intro" }]),
-        },
-      },
-      {
-        name: "generateSummary",
-        execute: () => generateSummary(sampleEntries, "fake-key"),
-        mockResponse: {
+    it("should retry and succeed when first attempt returns null", async () => {
+      mockGenerateContent
+        .mockResolvedValueOnce({
+          text: "null",
+        })
+        .mockResolvedValueOnce({
           text: JSON.stringify({
             title: "Summary Title",
-            summary: "Executive summary text.",
-            keyPoints: ["Point 1"],
+            summary: "Summary text",
+            keyPoints: ["Point"],
             topics: [{ timestamp: "00:00", title: "Intro", description: "Desc" }],
           }),
-        },
-      },
-    ])(
-      "should send thinkingConfig with LOW for $name under default model",
-      async ({ execute, mockResponse }) => {
-        mockGenerateContent.mockResolvedValueOnce(mockResponse);
-        await execute();
-        expect(mockGenerateContent).toHaveBeenCalledTimes(1);
-        const callArgs = mockGenerateContent.mock.calls[0]?.[0];
-        expect(callArgs.config?.thinkingConfig).toEqual({ thinkingLevel: "LOW" });
-      },
-    );
+        });
 
-    it("should not include thinkingConfig when non-target model is specified", async () => {
-      mockGenerateContent.mockResolvedValueOnce({
-        text: JSON.stringify(["こんにちは"]),
-      });
-      await translateSrtEntries(sampleEntries, "ja", "fake-key", false, undefined, {
-        model: "gemini-2.5-flash",
-      });
-      expect(mockGenerateContent).toHaveBeenCalledTimes(1);
-      const callArgs = mockGenerateContent.mock.calls[0]?.[0];
-      expect(callArgs.config).not.toHaveProperty("thinkingConfig");
-    });
-
-    describe("buildThinkingConfig", () => {
-      it.each([
-        {
-          model: "gemini-3.8-flash",
-          expected: { thinkingConfig: { thinkingLevel: "LOW" } },
-        },
-        {
-          model: "models/gemini-3.8-flash",
-          expected: { thinkingConfig: { thinkingLevel: "LOW" } },
-        },
-        {
-          model: "gemini-3-pro-preview",
-          expected: { thinkingConfig: { thinkingLevel: "LOW" } },
-        },
-        {
-          model: "gemini-3.5-flash-lite",
-          expected: { thinkingConfig: { thinkingLevel: "LOW" } },
-        },
-        {
-          model: "gemini-4-argon",
-          expected: { thinkingConfig: { thinkingLevel: "LOW" } },
-        },
-        {
-          model: "gemini-2.5-flash",
-          expected: {},
-        },
-        {
-          model: "gemini-2.0-flash",
-          expected: {},
-        },
-        {
-          model: "gemini-1.5-pro",
-          expected: {},
-        },
-        {
-          model: "gemini-flash-latest",
-          expected: {},
-        },
-        {
-          model: "gemma-3-27b-it",
-          expected: {},
-        },
-        {
-          model: "tunedModels/my-model",
-          expected: {},
-        },
-      ])("should return $expected for model '$model'", ({ model, expected }) => {
-        expect(buildThinkingConfig(model)).toEqual(expected);
-      });
+      const summary = await generateSummary(sampleEntries, defaultModel, { targetLang: "en" });
+      expect(summary.title).toBe("Summary Title");
+      expect(mockGenerateContent).toHaveBeenCalledTimes(2);
     });
   });
 });

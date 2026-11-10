@@ -28,8 +28,8 @@ import {
   type TranslationCacheContext,
 } from "./cache.js";
 import { DEFAULT_GROQ_MODEL } from "./config.js";
-import { DEFAULT_CONTEXT_WINDOW_SIZE } from "./gemini.js";
 import type { SrtEntry } from "./srt.js";
+import { DEFAULT_CONTEXT_WINDOW_SIZE } from "./text/tasks.js";
 import { DEFAULT_OPENROUTER_STT_MODEL } from "./transcribe/openrouter.js";
 
 describe("cache module", () => {

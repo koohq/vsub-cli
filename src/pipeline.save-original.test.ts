@@ -5,10 +5,10 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { createCachedTranslation, saveTranscriptionCache, saveTranslationCache } from "./cache.js";
 import { DEFAULT_GEMINI_MODEL } from "./config.js";
 import { checkFfmpeg, extractAudio } from "./ffmpeg.js";
-import { DEFAULT_CONTEXT_WINDOW_SIZE, translateSrtEntries } from "./gemini.js";
 import { processMediaPipeline } from "./pipeline.js";
 import { ensureWritableTargets } from "./safety.js";
 import { isolateConfigAndEnv } from "./test-support/isolate-config-env.js";
+import { DEFAULT_CONTEXT_WINDOW_SIZE, translateSrtEntries } from "./text/tasks.js";
 import { transcribeAudioSegments } from "./transcribe/transcriber.js";
 
 const mustNotBeCalled = vi.hoisted(
@@ -17,8 +17,8 @@ const mustNotBeCalled = vi.hoisted(
 
 const actualSafety = await vi.importActual<typeof import("./safety.js")>("./safety.js");
 
-vi.mock("./gemini.js", async (importOriginal) => {
-  const actual = await importOriginal<typeof import("./gemini.js")>();
+vi.mock("./text/tasks.js", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("./text/tasks.js")>();
   return {
     ...actual,
     translateSrtEntries: vi.fn().mockRejectedValue(mustNotBeCalled("translateSrtEntries")),

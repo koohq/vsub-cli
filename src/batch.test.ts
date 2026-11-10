@@ -5,8 +5,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { findMediaFiles, runBatchPipeline } from "./batch.js";
 import * as configModule from "./config.js";
 import * as ffmpegModule from "./ffmpeg.js";
-import * as geminiModule from "./gemini.js";
 import * as pipelineModule from "./pipeline.js";
+import * as tasksModule from "./text/tasks.js";
 import * as transcriberModule from "./transcribe/transcriber.js";
 
 describe("batch.ts", () => {
@@ -482,9 +482,7 @@ describe("batch.ts", () => {
           entries: [{ id: 1, startTime: "00:00:00,000", endTime: "00:00:02,000", text: "Line" }],
           detectedLanguage: "en",
         });
-        vi.spyOn(geminiModule, "translateSrtEntries").mockImplementation(
-          async (entries) => entries,
-        );
+        vi.spyOn(tasksModule, "translateSrtEntries").mockImplementation(async (entries) => entries);
 
         vi.spyOn(console, "log").mockImplementation(() => {});
         vi.spyOn(console, "error").mockImplementation(() => {});
@@ -509,7 +507,7 @@ describe("batch.ts", () => {
         expect(ep3Result?.status).toBe("success");
 
         expect(transcriberModule.transcribeAudioSegments).toHaveBeenCalledTimes(2);
-        expect(geminiModule.translateSrtEntries).toHaveBeenCalledTimes(2);
+        expect(tasksModule.translateSrtEntries).toHaveBeenCalledTimes(2);
         expect(ffmpegModule.embedSubtitlesToVideo).toHaveBeenCalledTimes(2);
       });
     });

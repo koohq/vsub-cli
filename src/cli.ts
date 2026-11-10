@@ -3,23 +3,8 @@ import path from "node:path";
 import { Command, Option } from "commander";
 import pc from "picocolors";
 import { type BatchPipelineOptions, runBatchPipeline } from "./batch.js";
-import {
-  clearCache,
-  createCachedTranslation,
-  getCacheDir,
-  getCacheStats,
-  isTranslationCacheValid,
-  loadMediaCache,
-  saveTranslationCache,
-  type TranslationCacheContext,
-} from "./cache.js";
-import {
-  DEFAULT_GEMINI_MODEL,
-  ensureApiKeys,
-  getConfig,
-  getGlobalConfigPath,
-  saveGlobalConfig,
-} from "./config.js";
+import { clearCache, getCacheDir, getCacheStats } from "./cache.js";
+import { getConfig, getGlobalConfigPath, saveGlobalConfig } from "./config.js";
 import {
   burnSubtitlesToVideo,
   checkFfmpeg,
@@ -31,36 +16,28 @@ import {
   type SubtitleTrackInput,
   supportsSoftSubtitles,
 } from "./ffmpeg.js";
-import {
-  formatEntries,
-  parseChaptersFormat,
-  parseOutputFormats,
-  parseSummaryFormat,
-} from "./formatter.js";
-import { DEFAULT_CONTEXT_WINDOW_SIZE, translateSrtEntries } from "./gemini.js";
-import { computeGlossaryHash, parseGlossary } from "./glossary.js";
+import { parseChaptersFormat, parseSummaryFormat } from "./formatter.js";
 import { getI18n, normalizeLanguage } from "./i18n/index.js";
 import { runInitWizard } from "./init.js";
-import { getLanguageDisplayName, parseTargetLanguages, resolveTargetLang } from "./languages.js";
+import { getLanguageDisplayName, parseTargetLanguages } from "./languages.js";
 
 import { printLicenses } from "./licenses.js";
 import {
   findOutputPathConflict,
   type ProcessMediaOptions,
-  parseBilingualOrder,
   processChaptersPipeline,
   processMediaPipeline,
   processSummaryPipeline,
-  resolveOutputFilePaths,
 } from "./pipeline.js";
 import { ensureWritableTargets } from "./safety.js";
-import { mergeBilingualEntries, parseSrt, reflowSrtEntries, type SrtEntry } from "./srt.js";
+import { parseSrt } from "./srt.js";
 import {
   parseSttProvider,
   resolveSttSettings,
   STT_PROVIDER_LABELS,
   type SttProvider,
 } from "./transcribe/select.js";
+import { runTranslateCommand, type TranslateCommandOptions } from "./translate.js";
 import { createSpinner, formatFileSize, formatSummaryBox } from "./ui.js";
 import {
   checkUpdate,
@@ -205,6 +182,25 @@ function acceptGlobalOptions(rootCmd: Command): void {
       );
     }
   }
+}
+
+function addTranslationOptions(command: Command): Command {
+  return command
+    .option("--prompt <instruction>", "Additional instruction prompt for Gemini translation")
+    .option(
+      "--glossary <path-or-terms>",
+      "Glossary file path (JSON) or inline terms (key=val,key=val)",
+    )
+    .option("--concurrency <number>", "Number of concurrent translation requests to Gemini API")
+    .option("--gemini-model <model>", "Gemini model to use for translation");
+}
+
+function addContextWindowOption(command: Command): Command {
+  return command.option(
+    "--context-window <lines>",
+    "Number of preceding context lines to carry across translation chunks (0 to disable)",
+    "5",
+  );
 }
 
 export function createProgram(): Command {
@@ -796,7 +792,7 @@ export function createProgram(): Command {
     });
 
   // Subcommand: translate
-  program
+  const translateCmd = program
     .command("translate")
     .description(
       "Directly translate an existing subtitle file (.srt) into target language(s) via Gemini API",
@@ -823,26 +819,18 @@ export function createProgram(): Command {
       "--bilingual-order <order>",
       "Order of bilingual subtitles: original-first (default) or target-first",
       "original-first",
-    )
-    .option("--prompt <instruction>", "Additional instruction prompt for Gemini translation")
-    .option(
-      "--glossary <path-or-terms>",
-      "Glossary file path (JSON) or inline terms (key=val,key=val)",
-    )
-    .option("--concurrency <number>", "Number of concurrent translation requests to Gemini API")
-    .option("--gemini-model <model>", "Gemini model to use for translation")
+    );
+
+  addTranslationOptions(translateCmd)
     .option("--no-cache", "Do not use or save intermediate translation cache")
     .option(
       "--fresh",
       "Ignore existing cache and generate fresh translations, overwriting cache",
       false,
     )
-    .option("--cache-dir <path>", "Custom cache directory")
-    .option(
-      "--context-window <lines>",
-      "Number of preceding context lines to carry across translation chunks (0 to disable)",
-      "5",
-    )
+    .option("--cache-dir <path>", "Custom cache directory");
+
+  addContextWindowOption(translateCmd)
     .option("--gemini-key <key>", "Gemini API Key override")
     .option("--max-length <chars>", "Max characters per subtitle entry before automatic splitting")
     .option(
@@ -857,379 +845,8 @@ export function createProgram(): Command {
     )
     .option("--verbose", "Output detailed log messages", false)
     .action(async (subtitleFile: string, _actionOptions: Record<string, unknown>, cmd: Command) => {
-      const options = readActionOptions<{
-        targetLang?: string;
-        format: string;
-        output?: string;
-        stdout?: boolean;
-        overwrite?: boolean;
-        backup?: boolean;
-        bilingual?: boolean;
-        bilingualOrder?: string;
-        prompt?: string;
-        glossary?: string;
-        concurrency?: string;
-        geminiModel?: string;
-        noCache?: boolean;
-        fresh?: boolean;
-        cacheDir?: string;
-        contextWindow?: string;
-        geminiKey?: string;
-        maxLength?: string;
-        maxDuration?: string;
-        noReflow?: boolean;
-        verbose?: boolean;
-        lang?: string;
-        noUpdateCheck?: boolean;
-      }>(cmd);
-      const startTime = Date.now();
-      const verbose = Boolean(options.verbose);
-      const isStdout = Boolean(options.stdout || options.output === "-");
-      const rawConfig = getConfig(undefined, options.lang);
-      const lang = options.lang ?? rawConfig.lang ?? "en";
-      const i18n = getI18n(lang);
-      const tm = i18n.translate;
-
-      const spinner = createSpinner("", {
-        isSilent: verbose,
-        stream: isStdout ? process.stderr : undefined,
-      });
-      const outputFiles: string[] = [];
-
-      try {
-        const outputFormats = parseOutputFormats(options.format, lang);
-        const targetLanguages = parseTargetLanguages(
-          resolveTargetLang(options.targetLang, rawConfig.targetLang),
-          lang,
-        );
-
-        if (isStdout) {
-          if (outputFormats.length > 1) {
-            throw new Error(tm.stdoutSingleFormatOnly);
-          }
-          if (targetLanguages.length > 1) {
-            throw new Error(tm.stdoutSingleLangOnly);
-          }
-        }
-
-        const isMultiLang = targetLanguages.length > 1;
-        const isBilingual = Boolean(options.bilingual);
-        const bilingualOrder = parseBilingualOrder(options.bilingualOrder, lang);
-        const resolvedSubtitlePath = path.resolve(process.cwd(), subtitleFile);
-
-        if (!fs.existsSync(resolvedSubtitlePath)) {
-          throw new Error(tm.subtitleNotFound(resolvedSubtitlePath));
-        }
-
-        const subDir = path.dirname(resolvedSubtitlePath);
-        const subExt = path.extname(resolvedSubtitlePath);
-        let subBaseName = path.basename(resolvedSubtitlePath, subExt);
-
-        // If base name ends with language tag like .en, .ja, strip it to avoid .en.ja
-        const langSuffixMatch = subBaseName.match(/^(.+)\.([a-zA-Z]{2,3}(?:-[a-zA-Z0-9]{2,4})?)$/);
-        if (langSuffixMatch?.[1]) {
-          subBaseName = langSuffixMatch[1];
-        }
-
-        // Pre-check output file safety before performing API calls (skipped in stdout mode)
-        const safetyCheck: { proceed: boolean; backedUp: { original: string; backup: string }[] } =
-          isStdout
-            ? { proceed: true, backedUp: [] }
-            : await (async () => {
-                const targets: string[] = [];
-                for (const tLang of targetLanguages) {
-                  const resolved = resolveOutputFilePaths(
-                    subDir,
-                    subBaseName,
-                    tLang,
-                    outputFormats,
-                    options.output,
-                    !isMultiLang,
-                    isBilingual,
-                  );
-                  for (const { filePath } of resolved) {
-                    targets.push(filePath);
-                  }
-                }
-                return ensureWritableTargets(targets, {
-                  overwrite: options.overwrite,
-                  backup: options.backup,
-                  lang: normalizeLanguage(lang),
-                });
-              })();
-
-        if (!safetyCheck.proceed) {
-          console.log(i18n.safety.aborted);
-          return;
-        }
-
-        if (safetyCheck.backedUp.length > 0) {
-          for (const { original, backup } of safetyCheck.backedUp) {
-            console.log(
-              `📦 ${i18n.pipeline.backupCreated(pc.cyan(path.basename(original)), pc.yellow(path.basename(backup)))}`,
-            );
-          }
-        }
-
-        if (options.geminiKey) {
-          rawConfig.geminiApiKey = options.geminiKey.trim();
-        }
-
-        // Ensure Gemini API key (Groq key not required for translate subcommand)
-        const config = await ensureApiKeys(rawConfig, {
-          requireGroq: false,
-          requireGemini: true,
-          lang: normalizeLanguage(lang),
-        });
-
-        const geminiModel = options.geminiModel?.trim() || config.geminiModel;
-
-        if (!isStdout) {
-          console.log(`\n🌐 ${pc.bold(tm.started(pc.cyan(path.basename(resolvedSubtitlePath))))}`);
-        }
-
-        // 1. Read and parse subtitle file
-        spinner.start(tm.step1Parsing);
-        const fileContent = fs.readFileSync(resolvedSubtitlePath, "utf-8");
-        let srtEntries = parseSrt(fileContent);
-
-        if (srtEntries.length === 0) {
-          throw new Error(tm.step1NoEntries(path.basename(resolvedSubtitlePath)));
-        }
-
-        const maxLengthVal =
-          options.maxLength !== undefined ? Number(options.maxLength) : undefined;
-        const resolvedMaxLength =
-          maxLengthVal !== undefined && !Number.isNaN(maxLengthVal) && maxLengthVal > 0
-            ? Math.floor(maxLengthVal)
-            : rawConfig.maxLength;
-
-        const maxDurationVal =
-          options.maxDuration !== undefined ? Number(options.maxDuration) : undefined;
-        const resolvedMaxDuration =
-          maxDurationVal !== undefined && !Number.isNaN(maxDurationVal) && maxDurationVal > 0
-            ? Math.floor(maxDurationVal)
-            : undefined;
-
-        const rawEntriesCount = srtEntries.length;
-        if (!options.noReflow && srtEntries.length > 0) {
-          srtEntries = reflowSrtEntries(srtEntries, {
-            maxLength: resolvedMaxLength,
-            maxDuration: resolvedMaxDuration,
-          });
-          if (verbose && srtEntries.length !== rawEntriesCount) {
-            console.log(
-              `[Reflow] Adjusted subtitle segments: ${rawEntriesCount} -> ${srtEntries.length} entries`,
-            );
-          }
-        }
-
-        spinner.succeed(tm.step1Parsed(srtEntries.length));
-
-        // 2. Gemini Translation for each target language (with cache support)
-        const useCache = !options.noCache && !options.fresh;
-        const subtitleCache = useCache
-          ? loadMediaCache(resolvedSubtitlePath, options.cacheDir)
-          : null;
-        const totalChunks = Math.max(1, Math.ceil(srtEntries.length / 50));
-        const resultsByLang = new Map<string, SrtEntry[]>();
-        const cachedLanguages: string[] = [];
-
-        const translationPrompt = options.prompt?.trim() || config.prompt;
-        const glossaryInput = options.glossary?.trim() || config.glossary;
-        const concurrencyVal = options.concurrency
-          ? Number(options.concurrency)
-          : config.concurrency;
-        const resolvedConcurrency =
-          concurrencyVal && !Number.isNaN(concurrencyVal) && concurrencyVal > 0
-            ? Math.floor(concurrencyVal)
-            : undefined;
-        const contextWindowVal =
-          options.contextWindow !== undefined ? Number(options.contextWindow) : undefined;
-        const resolvedContextWindow =
-          contextWindowVal !== undefined && !Number.isNaN(contextWindowVal)
-            ? Math.max(0, Math.floor(contextWindowVal))
-            : DEFAULT_CONTEXT_WINDOW_SIZE;
-        let totalGlossaryTerms = 0;
-
-        for (let i = 0; i < targetLanguages.length; i++) {
-          const tLang = targetLanguages[i] ?? "ja";
-          const glossaryMap = glossaryInput ? parseGlossary(glossaryInput, tLang) : undefined;
-          const glossaryHash = glossaryMap ? computeGlossaryHash(glossaryMap) : undefined;
-          if (glossaryMap) {
-            totalGlossaryTerms = Math.max(totalGlossaryTerms, Object.keys(glossaryMap).length);
-          }
-
-          const cacheContext: TranslationCacheContext = {
-            sourceEntries: srtEntries,
-            prompt: translationPrompt,
-            glossaryHash,
-            model: geminiModel,
-            contextWindowSize: resolvedContextWindow,
-          };
-
-          const cachedTranslation = subtitleCache?.translations?.[tLang.toLowerCase()];
-          const isCacheValid = useCache && isTranslationCacheValid(cachedTranslation, cacheContext);
-
-          if (isCacheValid && cachedTranslation) {
-            resultsByLang.set(tLang, cachedTranslation.entries);
-            cachedLanguages.push(tLang);
-            if (isMultiLang) {
-              spinner.info(
-                i18n.pipeline.step3Cached(tLang.toUpperCase(), cachedTranslation.entries.length),
-              );
-            }
-            continue;
-          }
-
-          const effectiveGeminiModel = geminiModel || DEFAULT_GEMINI_MODEL;
-          const initialText = isMultiLang
-            ? tm.step2TranslatingMulti(
-                effectiveGeminiModel,
-                i + 1,
-                targetLanguages.length,
-                tLang.toUpperCase(),
-                1,
-                totalChunks,
-              )
-            : tm.step2TranslatingSingle(effectiveGeminiModel, tLang, 1, totalChunks);
-
-          spinner.start(initialText);
-
-          const translatedEntries = await translateSrtEntries(
-            srtEntries,
-            tLang,
-            config.geminiApiKey,
-            verbose,
-            (currentChunk, chunksCount) => {
-              if (isMultiLang) {
-                spinner.updateText(
-                  tm.step2TranslatingMulti(
-                    effectiveGeminiModel,
-                    i + 1,
-                    targetLanguages.length,
-                    tLang.toUpperCase(),
-                    currentChunk,
-                    chunksCount,
-                  ),
-                );
-              } else {
-                spinner.updateText(
-                  tm.step2TranslatingSingle(effectiveGeminiModel, tLang, currentChunk, chunksCount),
-                );
-              }
-            },
-            {
-              prompt: translationPrompt,
-              glossary: glossaryMap,
-              concurrency: resolvedConcurrency,
-              model: geminiModel,
-              lang: normalizeLanguage(lang),
-              contextWindowSize: resolvedContextWindow,
-            },
-          );
-
-          resultsByLang.set(tLang, translatedEntries);
-
-          // Save translation result to cache
-          if (!options.noCache) {
-            saveTranslationCache(
-              resolvedSubtitlePath,
-              tLang,
-              createCachedTranslation(tLang, cacheContext, translatedEntries),
-              options.cacheDir,
-            );
-          }
-
-          if (isMultiLang) {
-            spinner.info(
-              i18n.pipeline.step3LangDone(tLang.toUpperCase(), translatedEntries.length),
-            );
-          }
-        }
-
-        const langListDisplay = targetLanguages.map((l) => l.toUpperCase()).join(", ");
-        spinner.succeed(tm.step2Done(langListDisplay, srtEntries.length));
-
-        // 3. Save output subtitle files or write to stdout
-        if (isStdout) {
-          const tLang = targetLanguages[0] ?? "ja";
-          let entries = resultsByLang.get(tLang) ?? srtEntries;
-          if (isBilingual) {
-            entries = mergeBilingualEntries(srtEntries, entries, { order: bilingualOrder });
-          }
-          const fmt = outputFormats[0] ?? "srt";
-          const formatted = formatEntries(entries, fmt);
-          process.stdout.write(formatted.endsWith("\n") ? formatted : `${formatted}\n`);
-        } else {
-          spinner.start(tm.step3Saving);
-
-          for (const tLang of targetLanguages) {
-            let entries = resultsByLang.get(tLang) ?? srtEntries;
-            if (isBilingual) {
-              entries = mergeBilingualEntries(srtEntries, entries, { order: bilingualOrder });
-            }
-            const targets = resolveOutputFilePaths(
-              subDir,
-              subBaseName,
-              tLang,
-              outputFormats,
-              options.output,
-              !isMultiLang,
-              isBilingual,
-            );
-            for (const { format, filePath } of targets) {
-              fs.writeFileSync(filePath, formatEntries(entries, format), "utf-8");
-              outputFiles.push(filePath);
-            }
-          }
-
-          const formatListStr = outputFormats.map((f) => f.toUpperCase()).join(", ");
-          spinner.succeed(tm.step3Saved(formatListStr));
-
-          // 4. Output Summary Box
-          const durationMs = Date.now() - startTime;
-          console.log(
-            "\n" +
-              formatSummaryBox(
-                {
-                  mediaFile: path.basename(resolvedSubtitlePath),
-                  mediaType: "subtitle",
-                  durationMs,
-                  targetLanguages,
-                  entriesCount: srtEntries.length,
-                  bilingual: isBilingual ? { order: bilingualOrder } : undefined,
-                  backedUpFiles:
-                    safetyCheck.backedUp.length > 0
-                      ? safetyCheck.backedUp.map((b) => b.backup)
-                      : undefined,
-                  outputFiles,
-                  skippedTranslation: false,
-                  prompt: translationPrompt,
-                  glossaryTermsCount: totalGlossaryTerms > 0 ? totalGlossaryTerms : undefined,
-                  geminiModel: geminiModel || DEFAULT_GEMINI_MODEL,
-                  cacheStatus: cachedLanguages.length > 0 ? { cachedLanguages } : undefined,
-                  lang: normalizeLanguage(lang),
-                },
-                lang,
-              ) +
-              "\n",
-          );
-
-          await notifyUpdateIfAvailable({
-            lang: normalizeLanguage(lang),
-            disableUpdateCheck: Boolean(options.noUpdateCheck || rawConfig.disableUpdateCheck),
-          });
-        }
-      } catch (error) {
-        spinner.fail(
-          i18n.pipeline.errorOccurred(error instanceof Error ? error.message : String(error)),
-        );
-        if (verbose && error instanceof Error && error.stack) {
-          console.error(error.stack);
-        }
-        process.exit(1);
-      }
+      const options = readActionOptions<TranslateCommandOptions>(cmd);
+      await runTranslateCommand(subtitleFile, options);
     });
 
   // Subcommand: burn
@@ -1581,9 +1198,8 @@ export function createProgram(): Command {
     );
 
   // Subcommand: batch
-  program
+  const batchCmd = program
     .command("batch")
-
     .description(
       "Process multiple media files in bulk (directories, multiple files, or glob patterns)",
     )
@@ -1632,26 +1248,18 @@ export function createProgram(): Command {
     .option(
       "--whisper-prompt <text>",
       "Prompt hint for Groq Whisper speech recognition (Groq only; not sent to OpenRouter)",
-    )
-    .option("--prompt <instruction>", "Additional instruction prompt for Gemini translation")
-    .option(
-      "--glossary <path-or-terms>",
-      "Glossary file path (JSON) or inline terms (key=val,key=val)",
-    )
-    .option("--concurrency <number>", "Number of concurrent translation requests to Gemini API")
-    .option("--gemini-model <model>", "Gemini model to use for translation")
+    );
+
+  addTranslationOptions(batchCmd)
     .option("--no-cache", "Do not use or save intermediate transcription/translation cache")
     .option(
       "--fresh",
       "Ignore existing cache and generate fresh transcription/translations, overwriting cache",
       false,
     )
-    .option("--cache-dir <path>", "Custom cache directory")
-    .option(
-      "--context-window <lines>",
-      "Number of preceding context lines to carry across translation chunks (0 to disable)",
-      "5",
-    )
+    .option("--cache-dir <path>", "Custom cache directory");
+
+  addContextWindowOption(batchCmd)
     .option("--burn", "Burn generated subtitles directly into output video (hardsub)", false)
     .option(
       "--burn-position <position>",
@@ -1771,26 +1379,18 @@ export function createProgram(): Command {
     .option(
       "--whisper-prompt <text>",
       "Prompt hint for Groq Whisper speech recognition (Groq only; not sent to OpenRouter)",
-    )
-    .option("--prompt <instruction>", "Additional instruction prompt for Gemini translation")
-    .option(
-      "--glossary <path-or-terms>",
-      "Glossary file path (JSON) or inline terms (key=val,key=val)",
-    )
-    .option("--concurrency <number>", "Number of concurrent translation requests to Gemini API")
-    .option("--gemini-model <model>", "Gemini model to use for translation")
+    );
+
+  addTranslationOptions(program)
     .option("--no-cache", "Do not use or save intermediate transcription/translation cache")
     .option(
       "--fresh",
       "Ignore existing cache and generate fresh transcription/translations, overwriting cache",
       false,
     )
-    .option("--cache-dir <path>", "Custom cache directory")
-    .option(
-      "--context-window <lines>",
-      "Number of preceding context lines to carry across translation chunks (0 to disable)",
-      "5",
-    )
+    .option("--cache-dir <path>", "Custom cache directory");
+
+  addContextWindowOption(program)
     .option("--burn", "Burn generated subtitles directly into output video (hardsub)", false)
     .option(
       "--burn-position <position>",
