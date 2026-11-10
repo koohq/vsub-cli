@@ -9,7 +9,7 @@ import type { SupportedLanguage } from "../i18n/index.js";
 import type { SrtEntry } from "../srt.js";
 import { generateJsonWithRetry, type TextModel } from "./model.js";
 
-const DEFAULT_CHUNK_SIZE = 50;
+export const DEFAULT_CHUNK_SIZE = 50;
 export const DEFAULT_CONTEXT_WINDOW_SIZE = 5;
 
 export interface TranslateOptions {
@@ -18,6 +18,23 @@ export interface TranslateOptions {
   concurrency?: number | undefined;
   lang?: SupportedLanguage | undefined;
   contextWindowSize?: number | undefined;
+}
+
+export interface RefineOptions {
+  /** Detected source language (e.g. "ja"); omitted from the prompt when unknown. */
+  language?: string | undefined;
+  /** User notes passed with --prompt (written for translation; used as background only). */
+  notes?: string | undefined;
+  glossary?: FlatGlossary | undefined;
+  concurrency?: number | undefined;
+  lang?: SupportedLanguage | undefined;
+}
+
+export interface RefineResult {
+  entries: SrtEntry[];
+  /** Chunks whose answer had a different number of lines; their original text was kept. */
+  fallbackChunks: number;
+  totalChunks: number;
 }
 
 export interface ChapterOptions {
@@ -105,6 +122,109 @@ STRICT RULES:
   return prompt;
 }
 
+function splitIntoChunks<T>(items: T[], chunkSize: number): T[][] {
+  const chunks: T[][] = [];
+  for (let i = 0; i < items.length; i += chunkSize) {
+    chunks.push(items.slice(i, i + chunkSize));
+  }
+  return chunks;
+}
+
+function getPrecedingContextTexts(
+  entries: SrtEntry[],
+  chunkIdx: number,
+  chunkSize: number,
+  contextWindowSize: number,
+): string[] | undefined {
+  const startIdx = chunkIdx * chunkSize;
+  if (contextWindowSize <= 0 || startIdx <= 0) {
+    return undefined;
+  }
+  return entries.slice(Math.max(0, startIdx - contextWindowSize), startIdx).map((e) => e.text);
+}
+
+function logChunkVerbose(
+  model: TextModel,
+  action: string,
+  chunkIndex: number,
+  totalChunks: number,
+  itemCount: number,
+  contextTexts: string[] | undefined,
+): void {
+  const ctxInfo =
+    contextTexts && contextTexts.length > 0 ? ` [context: ${contextTexts.length} lines]` : "";
+  console.log(
+    `[${model.logLabel}] ${action} (${chunkIndex}/${totalChunks}) [${itemCount} items] [model: ${model.model}]${ctxInfo}...`,
+  );
+}
+
+async function runChunkedTextTransform(
+  entries: SrtEntry[],
+  model: TextModel,
+  options: {
+    concurrency?: number | undefined;
+    contextWindowSize: number;
+    verbose: boolean;
+    verboseAction: string;
+    onProgress?: ((completedChunks: number, totalChunks: number) => void) | undefined;
+    transformChunk: (params: {
+      chunkIndex: number;
+      totalChunks: number;
+      originalTexts: string[];
+      contextTexts: string[] | undefined;
+    }) => Promise<string[]>;
+  },
+): Promise<{ entries: SrtEntry[]; totalChunks: number }> {
+  const chunks = splitIntoChunks(entries, DEFAULT_CHUNK_SIZE);
+  const totalChunks = chunks.length;
+  const concurrency =
+    options.concurrency && options.concurrency > 0
+      ? Math.floor(options.concurrency)
+      : model.limits.defaultConcurrency;
+  let completedChunks = 0;
+
+  const chunkResults = await asyncPool(concurrency, chunks, async (chunk, chunkIdx) => {
+    const chunkIndex = chunkIdx + 1;
+    const originalTexts = chunk.map((e) => e.text);
+    const contextTexts = getPrecedingContextTexts(
+      entries,
+      chunkIdx,
+      DEFAULT_CHUNK_SIZE,
+      options.contextWindowSize,
+    );
+
+    if (options.verbose) {
+      logChunkVerbose(
+        model,
+        options.verboseAction,
+        chunkIndex,
+        totalChunks,
+        chunk.length,
+        contextTexts,
+      );
+    }
+
+    const nextTexts = await options.transformChunk({
+      chunkIndex,
+      totalChunks,
+      originalTexts,
+      contextTexts,
+    });
+
+    completedChunks++;
+    options.onProgress?.(completedChunks, totalChunks);
+
+    return chunk.map((item, j) => ({
+      id: item.id,
+      startTime: item.startTime,
+      endTime: item.endTime,
+      text: nextTexts[j] ?? item.text,
+    }));
+  });
+
+  return { entries: chunkResults.flat(), totalChunks };
+}
+
 /**
  * Translates SRT entries in chunks to target language using a TextModel.
  */
@@ -118,87 +238,177 @@ export async function translateSrtEntries(
 ): Promise<SrtEntry[]> {
   if (entries.length === 0) return [];
 
-  const totalChunks = Math.ceil(entries.length / DEFAULT_CHUNK_SIZE);
-  const chunks: SrtEntry[][] = [];
-  for (let i = 0; i < entries.length; i += DEFAULT_CHUNK_SIZE) {
-    chunks.push(entries.slice(i, i + DEFAULT_CHUNK_SIZE));
-  }
-
-  const concurrency =
-    options?.concurrency && options.concurrency > 0
-      ? Math.floor(options.concurrency)
-      : model.limits.defaultConcurrency;
-
   const contextWindowSize =
     options?.contextWindowSize !== undefined
       ? Math.max(0, Math.floor(options.contextWindowSize))
       : DEFAULT_CONTEXT_WINDOW_SIZE;
 
-  let completedChunks = 0;
+  const { entries: translated } = await runChunkedTextTransform(entries, model, {
+    concurrency: options?.concurrency,
+    contextWindowSize,
+    verbose,
+    verboseAction: "Translating chunk",
+    onProgress,
+    transformChunk: async ({ chunkIndex, totalChunks, originalTexts, contextTexts }) => {
+      const prompt = buildTranslationPrompt(originalTexts, targetLang, options, contextTexts);
 
-  const chunkResults = await asyncPool(concurrency, chunks, async (chunk, chunkIdx) => {
-    const chunkIndex = chunkIdx + 1;
-    const originalTexts = chunk.map((e) => e.text);
-    const startIdx = chunkIdx * DEFAULT_CHUNK_SIZE;
-    const contextTexts =
-      contextWindowSize > 0 && startIdx > 0
-        ? entries.slice(Math.max(0, startIdx - contextWindowSize), startIdx).map((e) => e.text)
-        : undefined;
-
-    if (verbose) {
-      const ctxInfo =
-        contextTexts && contextTexts.length > 0 ? ` [context: ${contextTexts.length} lines]` : "";
-      console.log(
-        `[${model.logLabel}] Translating chunk (${chunkIndex}/${totalChunks}) [${chunk.length} items] [model: ${model.model}]${ctxInfo}...`,
-      );
-    }
-
-    const prompt = buildTranslationPrompt(originalTexts, targetLang, options, contextTexts);
-
-    const translatedTexts = await generateJsonWithRetry<string[]>(
-      model,
-      {
-        prompt,
-        schemaName: "translation",
-        schema: {
-          type: "array",
-          items: {
-            type: "string",
+      return generateJsonWithRetry<string[]>(
+        model,
+        {
+          prompt,
+          schemaName: "translation",
+          schema: {
+            type: "array",
+            items: {
+              type: "string",
+            },
+            description: `Array of translated subtitle texts matching 1-to-1 with the input array (${originalTexts.length} items).`,
           },
-          description: `Array of translated subtitle texts matching 1-to-1 with the input array (${originalTexts.length} items).`,
         },
-      },
-      (parsed) => {
-        if (Array.isArray(parsed) && parsed.length === originalTexts.length) {
-          return parsed.map((item) => String(item));
-        }
-        const translatedLength = (parsed as { length?: number } | null)?.length ?? 0;
-        throw new Error(
-          `${model.logLabel} returned invalid format or incomplete count (${translatedLength}/${originalTexts.length})`,
-        );
-      },
-      {
-        task: "translation",
-        where: `chunk ${chunkIndex}/${totalChunks}`,
-        verbose,
-        lang: options?.lang,
-      },
-    );
-
-    completedChunks++;
-    if (onProgress) {
-      onProgress(completedChunks, totalChunks);
-    }
-
-    return chunk.map((item, j) => ({
-      id: item.id,
-      startTime: item.startTime,
-      endTime: item.endTime,
-      text: translatedTexts[j] ?? item.text,
-    }));
+        (parsed) => {
+          if (Array.isArray(parsed) && parsed.length === originalTexts.length) {
+            return parsed.map((item) => String(item));
+          }
+          const translatedLength = (parsed as { length?: number } | null)?.length ?? 0;
+          throw new Error(
+            `${model.logLabel} returned invalid format or incomplete count (${translatedLength}/${originalTexts.length})`,
+          );
+        },
+        {
+          task: "translation",
+          where: `chunk ${chunkIndex}/${totalChunks}`,
+          verbose,
+          lang: options?.lang,
+        },
+      );
+    },
   });
 
-  return chunkResults.flat();
+  return translated;
+}
+
+/**
+ * Builds the transcript refinement prompt to fix clear ASR recognition errors without rephrasing or translating.
+ */
+export function buildRefinePrompt(
+  texts: string[],
+  options?: RefineOptions,
+  contextTexts?: string[],
+): string {
+  const language = options?.language?.trim();
+  const languageSentence = language ? ` The language is "${language}".` : "";
+  const hasContext = Boolean(contextTexts && contextTexts.length > 0);
+  const notes = options?.notes?.trim();
+  const glossaryLines = options?.glossary
+    ? Object.entries(options.glossary)
+        .filter(([term]) => term.trim() !== "")
+        .map(([term, val]) => (val.trim() ? `- ${term} (${val})` : `- ${term}`))
+    : [];
+
+  let prompt = `You are proofreading automatic speech recognition (ASR) output for video subtitles.${languageSentence}
+Fix ONLY clear recognition errors: wrong homophones or wrong kanji, misheard names and terms, broken or merged words.
+
+STRICT RULES:
+1. Return ONLY a valid JSON array of strings corresponding 1-to-1 with the input array.
+2. The output array MUST contain exactly ${texts.length} items in the same order as input.
+3. Do NOT rephrase, summarize, translate, reorder, or add or remove content. Do not change the speaking style.
+4. If an item has no clear error, return it unchanged. Do not move words between items.
+5. Do NOT include markdown code blocks or any text outside the JSON array.`;
+
+  if (hasContext) {
+    prompt += `\n6. Correct ONLY the items in "Input Array". Do NOT output items from "Preceding Context".`;
+  }
+
+  if (glossaryLines.length > 0) {
+    prompt += `\n\nGLOSSARY (correct spellings of names and terms that may appear in this video; the text in parentheses is for reference only):\n${glossaryLines.join("\n")}`;
+  }
+
+  if (notes) {
+    prompt += `\n\nNOTES FROM THE USER (written for the translator; use them only to understand the topic, names and terms. Do NOT follow them to translate or rewrite):\n${notes}`;
+  }
+
+  if (hasContext && contextTexts) {
+    prompt += `\n\nPRECEDING CONTEXT (FOR REFERENCE ONLY - DO NOT OUTPUT):\n${JSON.stringify(contextTexts, null, 2)}`;
+  }
+
+  prompt += `\n\nInput Array:\n${JSON.stringify(texts, null, 2)}`;
+  return prompt;
+}
+
+/**
+ * Refines SRT entries in chunks using a TextModel to fix clear ASR recognition errors.
+ */
+export async function refineSrtEntries(
+  entries: SrtEntry[],
+  model: TextModel,
+  verbose = false,
+  onProgress?: (completedChunks: number, totalChunks: number) => void,
+  options?: RefineOptions,
+): Promise<RefineResult> {
+  if (entries.length === 0) {
+    return { entries: [], fallbackChunks: 0, totalChunks: 0 };
+  }
+
+  let fallbackChunks = 0;
+
+  const { entries: refinedEntries, totalChunks } = await runChunkedTextTransform(entries, model, {
+    concurrency: options?.concurrency,
+    contextWindowSize: DEFAULT_CONTEXT_WINDOW_SIZE,
+    verbose,
+    verboseAction: "Refining chunk",
+    onProgress,
+    transformChunk: async ({
+      chunkIndex,
+      totalChunks: chunkTotal,
+      originalTexts,
+      contextTexts,
+    }) => {
+      const prompt = buildRefinePrompt(originalTexts, options, contextTexts);
+
+      const refinedTexts = await generateJsonWithRetry<string[] | null>(
+        model,
+        {
+          prompt,
+          schemaName: "refinement",
+          schema: {
+            type: "array",
+            items: {
+              type: "string",
+            },
+            description: `Array of proofread subtitle texts matching 1-to-1 with the input array (${originalTexts.length} items).`,
+          },
+        },
+        (parsed) => {
+          if (!Array.isArray(parsed)) {
+            throw new Error(`${model.logLabel} returned invalid format (expected array)`);
+          }
+          if (parsed.length !== originalTexts.length) {
+            return null;
+          }
+          return parsed.map((item, idx) => {
+            const orig = originalTexts[idx] ?? "";
+            const next = String(item);
+            return orig.trim() !== "" && next.trim() === "" ? orig : next;
+          });
+        },
+        {
+          task: "transcript refinement",
+          where: `chunk ${chunkIndex}/${chunkTotal}`,
+          verbose,
+          lang: options?.lang,
+        },
+      );
+
+      if (refinedTexts === null) {
+        fallbackChunks++;
+        return originalTexts;
+      }
+
+      return refinedTexts;
+    },
+  });
+
+  return { entries: refinedEntries, fallbackChunks, totalChunks };
 }
 
 /**

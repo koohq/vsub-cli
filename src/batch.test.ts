@@ -411,6 +411,27 @@ describe("batch.ts", () => {
           },
           expected: { requireGroq: false, requireGemini: false, requireOpenRouter: true },
         },
+        {
+          description: "noTranslate: true with refine: true (gemini)",
+          options: { noTranslate: true, refine: true },
+          expected: { requireGroq: true, requireGemini: true, requireOpenRouter: false },
+        },
+        {
+          description: "noTranslate: true with refine: true (openrouter)",
+          options: {
+            sttProvider: "groq",
+            llmProvider: "openrouter",
+            noTranslate: true,
+            refine: true,
+          },
+          mockConfig: {
+            openrouterApiKey: "vsub-openrouter-key",
+            groqApiKey: "gsk-mock",
+            geminiApiKey: "",
+            ffmpegPath: "ffmpeg",
+          },
+          expected: { requireGroq: true, requireGemini: false, requireOpenRouter: true },
+        },
       ])(
         "should call ensureApiKeys with correct requirements ($description)",
         async ({ options, expected, mockConfig }) => {
@@ -426,6 +447,11 @@ describe("batch.ts", () => {
             expect.anything(),
             expect.objectContaining(expected),
           );
+          if ("refine" in options && options.refine) {
+            expect(processMediaPipelineSpy).toHaveBeenCalledWith(
+              expect.objectContaining({ refine: true }),
+            );
+          }
         },
       );
 

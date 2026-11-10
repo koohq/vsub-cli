@@ -464,6 +464,20 @@ describe("CLI integration harness", () => {
       args: ["batch", "videos"],
       getMock: () => runBatchPipeline,
     },
+    {
+      flag: "--refine",
+      prop: "refine" as const,
+      command: "main",
+      args: ["video.mp4"],
+      getMock: () => processMediaPipeline,
+    },
+    {
+      flag: "--refine",
+      prop: "refine" as const,
+      command: "batch",
+      args: ["batch", "videos"],
+      getMock: () => runBatchPipeline,
+    },
   ];
 
   describe.each(pipelineCases)("$command $flag", ({ flag, prop, args, getMock }) => {
@@ -1232,6 +1246,7 @@ describe("CLI integration harness", () => {
           "Additional instruction prompt for translation",
           "Number of concurrent translation requests",
           "Gemini model to use for translation (Gemini provider only)",
+          "Correct speech recognition errors in the transcript with the text generation model before translation (off by default; uses --glossary and --prompt; timing and line count are kept)",
           "Force translation even if detected language matches target language",
         ],
       },
@@ -1245,6 +1260,7 @@ describe("CLI integration harness", () => {
           "Additional instruction prompt for translation",
           "Number of concurrent translation requests",
           "Gemini model to use for translation (Gemini provider only)",
+          "Correct speech recognition errors in the transcript with the text generation model before translation (off by default; uses --glossary and --prompt; timing and line count are kept)",
           "Force translation even if detected language matches target language",
         ],
       },

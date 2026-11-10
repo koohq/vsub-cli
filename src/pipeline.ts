@@ -41,6 +41,7 @@ import {
 import { extractWhisperPromptHints } from "./glossary.js";
 import { getI18n, type SupportedLanguage } from "./i18n/index.js";
 import { getLanguageDisplayName, parseTargetLanguages, resolveTargetLang } from "./languages.js";
+import { refineSourceEntries } from "./refine.js";
 import { type EnsureWritableResult, ensureWritableTargets } from "./safety.js";
 import {
   type BilingualOrder,
@@ -233,6 +234,7 @@ export interface ProcessMediaOptions {
   keepAudio?: boolean | undefined;
   noTranslate?: boolean | undefined;
   saveOriginal?: boolean | undefined;
+  refine?: boolean | undefined;
   forceTranslate?: boolean | undefined;
   verbose?: boolean | undefined;
   silentSummary?: boolean | undefined;
@@ -268,6 +270,14 @@ export interface ProcessMediaResult {
   sttModel: string;
   llmProvider: LlmProvider;
   llmModel: string;
+  refinement?:
+    | {
+        changedLines: number;
+        totalLines: number;
+        cached: boolean;
+        fallbackChunks: number;
+      }
+    | undefined;
   cacheStatus?:
     | {
         transcriptionHit?: boolean | undefined;
@@ -647,6 +657,59 @@ export async function processMediaPipeline(
   }
 
   try {
+    let activeConfig: ReturnType<typeof getConfig> | null = null;
+    let sharedTextModel: ReturnType<typeof createTextModel> | null = null;
+    const getTextModel = async () => {
+      if (!activeConfig) {
+        activeConfig = await ensureApiKeys(rawConfig, {
+          requireGroq: false,
+          requireGemini: llm.provider === "gemini",
+          requireOpenRouter: llm.provider === "openrouter",
+          lang,
+        });
+      }
+      if (!sharedTextModel) {
+        sharedTextModel = createTextModel(activeConfig, llm, { lang });
+      }
+      return sharedTextModel;
+    };
+
+    const translationPrompt = options.prompt?.trim() || rawConfig.prompt;
+    const resolvedConcurrency = resolveConcurrency(options.concurrency, rawConfig.concurrency);
+
+    let refinementResult: ProcessMediaResult["refinement"];
+    if (options.refine) {
+      const refined = await refineSourceEntries({
+        sourceEntries: srtEntries,
+        detectedLanguage,
+        glossaryTargetLang: targetLanguages[0],
+        cacheFilePath: resolvedMediaPath,
+        mediaCache,
+        useCache,
+        noCache: Boolean(options.noCache),
+        cacheDir: options.cacheDir,
+        prompt: translationPrompt,
+        glossaryInput,
+        concurrency: resolvedConcurrency,
+        llm: {
+          provider: llm.provider,
+          model: llm.model,
+        },
+        getTextModel,
+        spinner,
+        prefix,
+        verbose,
+        lang,
+      });
+      srtEntries = refined.entries;
+      refinementResult = {
+        changedLines: refined.changedLines,
+        totalLines: refined.totalLines,
+        cached: refined.cached,
+        fallbackChunks: refined.fallbackChunks,
+      };
+    }
+
     // Save original raw subtitles if requested
     if (options.saveOriginal && srtEntries.length > 0) {
       const rawLang = detectedLanguage || "raw";
@@ -683,10 +746,7 @@ export async function processMediaPipeline(
     }
 
     // 3. Text Generation Translation for each target language
-    let activeConfig: ReturnType<typeof getConfig> | null = null;
-    const translationPrompt = options.prompt?.trim() || rawConfig.prompt;
     const resolvedContextWindow = resolveContextWindowSize(options.contextWindow);
-    const resolvedConcurrency = resolveConcurrency(options.concurrency, rawConfig.concurrency);
 
     const {
       resultsByLang,
@@ -710,17 +770,7 @@ export async function processMediaPipeline(
         provider: llm.provider,
         model: llm.model,
       },
-      getTextModel: async () => {
-        if (!activeConfig) {
-          activeConfig = await ensureApiKeys(rawConfig, {
-            requireGroq: false,
-            requireGemini: llm.provider === "gemini",
-            requireOpenRouter: llm.provider === "openrouter",
-            lang,
-          });
-        }
-        return createTextModel(activeConfig, llm, { lang });
-      },
+      getTextModel,
       shouldSkip: (targetL) => {
         const isSameLanguage = Boolean(
           detectedLanguage && detectedLanguage.toLowerCase() === targetL.toLowerCase(),
@@ -914,6 +964,7 @@ export async function processMediaPipeline(
       sttModel: stt.model,
       llmProvider: llm.provider,
       llmModel: llm.model,
+      refinement: refinementResult,
       cacheStatus:
         transcriptionCacheHit || cachedLanguages.length > 0
           ? {

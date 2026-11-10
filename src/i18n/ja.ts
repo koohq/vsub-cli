@@ -95,6 +95,12 @@ export const ja: typeof en = {
     step2NoEntries: "⚠️ [2/4] 文字起こし結果から有効な字幕エントリが検出されませんでした",
     step2Done: (lang: string, count: number) =>
       `🎙️ [2/4] 文字起こし完了${lang} - ${count} 行の字幕を生成`,
+    step2Refining: (provider: string, model: string, current: number, total: number) =>
+      `✍️ [2/4] ${provider} (${model}) で文字起こしを修正中 [${current}/${total} チャンク]...`,
+    step2Refined: (changed: number, total: number, cached = false) =>
+      `✍️ [2/4] 文字起こしの修正完了 - ${changed}/${total} 行を変更${cached ? " [⚡ キャッシュ利用]" : ""}`,
+    step2RefineFallbackWarn: (fallbackChunks: number, totalChunks: number) =>
+      `⚠️ [2/4] ${fallbackChunks}/${totalChunks} チャンクはモデルが返した行数が一致しなかったため、元の文字をそのまま使いました`,
     step3Cached: (lang: string, count: number) => `  ✔ ${lang} 翻訳 (キャッシュ利用: ${count} 行)`,
     step3TranslatingMulti: (
       provider: string,

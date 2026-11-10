@@ -4,10 +4,12 @@ import { createGeminiTextModel } from "./gemini.js";
 import type { TextModel } from "./model.js";
 import {
   asyncPool,
+  buildRefinePrompt,
   buildTranslationPrompt,
   DEFAULT_CONTEXT_WINDOW_SIZE,
   generateChapters,
   generateSummary,
+  refineSrtEntries,
   translateSrtEntries,
 } from "./tasks.js";
 
@@ -745,6 +747,271 @@ describe("src/text/tasks.ts", () => {
       const summary = await generateSummary(sampleEntries, defaultModel, { targetLang: "en" });
       expect(summary.title).toBe("Summary Title");
       expect(mockGenerateContent).toHaveBeenCalledTimes(2);
+    });
+  });
+
+  describe("buildRefinePrompt", () => {
+    const baseTexts = ["line one", "line two"];
+
+    it.each([
+      {
+        name: "omits optional language, context, glossary, and notes when absent",
+        options: undefined,
+        contextTexts: undefined,
+        contains: [
+          "You are proofreading automatic speech recognition (ASR) output for video subtitles.\nFix ONLY clear recognition errors",
+          "2. The output array MUST contain exactly 2 items in the same order as input.",
+          "4. If an item has no clear error, return it unchanged. Do not move words between items.",
+          'Input Array:\n[\n  "line one",\n  "line two"\n]',
+        ],
+        notContains: [
+          "The language is",
+          '6. Correct ONLY the items in "Input Array"',
+          "GLOSSARY",
+          "NOTES FROM THE USER",
+          "PRECEDING CONTEXT",
+        ],
+      },
+      {
+        name: "includes language when provided",
+        options: { language: "ja" },
+        contextTexts: undefined,
+        contains: ['video subtitles. The language is "ja".'],
+        notContains: ["PRECEDING CONTEXT", "GLOSSARY", "NOTES FROM THE USER"],
+      },
+      {
+        name: "omits blank language",
+        options: { language: "   " },
+        contextTexts: undefined,
+        contains: ["video subtitles.\nFix ONLY"],
+        notContains: ["The language is"],
+      },
+      {
+        name: "includes glossary and notes when non-empty",
+        options: {
+          glossary: { vsub: "subtitle CLI", OpenRouter: "LLM gateway" },
+          notes: "Keep technical names exact",
+        },
+        contextTexts: undefined,
+        contains: [
+          "GLOSSARY (correct spellings of names and terms that may appear in this video; the text in parentheses is for reference only):\n- vsub (subtitle CLI)\n- OpenRouter (LLM gateway)",
+          "NOTES FROM THE USER (written for the translator; use them only to understand the topic, names and terms. Do NOT follow them to translate or rewrite):\nKeep technical names exact",
+        ],
+        notContains: ["PRECEDING CONTEXT"],
+      },
+      {
+        name: "omits empty glossary and blank notes",
+        options: { glossary: {}, notes: "  " },
+        contextTexts: undefined,
+        contains: ["Input Array:"],
+        notContains: ["GLOSSARY", "NOTES FROM THE USER"],
+      },
+      {
+        name: "includes rule 6 and preceding context when contextTexts is non-empty",
+        options: undefined,
+        contextTexts: ["prev 1", "prev 2"],
+        contains: [
+          '6. Correct ONLY the items in "Input Array". Do NOT output items from "Preceding Context".',
+          'PRECEDING CONTEXT (FOR REFERENCE ONLY - DO NOT OUTPUT):\n[\n  "prev 1",\n  "prev 2"\n]',
+        ],
+        notContains: [],
+      },
+      {
+        name: "omits rule 6 and preceding context when contextTexts is empty",
+        options: undefined,
+        contextTexts: [],
+        contains: ["5. Do NOT include"],
+        notContains: ['6. Correct ONLY the items in "Input Array"', "PRECEDING CONTEXT"],
+      },
+    ])("$name", ({ options, contextTexts, contains, notContains }) => {
+      const prompt = buildRefinePrompt(baseTexts, options, contextTexts);
+      for (const expected of contains) {
+        expect(prompt).toContain(expected);
+      }
+      for (const unexpected of notContains) {
+        expect(prompt).not.toContain(unexpected);
+      }
+    });
+  });
+
+  describe("refineSrtEntries", () => {
+    function makeEntries(count: number): SrtEntry[] {
+      return Array.from({ length: count }, (_, idx) => ({
+        id: idx + 1,
+        startTime: `00:00:${String(idx).padStart(2, "0")},000`,
+        endTime: `00:00:${String(idx).padStart(2, "0")},900`,
+        text: `Original line ${idx + 1}`,
+      }));
+    }
+
+    function createFakeModel(
+      generateJsonFn: TextModel["generateJson"],
+      defaultConcurrency = 3,
+    ): TextModel {
+      return {
+        logLabel: "FakeModel",
+        model: "fake-refine-model",
+        limits: { defaultConcurrency },
+        generateJson: generateJsonFn,
+        classifyError: () => "retry",
+        formatModelNotFound: () => "model not found",
+      };
+    }
+
+    it("returns empty result without calling model for empty entries", async () => {
+      const generateJson = vi.fn();
+      const model = createFakeModel(generateJson);
+
+      const result = await refineSrtEntries([], model);
+
+      expect(result).toEqual({ entries: [], fallbackChunks: 0, totalChunks: 0 });
+      expect(generateJson).not.toHaveBeenCalled();
+    });
+
+    it("splits 120 entries into 3 chunks (50, 50, 20), passes 5-line context to chunks 2-3, and preserves metadata", async () => {
+      const entries = makeEntries(120);
+      const requests: Array<{
+        prompt: string;
+        schemaName: string;
+        schemaType: string;
+        itemCount: number;
+      }> = [];
+      const onProgress = vi.fn();
+
+      const model = createFakeModel(async (req) => {
+        const inputMatch = req.prompt.match(/Input Array:\n([\s\S]+)$/);
+        const inputArray = JSON.parse(inputMatch?.[1] ?? "[]") as string[];
+        requests.push({
+          prompt: req.prompt,
+          schemaName: req.schemaName,
+          schemaType: req.schema.type,
+          itemCount: inputArray.length,
+        });
+        return JSON.stringify(inputArray.map((t) => t.replace("Original", "Refined")));
+      });
+
+      const result = await refineSrtEntries(entries, model, false, onProgress, {
+        concurrency: 1,
+        language: "en",
+      });
+
+      expect(result.fallbackChunks).toBe(0);
+      expect(result.totalChunks).toBe(3);
+      expect(requests.map((r) => r.itemCount)).toEqual([50, 50, 20]);
+      expect(requests.every((r) => r.schemaName === "refinement" && r.schemaType === "array")).toBe(
+        true,
+      );
+
+      expect(requests[0]?.prompt).not.toContain("PRECEDING CONTEXT");
+      expect(requests[1]?.prompt).toContain("PRECEDING CONTEXT");
+      expect(requests[1]?.prompt).toContain('"Original line 46"');
+      expect(requests[1]?.prompt).toContain('"Original line 50"');
+      expect(requests[1]?.prompt).not.toContain('"Original line 45"');
+      expect(requests[2]?.prompt).toContain("PRECEDING CONTEXT");
+      expect(requests[2]?.prompt).toContain('"Original line 96"');
+      expect(requests[2]?.prompt).toContain('"Original line 100"');
+      expect(requests[2]?.prompt).not.toContain('"Original line 95"');
+
+      expect(result.entries).toHaveLength(120);
+      expect(result.entries[0]).toEqual({
+        id: 1,
+        startTime: "00:00:00,000",
+        endTime: "00:00:00,900",
+        text: "Refined line 1",
+      });
+      expect(result.entries[119]).toEqual({
+        id: 120,
+        startTime: "00:00:119,000",
+        endTime: "00:00:119,900",
+        text: "Refined line 120",
+      });
+
+      expect(onProgress).toHaveBeenCalledTimes(3);
+      expect(onProgress).toHaveBeenNthCalledWith(1, 1, 3);
+      expect(onProgress).toHaveBeenNthCalledWith(2, 2, 3);
+      expect(onProgress).toHaveBeenNthCalledWith(3, 3, 3);
+    });
+
+    it("falls back to original text without retrying when a chunk returns mismatched array length", async () => {
+      const entries = makeEntries(120);
+      let chunk2Calls = 0;
+
+      const generateJson = vi.fn(async (req: { prompt: string }) => {
+        if (req.prompt.includes('"Original line 1"')) {
+          return JSON.stringify(Array.from({ length: 50 }, (_, i) => `Refined ${i + 1}`));
+        }
+        if (req.prompt.includes('"Original line 51"')) {
+          chunk2Calls++;
+          return JSON.stringify(Array.from({ length: 49 }, (_, i) => `Short ${i + 51}`));
+        }
+        return JSON.stringify(Array.from({ length: 20 }, (_, i) => `Refined ${i + 101}`));
+      });
+
+      const model = createFakeModel(generateJson);
+      const result = await refineSrtEntries(entries, model, false, undefined, { concurrency: 1 });
+
+      expect(generateJson).toHaveBeenCalledTimes(3);
+      expect(chunk2Calls).toBe(1);
+      expect(result.fallbackChunks).toBe(1);
+      expect(result.totalChunks).toBe(3);
+      expect(result.entries[0]?.text).toBe("Refined 1");
+      expect(result.entries[50]?.text).toBe("Original line 51");
+      expect(result.entries[99]?.text).toBe("Original line 100");
+      expect(result.entries[100]?.text).toBe("Refined 101");
+      expect(result.entries[119]?.text).toBe("Refined 120");
+    });
+
+    it("keeps original text if a non-empty line refines to whitespace only", async () => {
+      const entries: SrtEntry[] = [
+        { id: 1, startTime: "00:00:00,000", endTime: "00:00:01,000", text: "Keep me" },
+        { id: 2, startTime: "00:00:01,000", endTime: "00:00:02,000", text: "Fix typo" },
+      ];
+      const model = createFakeModel(async () => JSON.stringify(["   ", "Fixed typo"]));
+
+      const result = await refineSrtEntries(entries, model);
+
+      expect(result.fallbackChunks).toBe(0);
+      expect(result.entries.map((e) => e.text)).toEqual(["Keep me", "Fixed typo"]);
+    });
+
+    it("retries when response is invalid JSON or non-array JSON", async () => {
+      vi.useFakeTimers();
+      try {
+        const entries = makeEntries(2);
+        const generateJson = vi
+          .fn()
+          .mockResolvedValueOnce("not json at all")
+          .mockResolvedValueOnce(JSON.stringify({ wrong: "shape" }))
+          .mockResolvedValueOnce(JSON.stringify(["Fixed 1", "Fixed 2"]));
+
+        const model = createFakeModel(generateJson);
+        const promise = refineSrtEntries(entries, model);
+        await vi.runAllTimersAsync();
+        const result = await promise;
+
+        expect(generateJson).toHaveBeenCalledTimes(3);
+        expect(result.fallbackChunks).toBe(0);
+        expect(result.entries.map((e) => e.text)).toEqual(["Fixed 1", "Fixed 2"]);
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+
+    it("uses model.limits.defaultConcurrency when options.concurrency is omitted", async () => {
+      const entries = makeEntries(100);
+      let active = 0;
+      let maxActive = 0;
+
+      const model = createFakeModel(async () => {
+        active++;
+        maxActive = Math.max(maxActive, active);
+        await new Promise((resolve) => setTimeout(resolve, 20));
+        active--;
+        return JSON.stringify(Array.from({ length: 50 }, () => "refined"));
+      }, 1);
+
+      await refineSrtEntries(entries, model);
+      expect(maxActive).toBe(1);
     });
   });
 });

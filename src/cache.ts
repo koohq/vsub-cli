@@ -22,6 +22,17 @@ export interface CachedTranscription {
   createdAt: number;
 }
 
+export interface CachedRefinement {
+  provider?: LlmProvider | undefined;
+  model?: string | undefined;
+  prompt?: string | undefined;
+  glossaryHash?: string | undefined;
+  /** computeEntriesHash() of the entries that were refined (after building and reflow). */
+  sourceHash?: string | undefined;
+  entries: SrtEntry[];
+  createdAt: number;
+}
+
 export interface CachedTranslation {
   targetLang: string;
   provider?: LlmProvider | undefined;
@@ -138,62 +149,12 @@ export interface TranslationCacheContext {
   contextWindowSize: number;
 }
 
-/**
- * Checks if cached translation matches current source entries, prompt, glossary, and model requirements.
- */
-export function isTranslationCacheValid(
-  cached: CachedTranslation | undefined,
-  context: TranslationCacheContext,
-): boolean {
-  if (!cached) return false;
-  if (!cached.sourceHash || cached.sourceHash !== computeEntriesHash(context.sourceEntries)) {
-    return false;
-  }
-  if (cached.entries.length === 0 || cached.entries.length !== context.sourceEntries.length) {
-    return false;
-  }
-  if (normalizeCacheString(cached.prompt) !== normalizeCacheString(context.prompt)) {
-    return false;
-  }
-  if (normalizeCacheString(cached.glossaryHash) !== normalizeCacheString(context.glossaryHash)) {
-    return false;
-  }
-  const cachedProvider: LlmProvider = cached.provider ?? "gemini";
-  const contextProvider: LlmProvider = context.provider ?? "gemini";
-  if (cachedProvider !== contextProvider) {
-    return false;
-  }
-  if (
-    normalizeModelForLlmProvider(cachedProvider, cached.model) !==
-    normalizeModelForLlmProvider(contextProvider, context.model)
-  ) {
-    return false;
-  }
-  if (cached.contextWindowSize !== context.contextWindowSize) {
-    return false;
-  }
-  return true;
-}
-
-/**
- * Creates a CachedTranslation object bound to the given context and translated entries.
- */
-export function createCachedTranslation(
-  targetLang: string,
-  context: TranslationCacheContext,
-  translatedEntries: SrtEntry[],
-): CachedTranslation {
-  return {
-    targetLang,
-    provider: context.provider,
-    model: context.model,
-    prompt: context.prompt,
-    glossaryHash: context.glossaryHash,
-    sourceHash: computeEntriesHash(context.sourceEntries),
-    contextWindowSize: context.contextWindowSize,
-    entries: translatedEntries,
-    createdAt: Date.now(),
-  };
+export interface RefinementCacheContext {
+  sourceEntries: SrtEntry[];
+  provider?: LlmProvider | undefined;
+  model?: string | undefined;
+  prompt?: string | undefined;
+  glossaryHash?: string | undefined;
 }
 
 export interface GeneratedCacheContext {
@@ -203,7 +164,7 @@ export interface GeneratedCacheContext {
   model?: string | undefined;
 }
 
-function isGeneratedCacheValid(
+function isLlmSourceCacheValid(
   cached:
     | {
         sourceHash?: string | undefined;
@@ -236,13 +197,93 @@ function isGeneratedCacheValid(
 }
 
 /**
+ * Checks if cached refinement matches current source entries, prompt, glossary, and model requirements.
+ */
+export function isRefinementCacheValid(
+  cached: CachedRefinement | undefined,
+  context: RefinementCacheContext,
+): boolean {
+  if (!cached || !isLlmSourceCacheValid(cached, context)) {
+    return false;
+  }
+  if (cached.entries.length === 0 || cached.entries.length !== context.sourceEntries.length) {
+    return false;
+  }
+  if (normalizeCacheString(cached.glossaryHash) !== normalizeCacheString(context.glossaryHash)) {
+    return false;
+  }
+  return true;
+}
+
+/**
+ * Creates a CachedRefinement object bound to the given context and refined entries.
+ */
+export function createCachedRefinement(
+  context: RefinementCacheContext,
+  refinedEntries: SrtEntry[],
+): CachedRefinement {
+  return {
+    provider: context.provider,
+    model: context.model,
+    prompt: context.prompt,
+    glossaryHash: context.glossaryHash,
+    sourceHash: computeEntriesHash(context.sourceEntries),
+    entries: refinedEntries,
+    createdAt: Date.now(),
+  };
+}
+
+/**
+ * Checks if cached translation matches current source entries, prompt, glossary, and model requirements.
+ */
+export function isTranslationCacheValid(
+  cached: CachedTranslation | undefined,
+  context: TranslationCacheContext,
+): boolean {
+  if (!cached || !isLlmSourceCacheValid(cached, context)) {
+    return false;
+  }
+  if (cached.entries.length === 0 || cached.entries.length !== context.sourceEntries.length) {
+    return false;
+  }
+  if (normalizeCacheString(cached.glossaryHash) !== normalizeCacheString(context.glossaryHash)) {
+    return false;
+  }
+  if (cached.contextWindowSize !== context.contextWindowSize) {
+    return false;
+  }
+  return true;
+}
+
+/**
+ * Creates a CachedTranslation object bound to the given context and translated entries.
+ */
+export function createCachedTranslation(
+  targetLang: string,
+  context: TranslationCacheContext,
+  translatedEntries: SrtEntry[],
+): CachedTranslation {
+  return {
+    targetLang,
+    provider: context.provider,
+    model: context.model,
+    prompt: context.prompt,
+    glossaryHash: context.glossaryHash,
+    sourceHash: computeEntriesHash(context.sourceEntries),
+    contextWindowSize: context.contextWindowSize,
+    entries: translatedEntries,
+    createdAt: Date.now(),
+  };
+}
+
+/**
  * Checks if cached chapters match current prompt, model, and source entries requirements.
  */
 export function isChaptersCacheValid(
   cached: CachedChapters | undefined,
   context: GeneratedCacheContext,
 ): boolean {
-  return isGeneratedCacheValid(cached, context);
+  return isLlmSourceCacheValid(cached, context);
 }
 
 /**
@@ -252,7 +293,7 @@ export function isSummaryCacheValid(
   cached: CachedSummary | undefined,
   context: GeneratedCacheContext,
 ): boolean {
-  return isGeneratedCacheValid(cached, context);
+  return isLlmSourceCacheValid(cached, context);
 }
 
 /**
@@ -299,6 +340,7 @@ export interface MediaCacheData {
   mediaSize: number;
   mediaMtimeMs: number;
   transcription?: CachedTranscription | undefined;
+  refinement?: CachedRefinement | undefined;
   translations?: Record<string, CachedTranslation> | undefined;
   chapters?: Record<string, CachedChapters> | undefined;
   summaries?: Record<string, CachedSummary> | undefined;
@@ -381,13 +423,10 @@ export function loadMediaCache(filePath: string, customCacheDir?: string): Media
   }
 }
 
-/**
- * Saves or updates transcription results in media cache.
- */
-export function saveTranscriptionCache(
+function updateMediaCache(
   filePath: string,
-  transcription: CachedTranscription,
-  customCacheDir?: string,
+  customCacheDir: string | undefined,
+  buildPatch: (existing: MediaCacheData | null) => Partial<MediaCacheData>,
 ): void {
   try {
     const resolved = path.resolve(filePath);
@@ -401,6 +440,7 @@ export function saveTranscriptionCache(
 
     const cacheFile = getCacheFilePath(filePath, customCacheDir);
     const existing = loadMediaCache(filePath, customCacheDir);
+    const patch = buildPatch(existing);
 
     const now = Date.now();
     const data: MediaCacheData = {
@@ -408,10 +448,12 @@ export function saveTranscriptionCache(
       mediaPath: resolved,
       mediaSize: stat.size,
       mediaMtimeMs: stat.mtimeMs,
-      transcription,
-      translations: existing?.translations ?? {},
+      transcription: existing?.transcription,
+      refinement: existing?.refinement,
+      translations: existing?.translations,
       chapters: existing?.chapters,
       summaries: existing?.summaries,
+      ...patch,
       createdAt: existing?.createdAt ?? now,
       updatedAt: now,
     };
@@ -420,6 +462,33 @@ export function saveTranscriptionCache(
   } catch {
     // Non-fatal if cache save fails
   }
+}
+
+/**
+ * Saves or updates transcription results in media cache.
+ */
+export function saveTranscriptionCache(
+  filePath: string,
+  transcription: CachedTranscription,
+  customCacheDir?: string,
+): void {
+  updateMediaCache(filePath, customCacheDir, (existing) => ({
+    transcription,
+    translations: existing?.translations ?? {},
+  }));
+}
+
+/**
+ * Saves or updates transcript refinement results in media cache.
+ */
+export function saveRefinementCache(
+  filePath: string,
+  refinement: CachedRefinement,
+  customCacheDir?: string,
+): void {
+  updateMediaCache(filePath, customCacheDir, () => ({
+    refinement,
+  }));
 }
 
 /**
@@ -431,40 +500,11 @@ export function saveTranslationCache(
   translation: CachedTranslation,
   customCacheDir?: string,
 ): void {
-  try {
-    const resolved = path.resolve(filePath);
-    if (!fs.existsSync(resolved)) return;
-
-    const stat = fs.statSync(resolved);
-    const dir = getCacheDir(customCacheDir);
-    if (!fs.existsSync(dir)) {
-      fs.mkdirSync(dir, { recursive: true });
-    }
-
-    const cacheFile = getCacheFilePath(filePath, customCacheDir);
-    const existing = loadMediaCache(filePath, customCacheDir);
-
-    const now = Date.now();
+  updateMediaCache(filePath, customCacheDir, (existing) => {
     const translations = existing?.translations ?? {};
     translations[targetLang.toLowerCase()] = translation;
-
-    const data: MediaCacheData = {
-      version: 1,
-      mediaPath: resolved,
-      mediaSize: stat.size,
-      mediaMtimeMs: stat.mtimeMs,
-      transcription: existing?.transcription,
-      translations,
-      chapters: existing?.chapters,
-      summaries: existing?.summaries,
-      createdAt: existing?.createdAt ?? now,
-      updatedAt: now,
-    };
-
-    fs.writeFileSync(cacheFile, JSON.stringify(data, null, 2), "utf-8");
-  } catch {
-    // Non-fatal if cache save fails
-  }
+    return { translations };
+  });
 }
 
 /**
@@ -476,40 +516,11 @@ export function saveChaptersCache(
   chaptersData: CachedChapters,
   customCacheDir?: string,
 ): void {
-  try {
-    const resolved = path.resolve(filePath);
-    if (!fs.existsSync(resolved)) return;
-
-    const stat = fs.statSync(resolved);
-    const dir = getCacheDir(customCacheDir);
-    if (!fs.existsSync(dir)) {
-      fs.mkdirSync(dir, { recursive: true });
-    }
-
-    const cacheFile = getCacheFilePath(filePath, customCacheDir);
-    const existing = loadMediaCache(filePath, customCacheDir);
-
-    const now = Date.now();
+  updateMediaCache(filePath, customCacheDir, (existing) => {
     const chapters = existing?.chapters ?? {};
     chapters[targetLang.toLowerCase()] = chaptersData;
-
-    const data: MediaCacheData = {
-      version: 1,
-      mediaPath: resolved,
-      mediaSize: stat.size,
-      mediaMtimeMs: stat.mtimeMs,
-      transcription: existing?.transcription,
-      translations: existing?.translations,
-      chapters,
-      summaries: existing?.summaries,
-      createdAt: existing?.createdAt ?? now,
-      updatedAt: now,
-    };
-
-    fs.writeFileSync(cacheFile, JSON.stringify(data, null, 2), "utf-8");
-  } catch {
-    // Non-fatal if cache save fails
-  }
+    return { chapters };
+  });
 }
 
 /**
@@ -521,40 +532,11 @@ export function saveSummaryCache(
   summaryData: CachedSummary,
   customCacheDir?: string,
 ): void {
-  try {
-    const resolved = path.resolve(filePath);
-    if (!fs.existsSync(resolved)) return;
-
-    const stat = fs.statSync(resolved);
-    const dir = getCacheDir(customCacheDir);
-    if (!fs.existsSync(dir)) {
-      fs.mkdirSync(dir, { recursive: true });
-    }
-
-    const cacheFile = getCacheFilePath(filePath, customCacheDir);
-    const existing = loadMediaCache(filePath, customCacheDir);
-
-    const now = Date.now();
+  updateMediaCache(filePath, customCacheDir, (existing) => {
     const summaries = existing?.summaries ?? {};
     summaries[targetLang.toLowerCase()] = summaryData;
-
-    const data: MediaCacheData = {
-      version: 1,
-      mediaPath: resolved,
-      mediaSize: stat.size,
-      mediaMtimeMs: stat.mtimeMs,
-      transcription: existing?.transcription,
-      translations: existing?.translations,
-      chapters: existing?.chapters,
-      summaries,
-      createdAt: existing?.createdAt ?? now,
-      updatedAt: now,
-    };
-
-    fs.writeFileSync(cacheFile, JSON.stringify(data, null, 2), "utf-8");
-  } catch {
-    // Non-fatal if cache save fails
-  }
+    return { summaries };
+  });
 }
 
 export interface CacheStats {

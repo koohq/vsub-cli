@@ -35,6 +35,7 @@ import {
   DEFAULT_CONTEXT_WINDOW_SIZE,
   generateChapters,
   generateSummary,
+  refineSrtEntries,
   translateSrtEntries,
 } from "./text/tasks.js";
 import { DEFAULT_OPENROUTER_STT_MODEL } from "./transcribe/openrouter.js";
@@ -46,6 +47,11 @@ vi.mock("./text/tasks.js", async (importOriginal) => {
   const actual = await importOriginal<typeof import("./text/tasks.js")>();
   return {
     ...actual,
+    refineSrtEntries: vi.fn().mockImplementation(async (entries: SrtEntry[]) => ({
+      entries,
+      fallbackChunks: 0,
+      totalChunks: entries.length === 0 ? 0 : Math.ceil(entries.length / 50),
+    })),
     translateSrtEntries: vi.fn().mockImplementation(async (entries: unknown[]) => entries),
     generateChapters: vi.fn().mockResolvedValue([
       { timestamp: "00:00", seconds: 0, title: "Introduction" },
@@ -2741,6 +2747,366 @@ describe("pipeline.ts", () => {
         expect.anything(),
         expect.objectContaining(expected),
       );
+    });
+  });
+
+  describe("processMediaPipeline --refine", () => {
+    let mediaFile: string;
+    let cacheDir: string;
+
+    const rawEntries: SrtEntry[] = [
+      { id: 1, startTime: "00:00:00,000", endTime: "00:00:02,000", text: "Hello wrld" },
+      { id: 2, startTime: "00:00:02,000", endTime: "00:00:04,000", text: "Second line" },
+    ];
+    const refinedEntries: SrtEntry[] = [
+      { id: 1, startTime: "00:00:00,000", endTime: "00:00:02,000", text: "Hello world" },
+      { id: 2, startTime: "00:00:02,000", endTime: "00:00:04,000", text: "Second line" },
+    ];
+
+    function seedTranscriptionCache(entries: SrtEntry[] = rawEntries, wordChunks?: WordChunk[]) {
+      saveTranscriptionCache(
+        mediaFile,
+        {
+          detectedLanguage: "en",
+          entries,
+          ...(wordChunks ? { wordChunks } : {}),
+          createdAt: Date.now(),
+          model: DEFAULT_GROQ_MODEL,
+        },
+        cacheDir,
+      );
+    }
+
+    function mockSpinner() {
+      const warnSpy = vi.fn();
+      const succeedSpy = vi.fn();
+      vi.spyOn(ui, "createSpinner").mockReturnValue({
+        start: vi.fn().mockReturnThis(),
+        succeed: succeedSpy.mockReturnThis(),
+        fail: vi.fn().mockReturnThis(),
+        warn: warnSpy.mockReturnThis(),
+        info: vi.fn().mockReturnThis(),
+        updateText: vi.fn().mockReturnThis(),
+        stop: vi.fn().mockReturnThis(),
+      });
+      return { warnSpy, succeedSpy };
+    }
+
+    function readRawCacheJson(): Record<string, unknown> {
+      const files = fs.readdirSync(cacheDir).filter((f) => f.endsWith(".json"));
+      const firstFile = files[0];
+      if (!firstFile) {
+        throw new Error("Expected cache JSON file to exist");
+      }
+      return JSON.parse(fs.readFileSync(path.join(cacheDir, firstFile), "utf-8")) as Record<
+        string,
+        unknown
+      >;
+    }
+
+    beforeEach(() => {
+      vi.clearAllMocks();
+      mediaFile = path.join(tempDir, "refine_video.mp4");
+      fs.writeFileSync(mediaFile, "dummy video content for refine");
+      cacheDir = path.join(tempDir, "cache-refine");
+      vi.spyOn(console, "log").mockImplementation(() => {});
+      vi.spyOn(process.stdout, "write").mockReturnValue(true);
+    });
+
+    it("keeps default behavior unchanged when --refine is omitted", async () => {
+      seedTranscriptionCache();
+      saveTranslationCache(
+        mediaFile,
+        "ja",
+        createCachedTranslation(
+          "ja",
+          {
+            sourceEntries: rawEntries,
+            model: DEFAULT_GEMINI_MODEL,
+            contextWindowSize: DEFAULT_CONTEXT_WINDOW_SIZE,
+          },
+          [
+            { id: 1, startTime: "00:00:00,000", endTime: "00:00:02,000", text: "既存訳1" },
+            { id: 2, startTime: "00:00:02,000", endTime: "00:00:04,000", text: "既存訳2" },
+          ],
+        ),
+        cacheDir,
+      );
+
+      const ensureApiKeysSpy = vi.spyOn(configModule, "ensureApiKeys");
+      const createTextModelSpy = vi.spyOn(selectModule, "createTextModel");
+
+      const cachedResult = await processMediaPipeline({
+        mediaFile,
+        cacheDir,
+        targetLang: "ja",
+        stdout: true,
+      });
+
+      expect(refineSrtEntries).not.toHaveBeenCalled();
+      expect(translateSrtEntries).not.toHaveBeenCalled();
+      expect(ensureApiKeysSpy).not.toHaveBeenCalled();
+      expect(createTextModelSpy).not.toHaveBeenCalled();
+      expect(cachedResult.refinement).toBeUndefined();
+      expect(cachedResult.stdoutContent).toContain("既存訳1");
+      expect(Object.hasOwn(readRawCacheJson(), "refinement")).toBe(false);
+
+      // Without cached translation and with --no-translate, LLM ensureApiKeys is not called
+      await processMediaPipeline({
+        mediaFile,
+        cacheDir,
+        noTranslate: true,
+        stdout: true,
+      });
+      expect(ensureApiKeysSpy).not.toHaveBeenCalled();
+      expect(refineSrtEntries).not.toHaveBeenCalled();
+
+      // Without cached translation for "fr", unrefined rawEntries are passed to translateSrtEntries
+      const translatedResult = await processMediaPipeline({
+        mediaFile,
+        cacheDir,
+        targetLang: "fr",
+        stdout: true,
+      });
+      expect(refineSrtEntries).not.toHaveBeenCalled();
+      expect(vi.mocked(translateSrtEntries).mock.calls[0]?.[0]).toEqual(rawEntries);
+      expect(translatedResult.refinement).toBeUndefined();
+      expect(Object.hasOwn(readRawCacheJson(), "refinement")).toBe(false);
+    });
+
+    it("supports OpenRouter --llm-provider and --llm-model with --refine and invalidates on model/provider change", async () => {
+      process.env["VSUB_OPENROUTER_API_KEY"] = "test-openrouter-key";
+      seedTranscriptionCache();
+      vi.mocked(refineSrtEntries)
+        .mockResolvedValueOnce({
+          entries: refinedEntries,
+          fallbackChunks: 0,
+          totalChunks: 1,
+        })
+        .mockResolvedValueOnce({
+          entries: refinedEntries,
+          fallbackChunks: 0,
+          totalChunks: 1,
+        });
+
+      const ensureApiKeysSpy = vi.spyOn(configModule, "ensureApiKeys");
+      const createTextModelSpy = vi.spyOn(selectModule, "createTextModel");
+
+      await processMediaPipeline({
+        mediaFile,
+        cacheDir,
+        noTranslate: true,
+        refine: true,
+        sttProvider: "groq",
+        llmProvider: "openrouter",
+        llmModel: "openai/gpt-4o-mini",
+        stdout: true,
+      });
+
+      expect(ensureApiKeysSpy).toHaveBeenCalledWith(
+        expect.anything(),
+        expect.objectContaining({
+          requireGemini: false,
+          requireOpenRouter: true,
+          requireGroq: false,
+        }),
+      );
+      expect(createTextModelSpy).toHaveBeenCalledWith(
+        expect.anything(),
+        expect.objectContaining({ provider: "openrouter", model: "openai/gpt-4o-mini" }),
+        expect.anything(),
+      );
+      expect(refineSrtEntries).toHaveBeenCalledTimes(1);
+
+      // Switching model misses cache and runs refine again
+      await processMediaPipeline({
+        mediaFile,
+        cacheDir,
+        noTranslate: true,
+        refine: true,
+        sttProvider: "groq",
+        llmProvider: "openrouter",
+        llmModel: "google/gemini-3.8-flash",
+        stdout: true,
+      });
+      expect(refineSrtEntries).toHaveBeenCalledTimes(2);
+    });
+
+    it("refines entries before --save-original, translation, and --bilingual and checks LLM key only once", async () => {
+      seedTranscriptionCache();
+      vi.mocked(refineSrtEntries).mockResolvedValueOnce({
+        entries: refinedEntries,
+        fallbackChunks: 0,
+        totalChunks: 1,
+      });
+      vi.mocked(translateSrtEntries).mockResolvedValueOnce([
+        { id: 1, startTime: "00:00:00,000", endTime: "00:00:02,000", text: "こんにちは世界" },
+        { id: 2, startTime: "00:00:02,000", endTime: "00:00:04,000", text: "2行目" },
+      ]);
+
+      const ensureApiKeysSpy = vi.spyOn(configModule, "ensureApiKeys");
+      const createTextModelSpy = vi.spyOn(selectModule, "createTextModel");
+
+      const result = await processMediaPipeline({
+        mediaFile,
+        cacheDir,
+        targetLang: "ja",
+        refine: true,
+        saveOriginal: true,
+        bilingual: true,
+        overwrite: true,
+      });
+
+      expect(ensureApiKeysSpy).toHaveBeenCalledTimes(1);
+      expect(createTextModelSpy).toHaveBeenCalledTimes(1);
+      expect(refineSrtEntries).toHaveBeenCalledTimes(1);
+      expect(vi.mocked(translateSrtEntries).mock.calls[0]?.[0]).toEqual(refinedEntries);
+      expect(result.refinement).toEqual({
+        changedLines: 1,
+        totalLines: 2,
+        cached: false,
+        fallbackChunks: 0,
+      });
+
+      const originalPath = path.join(tempDir, "refine_video.en.srt");
+      expect(fs.readFileSync(originalPath, "utf-8")).toContain("Hello world");
+      expect(fs.readFileSync(originalPath, "utf-8")).not.toContain("Hello wrld");
+
+      const bilingualPath = path.join(tempDir, "refine_video.ja.bilingual.srt");
+      const bilingualContent = fs.readFileSync(bilingualPath, "utf-8");
+      expect(bilingualContent).toContain("Hello world");
+      expect(bilingualContent).toContain("こんにちは世界");
+      expect(bilingualContent).not.toContain("Hello wrld");
+    });
+
+    it("outputs refined text and checks LLM key lazily under --no-translate --refine", async () => {
+      seedTranscriptionCache();
+      vi.mocked(refineSrtEntries).mockResolvedValueOnce({
+        entries: refinedEntries,
+        fallbackChunks: 0,
+        totalChunks: 1,
+      });
+
+      const ensureApiKeysSpy = vi.spyOn(configModule, "ensureApiKeys");
+      const createTextModelSpy = vi.spyOn(selectModule, "createTextModel");
+
+      const first = await processMediaPipeline({
+        mediaFile,
+        cacheDir,
+        noTranslate: true,
+        refine: true,
+        stdout: true,
+      });
+
+      expect(ensureApiKeysSpy).toHaveBeenCalledTimes(1);
+      expect(ensureApiKeysSpy).toHaveBeenCalledWith(
+        expect.anything(),
+        expect.objectContaining({
+          requireGemini: true,
+          requireOpenRouter: false,
+          requireGroq: false,
+        }),
+      );
+      expect(createTextModelSpy).toHaveBeenCalledTimes(1);
+      expect(first.stdoutContent).toContain("Hello world");
+      expect(first.refinement).toEqual({
+        changedLines: 1,
+        totalLines: 2,
+        cached: false,
+        fallbackChunks: 0,
+      });
+
+      // Second run hits refinement cache and skips ensureApiKeys / createTextModel
+      ensureApiKeysSpy.mockClear();
+      createTextModelSpy.mockClear();
+
+      const second = await processMediaPipeline({
+        mediaFile,
+        cacheDir,
+        noTranslate: true,
+        refine: true,
+        stdout: true,
+      });
+
+      expect(ensureApiKeysSpy).not.toHaveBeenCalled();
+      expect(createTextModelSpy).not.toHaveBeenCalled();
+      expect(refineSrtEntries).toHaveBeenCalledTimes(1);
+      expect(second.stdoutContent).toContain("Hello world");
+      expect(second.refinement).toEqual({
+        changedLines: 1,
+        totalLines: 2,
+        cached: true,
+        fallbackChunks: 0,
+      });
+
+      // Invalidates refinement cache on prompt change while keeping transcription cache hit
+      await processMediaPipeline({
+        mediaFile,
+        cacheDir,
+        noTranslate: true,
+        refine: true,
+        prompt: "Keep casual tone",
+        stdout: true,
+      });
+      expect(transcribeAudioSegments).not.toHaveBeenCalled();
+      expect(refineSrtEntries).toHaveBeenCalledTimes(2);
+    });
+
+    it("emits a single warning and skips saving refinement cache when fallbackChunks > 0", async () => {
+      seedTranscriptionCache();
+      const { warnSpy } = mockSpinner();
+      vi.mocked(refineSrtEntries).mockResolvedValueOnce({
+        entries: rawEntries,
+        fallbackChunks: 1,
+        totalChunks: 2,
+      });
+
+      const result = await processMediaPipeline({
+        mediaFile,
+        cacheDir,
+        noTranslate: true,
+        refine: true,
+        stdout: true,
+      });
+
+      expect(warnSpy).toHaveBeenCalledTimes(1);
+      expect(result.refinement?.fallbackChunks).toBe(1);
+      expect(Object.hasOwn(readRawCacheJson(), "refinement")).toBe(false);
+    });
+
+    it("passes entries rebuilt from wordChunks to refineSrtEntries before translation", async () => {
+      const wordChunks: WordChunk[] = [
+        {
+          offsetSeconds: 0,
+          words: [
+            { start: 0, end: 0.5, text: "Hello" },
+            { start: 0.5, end: 1.0, text: "wrld" },
+          ],
+        },
+      ];
+      seedTranscriptionCache(
+        [{ id: 1, startTime: "00:00:00,000", endTime: "00:00:01,000", text: "stale entry" }],
+        wordChunks,
+      );
+      const assembled = buildEntriesFromWords(wordChunks);
+      const refinedFromWords = assembled.map((e) => ({ ...e, text: "Hello world" }));
+
+      vi.mocked(refineSrtEntries).mockResolvedValueOnce({
+        entries: refinedFromWords,
+        fallbackChunks: 0,
+        totalChunks: 1,
+      });
+
+      await processMediaPipeline({
+        mediaFile,
+        cacheDir,
+        targetLang: "ja",
+        refine: true,
+        stdout: true,
+      });
+
+      expect(vi.mocked(refineSrtEntries).mock.calls[0]?.[0]).toEqual(assembled);
+      expect(vi.mocked(translateSrtEntries).mock.calls[0]?.[0]).toEqual(refinedFromWords);
     });
   });
 });

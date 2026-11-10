@@ -4,10 +4,12 @@ import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import {
   type CachedChapters,
+  type CachedRefinement,
   type CachedSummary,
   clearCache,
   computeEntriesHash,
   createCachedChapters,
+  createCachedRefinement,
   createCachedSummary,
   createCachedTranscription,
   createCachedTranslation,
@@ -16,19 +18,23 @@ import {
   getCacheStats,
   getFileCacheKey,
   isChaptersCacheValid,
+  isRefinementCacheValid,
   isSummaryCacheValid,
   isTranscriptionCacheValid,
   isTranslationCacheValid,
   loadMediaCache,
+  type RefinementCacheContext,
   saveChaptersCache,
+  saveRefinementCache,
   saveSummaryCache,
   saveTranscriptionCache,
   saveTranslationCache,
   type TranscriptionCacheContext,
   type TranslationCacheContext,
 } from "./cache.js";
-import { DEFAULT_GROQ_MODEL } from "./config.js";
+import { DEFAULT_GEMINI_MODEL, DEFAULT_GROQ_MODEL } from "./config.js";
 import type { SrtEntry } from "./srt.js";
+import { DEFAULT_OPENROUTER_LLM_MODEL } from "./text/openrouter.js";
 import { DEFAULT_CONTEXT_WINDOW_SIZE } from "./text/tasks.js";
 import { DEFAULT_OPENROUTER_STT_MODEL } from "./transcribe/openrouter.js";
 
@@ -1015,6 +1021,314 @@ describe("cache module", () => {
       const afterStats = getCacheStats(customCacheDir);
       expect(afterStats.count).toBe(0);
       expect(afterStats.totalBytes).toBe(0);
+    });
+  });
+
+  describe("refinement cache validity and persistence", () => {
+    const secondSourceLine: SrtEntry = {
+      id: 2,
+      startTime: "00:00:02,500",
+      endTime: "00:00:05,000",
+      text: "Same line",
+    };
+    const defaultSource: SrtEntry[] = [
+      { id: 1, startTime: "00:00:00,000", endTime: "00:00:02,000", text: "Misheard word" },
+      secondSourceLine,
+    ];
+    const defaultRefined: SrtEntry[] = [
+      { id: 1, startTime: "00:00:00,000", endTime: "00:00:02,000", text: "Corrected word" },
+      secondSourceLine,
+    ];
+    const baseContext: RefinementCacheContext = {
+      sourceEntries: defaultSource,
+      provider: "gemini",
+      model: DEFAULT_GEMINI_MODEL,
+      prompt: "Base notes",
+      glossaryHash: "glossaryhash123",
+    };
+
+    const validityTable: Array<{
+      name: string;
+      savedContext: RefinementCacheContext;
+      currentContext: RefinementCacheContext;
+      transformCached?: ((cached: CachedRefinement) => CachedRefinement) | undefined;
+      isUndefinedCached?: boolean | undefined;
+      expected: boolean;
+    }> = [
+      {
+        name: "all identical",
+        savedContext: baseContext,
+        currentContext: baseContext,
+        expected: true,
+      },
+      {
+        name: "sourceEntries different text",
+        savedContext: baseContext,
+        currentContext: {
+          ...baseContext,
+          sourceEntries: [
+            { id: 1, startTime: "00:00:00,000", endTime: "00:00:02,000", text: "Changed" },
+            secondSourceLine,
+          ],
+        },
+        expected: false,
+      },
+      {
+        name: "sourceEntries different timestamp",
+        savedContext: baseContext,
+        currentContext: {
+          ...baseContext,
+          sourceEntries: [
+            { id: 1, startTime: "00:00:00,500", endTime: "00:00:02,000", text: "Misheard word" },
+            secondSourceLine,
+          ],
+        },
+        expected: false,
+      },
+      {
+        name: "cached entry count differs",
+        savedContext: baseContext,
+        currentContext: baseContext,
+        transformCached: (cached) => ({ ...cached, entries: cached.entries.slice(0, 1) }),
+        expected: false,
+      },
+      {
+        name: "prompt attached first, then detached",
+        savedContext: { ...baseContext, prompt: "Context note" },
+        currentContext: { ...baseContext, prompt: undefined },
+        expected: false,
+      },
+      {
+        name: "prompt omitted first, then attached",
+        savedContext: { ...baseContext, prompt: undefined },
+        currentContext: { ...baseContext, prompt: "Context note" },
+        expected: false,
+      },
+      {
+        name: "prompt differs only in whitespace",
+        savedContext: { ...baseContext, prompt: "  Base notes  " },
+        currentContext: { ...baseContext, prompt: "Base notes" },
+        expected: true,
+      },
+      {
+        name: "glossaryHash attached first, then detached",
+        savedContext: { ...baseContext, glossaryHash: "hashA" },
+        currentContext: { ...baseContext, glossaryHash: undefined },
+        expected: false,
+      },
+      {
+        name: "glossaryHash differs",
+        savedContext: { ...baseContext, glossaryHash: "hashA" },
+        currentContext: { ...baseContext, glossaryHash: "hashB" },
+        expected: false,
+      },
+      {
+        name: "provider differs",
+        savedContext: { ...baseContext, provider: "gemini" },
+        currentContext: { ...baseContext, provider: "openrouter" },
+        expected: false,
+      },
+      {
+        name: "missing provider in cached defaults to gemini (hits gemini)",
+        savedContext: { ...baseContext, provider: undefined },
+        currentContext: { ...baseContext, provider: "gemini" },
+        expected: true,
+      },
+      {
+        name: "missing provider in cached defaults to gemini (misses openrouter)",
+        savedContext: { ...baseContext, provider: undefined },
+        currentContext: { ...baseContext, provider: "openrouter" },
+        expected: false,
+      },
+      {
+        name: "model differs",
+        savedContext: { ...baseContext, model: DEFAULT_GEMINI_MODEL },
+        currentContext: { ...baseContext, model: "gemini-2.5-flash" },
+        expected: false,
+      },
+      {
+        name: "omitted gemini model normalizes to DEFAULT_GEMINI_MODEL",
+        savedContext: { ...baseContext, provider: "gemini", model: undefined },
+        currentContext: { ...baseContext, provider: "gemini", model: DEFAULT_GEMINI_MODEL },
+        expected: true,
+      },
+      {
+        name: "omitted openrouter model normalizes to DEFAULT_OPENROUTER_LLM_MODEL",
+        savedContext: {
+          ...baseContext,
+          provider: "openrouter",
+          model: DEFAULT_OPENROUTER_LLM_MODEL,
+        },
+        currentContext: { ...baseContext, provider: "openrouter", model: undefined },
+        expected: true,
+      },
+      {
+        name: "missing sourceHash",
+        savedContext: baseContext,
+        currentContext: baseContext,
+        transformCached: (cached) => {
+          const copy = { ...cached };
+          delete copy.sourceHash;
+          return copy;
+        },
+        expected: false,
+      },
+      {
+        name: "cached is undefined",
+        savedContext: baseContext,
+        currentContext: baseContext,
+        isUndefinedCached: true,
+        expected: false,
+      },
+    ];
+
+    it.each(validityTable)(
+      "isRefinementCacheValid: $name -> $expected",
+      ({ savedContext, currentContext, transformCached, isUndefinedCached, expected }) => {
+        let cached: CachedRefinement | undefined;
+        if (!isUndefinedCached) {
+          cached = createCachedRefinement(savedContext, defaultRefined);
+          if (transformCached) {
+            cached = transformCached(cached);
+          }
+        }
+        expect(isRefinementCacheValid(cached, currentContext)).toBe(expected);
+      },
+    );
+
+    function readRawCacheJson(): Record<string, unknown> {
+      const cacheFile = path.join(customCacheDir, `${getFileCacheKey(testMediaFile)}.json`);
+      return JSON.parse(fs.readFileSync(cacheFile, "utf-8")) as Record<string, unknown>;
+    }
+
+    it("saveRefinementCache preserves transcription, translations, chapters, and summaries", () => {
+      saveTranscriptionCache(
+        testMediaFile,
+        createCachedTranscription({}, defaultSource, "en"),
+        customCacheDir,
+      );
+      saveTranslationCache(
+        testMediaFile,
+        "ja",
+        createCachedTranslation(
+          "ja",
+          {
+            sourceEntries: defaultSource,
+            model: DEFAULT_GEMINI_MODEL,
+            contextWindowSize: DEFAULT_CONTEXT_WINDOW_SIZE,
+          },
+          defaultRefined,
+        ),
+        customCacheDir,
+      );
+      saveChaptersCache(
+        testMediaFile,
+        "ja",
+        createCachedChapters("ja", { sourceEntries: defaultSource }, [
+          { timestamp: "00:00", seconds: 0, title: "Intro" },
+        ]),
+        customCacheDir,
+      );
+      saveSummaryCache(
+        testMediaFile,
+        "ja",
+        createCachedSummary(
+          "ja",
+          { sourceEntries: defaultSource },
+          { title: "T", summary: "S", keyPoints: [], topics: [] },
+        ),
+        customCacheDir,
+      );
+
+      const refinement = createCachedRefinement(baseContext, defaultRefined);
+      saveRefinementCache(testMediaFile, refinement, customCacheDir);
+
+      const loaded = loadMediaCache(testMediaFile, customCacheDir);
+      expect(loaded?.refinement).toEqual(refinement);
+      expect(loaded?.transcription?.entries).toEqual(defaultSource);
+      expect(loaded?.translations?.["ja"]?.entries).toEqual(defaultRefined);
+      expect(loaded?.chapters?.["ja"]?.chapters).toHaveLength(1);
+      expect(loaded?.summaries?.["ja"]?.summary.title).toBe("T");
+    });
+
+    const saveCases: Array<{
+      name: string;
+      runSave: () => void;
+      checkTranslationsInitialized?: boolean | undefined;
+    }> = [
+      {
+        name: "saveTranscriptionCache",
+        runSave: () =>
+          saveTranscriptionCache(
+            testMediaFile,
+            createCachedTranscription({}, defaultSource, "en"),
+            customCacheDir,
+          ),
+        checkTranslationsInitialized: true,
+      },
+      {
+        name: "saveTranslationCache",
+        runSave: () =>
+          saveTranslationCache(
+            testMediaFile,
+            "ja",
+            createCachedTranslation(
+              "ja",
+              {
+                sourceEntries: defaultSource,
+                contextWindowSize: DEFAULT_CONTEXT_WINDOW_SIZE,
+              },
+              defaultRefined,
+            ),
+            customCacheDir,
+          ),
+      },
+      {
+        name: "saveChaptersCache",
+        runSave: () =>
+          saveChaptersCache(
+            testMediaFile,
+            "ja",
+            createCachedChapters("ja", { sourceEntries: defaultSource }, []),
+            customCacheDir,
+          ),
+      },
+      {
+        name: "saveSummaryCache",
+        runSave: () =>
+          saveSummaryCache(
+            testMediaFile,
+            "ja",
+            createCachedSummary(
+              "ja",
+              { sourceEntries: defaultSource },
+              { title: "T", summary: "S", keyPoints: [], topics: [] },
+            ),
+            customCacheDir,
+          ),
+      },
+    ];
+
+    it.each(saveCases)(
+      "$name does not emit refinement key when never saved",
+      ({ runSave, checkTranslationsInitialized }) => {
+        runSave();
+        const raw = readRawCacheJson();
+        expect(Object.hasOwn(raw, "refinement")).toBe(false);
+        if (checkTranslationsInitialized) {
+          expect(raw["translations"]).toEqual({});
+        }
+      },
+    );
+
+    it.each(saveCases)("$name preserves existing refinement", ({ runSave }) => {
+      const refinement = createCachedRefinement(baseContext, defaultRefined);
+      saveRefinementCache(testMediaFile, refinement, customCacheDir);
+
+      runSave();
+
+      const loaded = loadMediaCache(testMediaFile, customCacheDir);
+      expect(loaded?.refinement).toEqual(refinement);
     });
   });
 });

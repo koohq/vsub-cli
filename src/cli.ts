@@ -1358,6 +1358,11 @@ export function createProgram(): Command {
       false,
     )
     .option(
+      "--refine",
+      "Correct speech recognition errors in the transcript with the text generation model before translation (off by default; uses --glossary and --prompt; timing and line count are kept)",
+      false,
+    )
+    .option(
       "--force-translate",
       "Force translation even if detected language matches target language",
       false,
@@ -1486,6 +1491,11 @@ export function createProgram(): Command {
     .option(
       "--save-original",
       "Save original transcription subtitle file alongside the result",
+      false,
+    )
+    .option(
+      "--refine",
+      "Correct speech recognition errors in the transcript with the text generation model before translation (off by default; uses --glossary and --prompt; timing and line count are kept)",
       false,
     )
     .option(

@@ -162,9 +162,10 @@ export async function runBatchPipeline(options: BatchPipelineOptions): Promise<B
   );
 
   const requiresGroq = stt.provider === "groq";
+  const needsLlm = !options.noTranslate || Boolean(options.refine);
   const requireOpenRouter =
-    stt.provider === "openrouter" || (!options.noTranslate && llm.provider === "openrouter");
-  const requiresGemini = !options.noTranslate && llm.provider === "gemini";
+    stt.provider === "openrouter" || (needsLlm && llm.provider === "openrouter");
+  const requiresGemini = needsLlm && llm.provider === "gemini";
 
   const config = await ensureApiKeys(resolvedLlmConfig, {
     requireGroq: requiresGroq,

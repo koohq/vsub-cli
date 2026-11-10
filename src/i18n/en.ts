@@ -92,6 +92,12 @@ export const en = {
     step2NoEntries: "⚠️ [2/4] No valid subtitle entries detected from transcription result",
     step2Done: (lang: string, count: number) =>
       `🎙️ [2/4] Transcription complete${lang} - generated ${count} subtitle lines`,
+    step2Refining: (provider: string, model: string, current: number, total: number) =>
+      `✍️ [2/4] Refining transcript via ${provider} (${model}) [${current}/${total} chunks]...`,
+    step2Refined: (changed: number, total: number, cached = false) =>
+      `✍️ [2/4] Transcript refined - ${changed}/${total} lines changed${cached ? " [⚡ Cached]" : ""}`,
+    step2RefineFallbackWarn: (fallbackChunks: number, totalChunks: number) =>
+      `⚠️ [2/4] Refinement kept the original text for ${fallbackChunks}/${totalChunks} chunks (the model returned a different number of lines)`,
     step3Cached: (lang: string, count: number) =>
       `  ✔ ${lang} translation (cached: ${count} lines)`,
     step3TranslatingMulti: (

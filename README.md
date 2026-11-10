@@ -255,6 +255,7 @@ Options:
   --keep-audio                  Keep intermediate extracted audio files without deleting (default: false)
   --no-translate                Skip translation and output raw transcribed subtitles (default: false)
   --save-original               Save original transcription subtitle file alongside the result (default: false)
+  --refine                      Correct speech recognition errors in the transcript with the text generation model before translation (off by default; uses --glossary and --prompt; timing and line count are kept) (default: false)
   --force-translate             Force translation even if detected language matches target language (default: false)
   --no-update-check             Disable checking for new version updates (default: false)
   --verbose                     Output detailed log messages (API requests, etc.) (default: false)
@@ -423,6 +424,23 @@ vsub cache clean
 vsub update --check
 vsub update
 ```
+
+### 12. Transcript refinement (`--refine`)
+Run an LLM proofreading pass on the assembled transcript before `--save-original` and translation (`vsub` main command and `vsub batch`; off by default):
+```bash
+# Refine recognized terms with a glossary before translating to Japanese
+vsub video.mp4 -t ja --glossary ./glossary.json --refine
+
+# Refine only and output the corrected source transcript (no translation)
+vsub video.mp4 --no-translate --refine
+```
+* **What it fixes**: Corrects clear ASR recognition errors such as homophones / wrong kanji, misheard proper nouns and technical terms, and split or merged words.
+* **Provider & model**: Uses your configured text generation provider and model (`--llm-provider`, `--llm-model`, `--gemini-model`).
+* **Glossary & notes**: Works best when paired with `--glossary` (improvements are much smaller without one). Your `--prompt` notes are also passed as background context, and when using a language-keyed glossary file, the table for the first target language is used to supply the correct spellings of terms.
+* **Timing & structure guarantees**: Subtitle timestamps, entry IDs, and line counts are never changed. If the model returns a mismatched line count for any 50-line chunk, vsub keeps the original text for that chunk and prints a warning.
+* **Limitations**: **Speech completely dropped during transcription will not be recovered, and subtitle timing will not be adjusted.**
+* **Downstream outputs**: The refined transcript becomes the source text used for `--save-original`, `--bilingual`, `--no-translate`, and translation.
+* **Cost & caching**: Expect one extra pass of the full transcript through the text generation model (slightly less than translating one target language). Enabling `--refine` for the first time also changes the source subtitles, so existing translations are re-run against the refined text. The unrefined transcript stays cached separately, so turning `--refine` off later does not re-transcribe (translations are run again from the unrefined text).
 
 ---
 
