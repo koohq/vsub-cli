@@ -1,3 +1,4 @@
+import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -23,12 +24,17 @@ describe("config.ts", () => {
 
   beforeEach(() => {
     vi.clearAllMocks();
+    vi.mocked(fs.existsSync).mockReturnValue(false);
     process.env = { ...originalEnv };
     // Clear relevant env vars
     delete process.env["VSUB_GROQ_API_KEY"];
     delete process.env["GROQ_API_KEY"];
     delete process.env["VSUB_GEMINI_API_KEY"];
     delete process.env["GEMINI_API_KEY"];
+    delete process.env["VSUB_OPENROUTER_API_KEY"];
+    delete process.env["OPENROUTER_API_KEY"];
+    delete process.env["VSUB_STT_PROVIDER"];
+    delete process.env["VSUB_OPENROUTER_STT_MODEL"];
     delete process.env["VSUB_FFMPEG_PATH"];
     delete process.env["FFMPEG_PATH"];
     delete process.env["VSUB_WHISPER_PROMPT"];
@@ -163,6 +169,55 @@ describe("config.ts", () => {
       expect(config.groqModel).toBe("groq-custom");
     });
 
+    it("should read new STT and OpenRouter settings, prioritizing environment variables over config file", () => {
+      vi.mocked(fs.existsSync).mockReturnValue(true);
+      vi.mocked(fs.readFileSync).mockReturnValue(
+        JSON.stringify({
+          openrouterApiKey: "file-openrouter-key",
+          sttProvider: "file-stt-provider",
+          openrouterSttModel: "file-openrouter-model",
+        }),
+      );
+
+      // Environment variables set
+      process.env["VSUB_OPENROUTER_API_KEY"] = "env-openrouter-key";
+      process.env["VSUB_STT_PROVIDER"] = "openrouter";
+      process.env["VSUB_OPENROUTER_STT_MODEL"] = "env-openrouter-model";
+      process.env["OPENROUTER_API_KEY"] = "generic-openrouter-key";
+
+      let config = getConfig();
+      expect(config.openrouterApiKey).toBe("env-openrouter-key");
+      expect(config.openrouterApiKeyFallback).toBe("generic-openrouter-key");
+      expect(config.sttProvider).toBe("openrouter");
+      expect(config.openrouterSttModel).toBe("env-openrouter-model");
+
+      // Without environment variables, falls back to config file (except openrouterApiKeyFallback)
+      delete process.env["VSUB_OPENROUTER_API_KEY"];
+      delete process.env["VSUB_STT_PROVIDER"];
+      delete process.env["VSUB_OPENROUTER_STT_MODEL"];
+      delete process.env["OPENROUTER_API_KEY"];
+
+      config = getConfig();
+      expect(config.openrouterApiKey).toBe("file-openrouter-key");
+      expect(config.openrouterApiKeyFallback).toBeUndefined();
+      expect(config.sttProvider).toBe("file-stt-provider");
+      expect(config.openrouterSttModel).toBe("file-openrouter-model");
+    });
+
+    it("should place generic OPENROUTER_API_KEY only into openrouterApiKeyFallback, not into openrouterApiKey", () => {
+      process.env["OPENROUTER_API_KEY"] = "generic-only-key";
+      const config = getConfig();
+      expect(config.openrouterApiKeyFallback).toBe("generic-only-key");
+      expect(config.openrouterApiKey).toBeUndefined();
+    });
+
+    it("should not throw on invalid/corrupted VSUB_STT_PROVIDER value in getConfig", () => {
+      process.env["VSUB_STT_PROVIDER"] = "corrupted-provider-value";
+      expect(() => getConfig()).not.toThrow();
+      const config = getConfig();
+      expect(config.sttProvider).toBe("corrupted-provider-value");
+    });
+
     it("should fallback to default values when nothing is configured", () => {
       const config = getConfig();
       expect(config.groqApiKey).toBe("");
@@ -248,6 +303,45 @@ describe("config.ts", () => {
           { requireGroq: false, requireGemini: true },
         );
       }).toThrow(/VSUB_GEMINI_API_KEY \/ GEMINI_API_KEY/);
+    });
+
+    it("should throw error containing VSUB_OPENROUTER_API_KEY if OpenRouter key is missing when requireOpenRouter is true", () => {
+      expect(() => {
+        validateApiKeys(
+          {
+            groqApiKey: "g-key",
+            geminiApiKey: "gem-key",
+            ffmpegPath: "ffmpeg",
+            openrouterApiKey: "",
+          },
+          { requireOpenRouter: true },
+        );
+      }).toThrow(/VSUB_OPENROUTER_API_KEY/);
+    });
+
+    it("should not throw error if OpenRouter key is present when requireOpenRouter is true", () => {
+      expect(() => {
+        validateApiKeys(
+          {
+            groqApiKey: "g-key",
+            geminiApiKey: "gem-key",
+            ffmpegPath: "ffmpeg",
+            openrouterApiKey: "openrouter-test-key",
+          },
+          { requireOpenRouter: true },
+        );
+      }).not.toThrow();
+    });
+
+    it("should not validate OpenRouter key by default when requireOpenRouter is omitted", () => {
+      expect(() => {
+        validateApiKeys({
+          groqApiKey: "g-key",
+          geminiApiKey: "gem-key",
+          ffmpegPath: "ffmpeg",
+          openrouterApiKey: "",
+        });
+      }).not.toThrow();
     });
   });
 

@@ -5,6 +5,7 @@ import { ensureApiKeys, getConfig } from "./config.js";
 import { checkFfmpeg, isAudioFile, isVideoFile } from "./ffmpeg.js";
 import { getI18n } from "./i18n/index.js";
 import { type ProcessMediaOptions, processMediaPipeline } from "./pipeline.js";
+import { resolveSttSettings } from "./transcribe/select.js";
 import { type BatchSummaryData, type BatchSummaryItem, formatBatchSummaryBox } from "./ui.js";
 
 const IGNORED_DIR_NAMES = new Set([
@@ -139,16 +140,32 @@ export async function runBatchPipeline(options: BatchPipelineOptions): Promise<B
 
   // Pre-validate API keys and FFmpeg once before starting batch operations
   const rawConfig = getConfig(options.ffmpegPath, options.lang);
-  // Batch does not inspect transcription cache beforehand, so Groq API key is always required.
-  const requiresGroq = true;
+  const lang = options.lang ?? rawConfig.lang ?? "en";
+  const { config: resolvedConfig, stt } = resolveSttSettings(
+    rawConfig,
+    {
+      sttProvider: options.sttProvider,
+      sttModel: options.sttModel,
+      groqModel: options.groqModel,
+    },
+    lang,
+  );
+
+  const requiresGroq = stt.provider === "groq";
+  const requireOpenRouter = stt.provider === "openrouter";
   const requiresGemini = !options.noTranslate;
 
-  const config = await ensureApiKeys(rawConfig, {
+  const config = await ensureApiKeys(resolvedConfig, {
     requireGroq: requiresGroq,
+    requireOpenRouter,
     requireGemini: requiresGemini,
     lang: options.lang,
   });
   await checkFfmpeg(config.ffmpegPath);
+
+  if (stt.source === "auto" && stt.provider === "groq") {
+    console.log(i18n.pipeline.sttGroqAutoHint);
+  }
 
   console.log(`\n🎬 ${pc.bold(i18n.batch.started(mediaFiles.length))}\n`);
 
@@ -175,6 +192,7 @@ export async function runBatchPipeline(options: BatchPipelineOptions): Promise<B
         ...options,
         mediaFile: file,
         silentSummary: true,
+        silentSttHint: true,
         logPrefix: fileIndexStr,
       });
 

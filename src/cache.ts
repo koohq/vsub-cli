@@ -5,10 +5,13 @@ import path from "node:path";
 import { DEFAULT_GROQ_MODEL } from "./config.js";
 import type { ChapterItem, SummaryResult } from "./formatter.js";
 import type { SrtEntry } from "./srt.js";
+import { DEFAULT_OPENROUTER_STT_MODEL } from "./transcribe/openrouter.js";
+import type { SttProvider } from "./transcribe/providers.js";
 import type { WordChunk } from "./transcribe/words.js";
 
 export interface CachedTranscription {
   detectedLanguage?: string | undefined;
+  provider?: SttProvider | undefined;
   entries: SrtEntry[];
   /** Raw word timings; subtitles are rebuilt from these with the current options. */
   wordChunks?: WordChunk[] | undefined;
@@ -47,6 +50,7 @@ export interface CachedSummary {
 }
 
 export interface TranscriptionCacheContext {
+  provider?: SttProvider | undefined;
   prompt?: string | undefined;
   model?: string | undefined;
 }
@@ -55,9 +59,10 @@ function normalizeCacheString(value?: string): string {
   return value === undefined ? "" : value.trim();
 }
 
-function normalizeGroqModel(model?: string): string {
+function normalizeModelForProvider(provider: SttProvider, model?: string): string {
   const norm = normalizeCacheString(model);
-  return norm === "" ? DEFAULT_GROQ_MODEL : norm;
+  if (norm !== "") return norm;
+  return provider === "openrouter" ? DEFAULT_OPENROUTER_STT_MODEL : DEFAULT_GROQ_MODEL;
 }
 
 /**
@@ -71,7 +76,15 @@ export function isTranscriptionCacheValid(
   if (normalizeCacheString(cached.prompt) !== normalizeCacheString(context.prompt)) {
     return false;
   }
-  if (normalizeGroqModel(cached.model) !== normalizeGroqModel(context.model)) {
+  const cachedProvider: SttProvider = cached.provider ?? "groq";
+  const contextProvider: SttProvider = context.provider ?? "groq";
+  if (cachedProvider !== contextProvider) {
+    return false;
+  }
+  if (
+    normalizeModelForProvider(cachedProvider, cached.model) !==
+    normalizeModelForProvider(contextProvider, context.model)
+  ) {
     return false;
   }
   return true;
@@ -88,6 +101,7 @@ export function createCachedTranscription(
 ): CachedTranscription {
   return {
     detectedLanguage,
+    provider: context.provider,
     model: context.model,
     prompt: context.prompt,
     entries,

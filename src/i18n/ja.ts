@@ -72,6 +72,10 @@ export const ja: typeof en = {
       `サポートされていない出力フォーマットです: "${token}". 利用可能なフォーマット: ${supported}`,
     invalidTargetLang: (token: string) =>
       `無効なターゲット言語コードです: "${token}". 有効な形式の例: "ja", "en", "zh", "zh-CN", "pt-BR"`,
+    invalidSttProvider: (provider: string) =>
+      `サポートされていない文字起こし提供元です: "${provider}". 利用可能な提供元: openrouter, groq`,
+    sttGroqAutoHint:
+      "💡 VSUB_OPENROUTER_API_KEY が無いため、Groq で文字起こしします。既定は OpenRouter（elevenlabs/scribe-v2）になりました。Groq を使い続けるなら、VSUB_STT_PROVIDER=groq を設定すると、この表示は消えます。",
     step1SkipCache:
       "🔊 [1/4] 文字起こしキャッシュが存在するため音声抽出をスキップ [⚡ キャッシュ利用]",
     step2UseCached: (lang: string, count: number) =>
@@ -82,10 +86,10 @@ export const ja: typeof en = {
       `🔊 [1/4] 音声最適化完了 (${count} セグメント / ${size})`,
     step1AudioExtracted: (count: number, size: string) =>
       `🔊 [1/4] 音声抽出完了 (${count} セグメント / ${size})`,
-    step2Transcribing: (model: string, current?: number, total?: number) =>
+    step2Transcribing: (provider: string, model: string, current?: number, total?: number) =>
       current && total && total > 1
-        ? `🎙️ [2/4] Groq (${model}) で文字起こし中 [${current}/${total}]...`
-        : `🎙️ [2/4] Groq (${model}) で文字起こし中...`,
+        ? `🎙️ [2/4] ${provider} (${model}) で文字起こし中 [${current}/${total}]...`
+        : `🎙️ [2/4] ${provider} (${model}) で文字起こし中...`,
     step2NoEntries: "⚠️ [2/4] 文字起こし結果から有効な字幕エントリが検出されませんでした",
     step2Done: (lang: string, count: number) =>
       `🎙️ [2/4] 文字起こし完了${lang} - ${count} 行の字幕を生成`,

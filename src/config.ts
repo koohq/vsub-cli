@@ -47,6 +47,14 @@ export interface AppConfig {
   maxLength?: number | undefined;
   burnPosition?: string | undefined;
   burnFontSize?: string | number | undefined;
+  /** vsub-specific OpenRouter key: VSUB_OPENROUTER_API_KEY, then the config file. */
+  openrouterApiKey?: string | undefined;
+  /** Generic OPENROUTER_API_KEY. Used only when OpenRouter is chosen explicitly (see resolveSttSettings). */
+  openrouterApiKeyFallback?: string | undefined;
+  /** Raw transcription provider setting: VSUB_STT_PROVIDER, then the config file. Not validated here. */
+  sttProvider?: string | undefined;
+  /** OpenRouter transcription model: VSUB_OPENROUTER_STT_MODEL, then the config file. */
+  openrouterSttModel?: string | undefined;
 }
 
 export function getGlobalConfigDir(): string {
@@ -245,6 +253,21 @@ export function getConfig(cliFfmpegPath?: string, cliLang?: string): AppConfig {
   const envBurnFontSize = process.env["VSUB_BURN_FONT_SIZE"]?.trim();
   const burnFontSize = envBurnFontSize || globalConfig.burnFontSize || undefined;
 
+  const openrouterApiKey =
+    process.env["VSUB_OPENROUTER_API_KEY"]?.trim() ||
+    globalConfig.openrouterApiKey?.trim() ||
+    undefined;
+
+  const openrouterApiKeyFallback = process.env["OPENROUTER_API_KEY"]?.trim() || undefined;
+
+  const sttProvider =
+    process.env["VSUB_STT_PROVIDER"]?.trim() || globalConfig.sttProvider?.trim() || undefined;
+
+  const openrouterSttModel =
+    process.env["VSUB_OPENROUTER_STT_MODEL"]?.trim() ||
+    globalConfig.openrouterSttModel?.trim() ||
+    undefined;
+
   return {
     groqApiKey,
     geminiApiKey,
@@ -261,6 +284,10 @@ export function getConfig(cliFfmpegPath?: string, cliLang?: string): AppConfig {
     maxLength,
     burnPosition,
     burnFontSize,
+    openrouterApiKey,
+    openrouterApiKeyFallback,
+    sttProvider,
+    openrouterSttModel,
   };
 }
 
@@ -269,20 +296,24 @@ export async function ensureApiKeys(
   options: {
     requireGroq?: boolean;
     requireGemini?: boolean;
+    requireOpenRouter?: boolean;
     lang?: SupportedLanguage | undefined;
   } = {},
 ): Promise<AppConfig> {
   const requireGroq = options.requireGroq ?? true;
   const requireGemini = options.requireGemini ?? true;
+  const requireOpenRouter = options.requireOpenRouter ?? false;
   let groqApiKey = config.groqApiKey;
   let geminiApiKey = config.geminiApiKey;
+  let openrouterApiKey = config.openrouterApiKey;
 
   const isInteractive = Boolean(process.stdin.isTTY && process.stdout.isTTY);
 
   const missingGroq = requireGroq && !groqApiKey;
   const missingGemini = requireGemini && !geminiApiKey;
+  const missingOpenRouter = requireOpenRouter && !openrouterApiKey;
 
-  if ((missingGroq || missingGemini) && isInteractive) {
+  if ((missingGroq || missingGemini || missingOpenRouter) && isInteractive) {
     console.log("\n🔑 API keys missing. Starting interactive setup.");
     console.log("Note: Entered keys will be saved globally for future use at:");
     console.log(`   ${getGlobalConfigPath()}\n`);
@@ -292,24 +323,32 @@ export async function ensureApiKeys(
       output: process.stdout,
     });
 
+    let promptedOpenRouterKey: string | undefined;
+
     try {
-      if (requireGroq && !groqApiKey) {
+      if (missingOpenRouter) {
+        promptedOpenRouterKey = (
+          await rl.question("1. Enter OpenRouter API Key (https://openrouter.ai/keys): ")
+        ).trim();
+        openrouterApiKey = promptedOpenRouterKey;
+      } else if (missingGroq) {
         groqApiKey = (
           await rl.question("1. Enter Groq API Key (https://console.groq.com/): ")
         ).trim();
       }
 
-      if (requireGemini && !geminiApiKey) {
+      if (missingGemini) {
         geminiApiKey = (
           await rl.question("2. Enter Gemini API Key (https://aistudio.google.com/): ")
         ).trim();
       }
 
-      if (groqApiKey || geminiApiKey) {
+      if (groqApiKey || geminiApiKey || promptedOpenRouterKey) {
         saveGlobalConfig(
           {
             ...(groqApiKey ? { groqApiKey } : {}),
             ...(geminiApiKey ? { geminiApiKey } : {}),
+            ...(promptedOpenRouterKey ? { openrouterApiKey: promptedOpenRouterKey } : {}),
           },
           { lang: options.lang },
         );
@@ -320,24 +359,35 @@ export async function ensureApiKeys(
     }
   }
 
-  const updatedConfig = {
+  const updatedConfig: AppConfig = {
     ...config,
     groqApiKey,
     geminiApiKey,
+    openrouterApiKey,
   };
 
-  validateApiKeys(updatedConfig, { requireGroq, requireGemini });
+  validateApiKeys(updatedConfig, { requireGroq, requireGemini, requireOpenRouter });
   return updatedConfig;
 }
 
 export function validateApiKeys(
   config: AppConfig,
-  options: { requireGroq?: boolean; requireGemini?: boolean } = {},
+  options: {
+    requireGroq?: boolean;
+    requireGemini?: boolean;
+    requireOpenRouter?: boolean;
+  } = {},
 ): void {
   const requireGroq = options.requireGroq ?? true;
   const requireGemini = options.requireGemini ?? true;
+  const requireOpenRouter = options.requireOpenRouter ?? false;
   const missingKeys: string[] = [];
 
+  if (requireOpenRouter && !config.openrouterApiKey) {
+    missingKeys.push(
+      "VSUB_OPENROUTER_API_KEY (Get at: https://openrouter.ai/keys; the generic OPENROUTER_API_KEY is read only with --stt-provider openrouter or VSUB_STT_PROVIDER=openrouter)",
+    );
+  }
   if (requireGroq && !config.groqApiKey) {
     missingKeys.push("VSUB_GROQ_API_KEY / GROQ_API_KEY (Get at: https://console.groq.com/)");
   }
@@ -347,7 +397,7 @@ export function validateApiKeys(
 
   if (missingKeys.length > 0) {
     throw new Error(
-      `Required API key(s) are not configured:\n- ${missingKeys.join("\n- ")}\nPlease set them via interactive prompt, .env file, or environment variables (VSUB_GROQ_API_KEY / VSUB_GEMINI_API_KEY).`,
+      `Required API key(s) are not configured:\n- ${missingKeys.join("\n- ")}\nPlease set them via interactive prompt, .env file, or environment variables.`,
     );
   }
 }

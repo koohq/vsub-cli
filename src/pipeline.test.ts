@@ -31,10 +31,13 @@ import {
   resolveOutputFilePaths,
   resolveTranscriptEntries,
 } from "./pipeline.js";
+import * as safetyModule from "./safety.js";
 import { reflowSrtEntries, type SrtEntry } from "./srt.js";
 import { isolateConfigAndEnv } from "./test-support/isolate-config-env.js";
+import { DEFAULT_OPENROUTER_STT_MODEL } from "./transcribe/openrouter.js";
 import { transcribeAudioSegments } from "./transcribe/transcriber.js";
 import { buildEntriesFromWords, type WordChunk } from "./transcribe/words.js";
+import * as ui from "./ui.js";
 
 vi.mock("./gemini.js", async (importOriginal) => {
   const actual = await importOriginal<typeof import("./gemini.js")>();
@@ -2099,6 +2102,195 @@ describe("pipeline.ts", () => {
       const cached = loadMediaCache(mediaFile, cacheDir)?.transcription;
       expect(cached?.wordChunks).toEqual(wordChunks);
       expect(cached?.entries).toEqual(entries);
+    });
+  });
+
+  describe("STT provider selection and caching in processMediaPipeline", () => {
+    let mediaFile: string;
+    let cacheDir: string;
+
+    function mockSpinner() {
+      const spinnerInfoSpy = vi.fn();
+      vi.spyOn(ui, "createSpinner").mockReturnValue({
+        start: vi.fn().mockReturnThis(),
+        succeed: vi.fn().mockReturnThis(),
+        fail: vi.fn().mockReturnThis(),
+        warn: vi.fn().mockReturnThis(),
+        info: spinnerInfoSpy,
+        updateText: vi.fn().mockReturnThis(),
+        stop: vi.fn().mockReturnThis(),
+      });
+      return { spinnerInfoSpy };
+    }
+
+    beforeEach(() => {
+      mediaFile = path.join(tempDir, "test_stt_video.mp4");
+      fs.writeFileSync(mediaFile, "dummy video content for stt test");
+      cacheDir = path.join(tempDir, "cache");
+      vi.clearAllMocks();
+    });
+
+    it("existing user with Groq, Gemini and generic OPENROUTER_API_KEY uses Groq and shows hint", async () => {
+      process.env["OPENROUTER_API_KEY"] = "generic-openrouter-key";
+      const { spinnerInfoSpy } = mockSpinner();
+
+      const result = await processMediaPipeline({
+        mediaFile,
+        cacheDir,
+        whisperPrompt: "my-hint",
+      });
+
+      expect(result.sttProvider).toBe("groq");
+      expect(result.sttModel).toBe(DEFAULT_GROQ_MODEL);
+      expect(transcribeAudioSegments).toHaveBeenCalledTimes(1);
+      const transcriber = vi.mocked(transcribeAudioSegments).mock.calls[0]?.[1];
+      const callOptions = vi.mocked(transcribeAudioSegments).mock.calls[0]?.[4];
+      expect(transcriber?.logLabel).toBe("Groq API");
+      expect(callOptions?.model).toBe(DEFAULT_GROQ_MODEL);
+      expect(callOptions?.prompt).toBe("my-hint");
+      expect(spinnerInfoSpy).toHaveBeenCalledWith(
+        expect.stringContaining(
+          "Transcribing with Groq because VSUB_OPENROUTER_API_KEY is not set",
+        ),
+      );
+    });
+
+    it("does not show OpenRouter recommendation tip when VSUB_STT_PROVIDER=groq is set", async () => {
+      process.env["VSUB_STT_PROVIDER"] = "groq";
+      const { spinnerInfoSpy } = mockSpinner();
+
+      await processMediaPipeline({
+        mediaFile,
+        cacheDir,
+      });
+
+      expect(spinnerInfoSpy).not.toHaveBeenCalledWith(
+        expect.stringContaining(
+          "Transcribing with Groq because VSUB_OPENROUTER_API_KEY is not set",
+        ),
+      );
+    });
+
+    it("hits legacy cache without provider and does not re-transcribe", async () => {
+      saveTranscriptionCache(
+        mediaFile,
+        {
+          detectedLanguage: "en",
+          entries: [
+            { id: 1, startTime: "00:00:00,000", endTime: "00:00:01,000", text: "Legacy cache" },
+          ],
+          createdAt: Date.now(),
+          model: DEFAULT_GROQ_MODEL,
+        },
+        cacheDir,
+      );
+
+      await processMediaPipeline({
+        mediaFile,
+        cacheDir,
+      });
+
+      expect(transcribeAudioSegments).not.toHaveBeenCalled();
+    });
+
+    it("uses OpenRouter when VSUB_OPENROUTER_API_KEY is present, ignores whisperPrompt, and caches provider", async () => {
+      process.env["VSUB_OPENROUTER_API_KEY"] = "vsub-openrouter-key";
+      const { spinnerInfoSpy } = mockSpinner();
+
+      const result = await processMediaPipeline({
+        mediaFile,
+        cacheDir,
+        whisperPrompt: "ignored-for-openrouter",
+      });
+
+      expect(result.sttProvider).toBe("openrouter");
+      expect(result.sttModel).toBe(DEFAULT_OPENROUTER_STT_MODEL);
+      expect(transcribeAudioSegments).toHaveBeenCalledTimes(1);
+      const transcriber = vi.mocked(transcribeAudioSegments).mock.calls[0]?.[1];
+      const callOptions = vi.mocked(transcribeAudioSegments).mock.calls[0]?.[4];
+      expect(transcriber?.logLabel).toBe("OpenRouter API");
+      expect(callOptions?.model).toBe(DEFAULT_OPENROUTER_STT_MODEL);
+      expect(callOptions?.prompt).toBeUndefined();
+      expect(spinnerInfoSpy).not.toHaveBeenCalledWith(
+        expect.stringContaining("Transcribing with Groq because"),
+      );
+
+      const cached = loadMediaCache(mediaFile, cacheDir)?.transcription;
+      expect(cached?.provider).toBe("openrouter");
+
+      await processMediaPipeline({
+        mediaFile,
+        cacheDir,
+        whisperPrompt: "ignored-for-openrouter",
+        overwrite: true,
+      });
+      expect(transcribeAudioSegments).toHaveBeenCalledTimes(1);
+    });
+
+    it("uses generic OPENROUTER_API_KEY when sttProvider: openrouter is explicitly passed", async () => {
+      delete process.env["VSUB_OPENROUTER_API_KEY"];
+      delete process.env["VSUB_GROQ_API_KEY"];
+      process.env["OPENROUTER_API_KEY"] = "generic-openrouter-key";
+
+      const result = await processMediaPipeline({
+        mediaFile,
+        cacheDir,
+        sttProvider: "openrouter",
+      });
+
+      expect(result.sttProvider).toBe("openrouter");
+      expect(transcribeAudioSegments).toHaveBeenCalledTimes(1);
+    });
+
+    it("throws error for missing VSUB_OPENROUTER_API_KEY when only generic key exists and no explicit provider", async () => {
+      delete process.env["VSUB_OPENROUTER_API_KEY"];
+      delete process.env["VSUB_GROQ_API_KEY"];
+      process.env["OPENROUTER_API_KEY"] = "generic-openrouter-key";
+
+      await expect(
+        processMediaPipeline({
+          mediaFile,
+          cacheDir,
+        }),
+      ).rejects.toThrow(/VSUB_OPENROUTER_API_KEY/);
+    });
+
+    it("respects sttModel override for chosen provider", async () => {
+      process.env["VSUB_OPENROUTER_API_KEY"] = "vsub-openrouter-key";
+      const result = await processMediaPipeline({
+        mediaFile,
+        cacheDir,
+        sttModel: "custom-openrouter-model",
+      });
+
+      expect(result.sttModel).toBe("custom-openrouter-model");
+      const callOptions = vi.mocked(transcribeAudioSegments).mock.calls[0]?.[4];
+      expect(callOptions?.model).toBe("custom-openrouter-model");
+    });
+
+    it("throws before checking writable targets when sttProvider is invalid", async () => {
+      const ensureTargetsSpy = vi.spyOn(safetyModule, "ensureWritableTargets");
+      await expect(
+        processMediaPipeline({
+          mediaFile,
+          cacheDir,
+          sttProvider: "foo",
+        }),
+      ).rejects.toThrow(/Unsupported transcription provider: "foo"/);
+      expect(ensureTargetsSpy).not.toHaveBeenCalled();
+    });
+
+    it("resolveTranscriptEntries uses OpenRouter when sttProvider is openrouter and caches provider", async () => {
+      process.env["VSUB_OPENROUTER_API_KEY"] = "vsub-openrouter-key";
+      const result = await resolveTranscriptEntries({
+        filePath: mediaFile,
+        cacheDir,
+        sttProvider: "openrouter",
+      });
+
+      expect(result.fromCache).toBe(false);
+      const cached = loadMediaCache(mediaFile, cacheDir)?.transcription;
+      expect(cached?.provider).toBe("openrouter");
     });
   });
 });

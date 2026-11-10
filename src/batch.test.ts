@@ -150,6 +150,8 @@ describe("batch.ts", () => {
             targetLanguages: ["ja"],
             entriesCount: 10,
             outputFiles: [path.join(tempDir, `${path.basename(opts.mediaFile)}.ja.srt`)],
+            sttProvider: "groq",
+            sttModel: "whisper-large-v3",
           };
         });
 
@@ -198,6 +200,8 @@ describe("batch.ts", () => {
           targetLanguages: ["ja"],
           entriesCount: 5,
           outputFiles: [path.join(tempDir, "ep2.mp4.ja.srt")],
+          sttProvider: "groq",
+          sttModel: "whisper-large-v3",
         };
       });
 
@@ -247,6 +251,8 @@ describe("batch.ts", () => {
             targetLanguages: ["ja"],
             entriesCount: 5,
             outputFiles: [],
+            sttProvider: "groq",
+            sttModel: "whisper-large-v3",
           };
         });
 
@@ -291,6 +297,8 @@ describe("batch.ts", () => {
           targetLanguages: ["ja"],
           entriesCount: 3,
           outputFiles: [path.join(tempDir, "ep1.embedded.mp4")],
+          sttProvider: "groq",
+          sttModel: "whisper-large-v3",
         };
       });
 
@@ -339,6 +347,8 @@ describe("batch.ts", () => {
             targetLanguages: ["ja"],
             entriesCount: 1,
             outputFiles: [],
+            sttProvider: "groq",
+            sttModel: "whisper-large-v3",
           });
       });
 
@@ -346,16 +356,30 @@ describe("batch.ts", () => {
         {
           description: "noTranslate: true",
           options: { noTranslate: true },
-          expected: { requireGroq: true, requireGemini: false },
+          expected: { requireGroq: true, requireGemini: false, requireOpenRouter: false },
         },
         {
           description: "without noTranslate",
           options: {},
-          expected: { requireGroq: true, requireGemini: true },
+          expected: { requireGroq: true, requireGemini: true, requireOpenRouter: false },
+        },
+        {
+          description: "with OpenRouter key in config",
+          mockConfig: {
+            openrouterApiKey: "vsub-openrouter-key",
+            groqApiKey: "",
+            geminiApiKey: "gem-mock",
+            ffmpegPath: "ffmpeg",
+          },
+          options: {},
+          expected: { requireGroq: false, requireGemini: true, requireOpenRouter: true },
         },
       ])(
         "should call ensureApiKeys with correct requirements ($description)",
-        async ({ options, expected }) => {
+        async ({ options, expected, mockConfig }) => {
+          if (mockConfig) {
+            vi.spyOn(configModule, "getConfig").mockReturnValue(mockConfig);
+          }
           await runBatchPipeline({
             targets: [dummyFile],
             ...options,
@@ -368,7 +392,26 @@ describe("batch.ts", () => {
         },
       );
 
-      it("should reject with missing Groq key error and abort before processing when noTranslate is true", async () => {
+      it("should reject with missing Groq key error and abort before processing when sttProvider is groq and noTranslate is true", async () => {
+        vi.spyOn(configModule, "getConfig").mockReturnValue({
+          groqApiKey: "",
+          geminiApiKey: "gem-mock",
+          ffmpegPath: "ffmpeg",
+        });
+
+        await expect(
+          runBatchPipeline({
+            targets: [dummyFile],
+            sttProvider: "groq",
+            noTranslate: true,
+          }),
+        ).rejects.toThrow("VSUB_GROQ_API_KEY");
+
+        expect(processMediaPipelineSpy).not.toHaveBeenCalled();
+        expect(checkFfmpegSpy).not.toHaveBeenCalled();
+      });
+
+      it("should reject with missing OpenRouter key error when no keys are configured", async () => {
         vi.spyOn(configModule, "getConfig").mockReturnValue({
           groqApiKey: "",
           geminiApiKey: "gem-mock",
@@ -380,10 +423,34 @@ describe("batch.ts", () => {
             targets: [dummyFile],
             noTranslate: true,
           }),
-        ).rejects.toThrow("VSUB_GROQ_API_KEY");
+        ).rejects.toThrow("VSUB_OPENROUTER_API_KEY");
 
         expect(processMediaPipelineSpy).not.toHaveBeenCalled();
         expect(checkFfmpegSpy).not.toHaveBeenCalled();
+      });
+
+      it("prints hint once and passes silentSttHint: true to each media pipeline when auto chooses groq", async () => {
+        const consoleLogSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+        vi.spyOn(configModule, "getConfig").mockReturnValue({
+          groqApiKey: "gsk-mock",
+          geminiApiKey: "gem-mock",
+          ffmpegPath: "ffmpeg",
+        });
+
+        await runBatchPipeline({
+          targets: [dummyFile],
+        });
+
+        expect(processMediaPipelineSpy).toHaveBeenCalledWith(
+          expect.objectContaining({
+            silentSttHint: true,
+          }),
+        );
+        expect(consoleLogSpy).toHaveBeenCalledWith(
+          expect.stringContaining(
+            "Transcribing with Groq because VSUB_OPENROUTER_API_KEY is not set",
+          ),
+        );
       });
     });
 

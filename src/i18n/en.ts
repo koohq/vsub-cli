@@ -69,6 +69,10 @@ export const en = {
       `Unsupported output format: "${token}". Available formats: ${supported}`,
     invalidTargetLang: (token: string) =>
       `Invalid target language code: "${token}". Valid examples: "ja", "en", "zh", "zh-CN", "pt-BR"`,
+    invalidSttProvider: (provider: string) =>
+      `Unsupported transcription provider: "${provider}". Supported: openrouter, groq`,
+    sttGroqAutoHint:
+      "💡 Transcribing with Groq because VSUB_OPENROUTER_API_KEY is not set. The default is now OpenRouter (elevenlabs/scribe-v2). To keep Groq and hide this tip, set VSUB_STT_PROVIDER=groq.",
     step1SkipCache:
       "🔊 [1/4] Audio extraction skipped because transcription cache exists [⚡ Cached]",
     step2UseCached: (lang: string, count: number) =>
@@ -79,10 +83,10 @@ export const en = {
       `🔊 [1/4] Audio optimization complete (${count} segments / ${size})`,
     step1AudioExtracted: (count: number, size: string) =>
       `🔊 [1/4] Audio extraction complete (${count} segments / ${size})`,
-    step2Transcribing: (model: string, current?: number, total?: number) =>
+    step2Transcribing: (provider: string, model: string, current?: number, total?: number) =>
       current && total && total > 1
-        ? `🎙️ [2/4] Transcribing via Groq (${model}) [${current}/${total}]...`
-        : `🎙️ [2/4] Transcribing via Groq (${model})...`,
+        ? `🎙️ [2/4] Transcribing via ${provider} (${model}) [${current}/${total}]...`
+        : `🎙️ [2/4] Transcribing via ${provider} (${model})...`,
     step2NoEntries: "⚠️ [2/4] No valid subtitle entries detected from transcription result",
     step2Done: (lang: string, count: number) =>
       `🎙️ [2/4] Transcription complete${lang} - generated ${count} subtitle lines`,

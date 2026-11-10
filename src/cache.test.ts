@@ -30,6 +30,7 @@ import {
 import { DEFAULT_GROQ_MODEL } from "./config.js";
 import { DEFAULT_CONTEXT_WINDOW_SIZE } from "./gemini.js";
 import type { SrtEntry } from "./srt.js";
+import { DEFAULT_OPENROUTER_STT_MODEL } from "./transcribe/openrouter.js";
 
 describe("cache module", () => {
   let tempDir: string;
@@ -373,6 +374,75 @@ describe("cache module", () => {
           expect(isTranscriptionCacheValid(cached, currentContext)).toBe(expected);
         },
       );
+
+      describe("provider-aware transcription cache validity", () => {
+        it("considers legacy cached entry without provider as groq with DEFAULT_GROQ_MODEL", () => {
+          const legacyCached = {
+            entries: [],
+            createdAt: Date.now(),
+            model: "whisper-large-v3-turbo",
+          };
+          expect(
+            isTranscriptionCacheValid(legacyCached, {
+              provider: "groq",
+              model: DEFAULT_GROQ_MODEL,
+            }),
+          ).toBe(true);
+          expect(
+            isTranscriptionCacheValid(legacyCached, {
+              provider: "openrouter",
+              model: DEFAULT_OPENROUTER_STT_MODEL,
+            }),
+          ).toBe(false);
+        });
+
+        it("considers legacy cached entry without model as DEFAULT_GROQ_MODEL", () => {
+          const legacyCached = {
+            entries: [],
+            createdAt: Date.now(),
+          };
+          expect(
+            isTranscriptionCacheValid(legacyCached, {
+              provider: "groq",
+              model: DEFAULT_GROQ_MODEL,
+            }),
+          ).toBe(true);
+          expect(
+            isTranscriptionCacheValid(legacyCached, {
+              provider: "openrouter",
+              model: DEFAULT_OPENROUTER_STT_MODEL,
+            }),
+          ).toBe(false);
+        });
+
+        it("treats openrouter entry with empty model as DEFAULT_OPENROUTER_STT_MODEL", () => {
+          const cached = {
+            provider: "openrouter" as const,
+            entries: [],
+            createdAt: Date.now(),
+          };
+          expect(
+            isTranscriptionCacheValid(cached, {
+              provider: "openrouter",
+              model: DEFAULT_OPENROUTER_STT_MODEL,
+            }),
+          ).toBe(true);
+          expect(
+            isTranscriptionCacheValid(cached, {
+              provider: "openrouter",
+              model: "other-openrouter-model",
+            }),
+          ).toBe(false);
+        });
+
+        it("saves provider in createCachedTranscription when provided in context", () => {
+          const cached = createCachedTranscription(
+            { provider: "openrouter", model: DEFAULT_OPENROUTER_STT_MODEL },
+            [],
+          );
+          expect(cached.provider).toBe("openrouter");
+        });
+      });
     });
 
     describe("isTranslationCacheValid", () => {

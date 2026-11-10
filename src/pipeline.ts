@@ -19,13 +19,7 @@ import {
   type TranscriptionCacheContext,
   type TranslationCacheContext,
 } from "./cache.js";
-import {
-  type AppConfig,
-  DEFAULT_GEMINI_MODEL,
-  DEFAULT_GROQ_MODEL,
-  ensureApiKeys,
-  getConfig,
-} from "./config.js";
+import { type AppConfig, DEFAULT_GEMINI_MODEL, ensureApiKeys, getConfig } from "./config.js";
 import {
   burnSubtitlesToVideo,
   checkFfmpeg,
@@ -65,7 +59,13 @@ import {
   reflowSrtEntries,
   type SrtEntry,
 } from "./srt.js";
-import { createTranscriber } from "./transcribe/select.js";
+import {
+  createTranscriber,
+  resolveSttSettings,
+  STT_PROVIDER_LABELS,
+  type SttProvider,
+  type SttSettings,
+} from "./transcribe/select.js";
 import { transcribeAudioSegments } from "./transcribe/transcriber.js";
 import { buildEntriesFromWords, type WordChunk } from "./transcribe/words.js";
 import { createSpinner, formatFileSize, formatSummaryBox } from "./ui.js";
@@ -222,6 +222,9 @@ export interface ProcessMediaOptions {
   ffmpegPath?: string | undefined;
   geminiModel?: string | undefined;
   groqModel?: string | undefined;
+  sttProvider?: string | undefined;
+  sttModel?: string | undefined;
+  silentSttHint?: boolean | undefined;
   whisperPrompt?: string | undefined;
   prompt?: string | undefined;
   glossary?: string | undefined;
@@ -265,7 +268,8 @@ export interface ProcessMediaResult {
   glossaryTermsCount?: number | undefined;
   bilingual?: boolean | { order?: string | undefined } | undefined;
   backedUpFiles?: string[] | undefined;
-  groqModel?: string | undefined;
+  sttProvider: SttProvider;
+  sttModel: string;
   geminiModel?: string | undefined;
   cacheStatus?:
     | {
@@ -279,22 +283,25 @@ export interface ProcessMediaResult {
  * Resolves transcription cache context according to CLI options, raw config, and glossary hints.
  */
 export function resolveTranscriptionContext(
-  rawConfig: Pick<AppConfig, "whisperPrompt" | "groqModel" | "glossary">,
-  overrides: {
+  rawConfig: Pick<AppConfig, "whisperPrompt" | "glossary">,
+  stt: SttSettings,
+  overrides?: {
     whisperPrompt?: string | undefined;
-    groqModel?: string | undefined;
     glossary?: string | undefined;
   },
 ): TranscriptionCacheContext {
-  const groqModel = overrides.groqModel?.trim() || rawConfig.groqModel || DEFAULT_GROQ_MODEL;
-  const glossaryInput = overrides.glossary?.trim() || rawConfig.glossary;
-  let whisperPrompt = overrides.whisperPrompt?.trim() || rawConfig.whisperPrompt;
-  if (!whisperPrompt && glossaryInput) {
-    whisperPrompt = extractWhisperPromptHints(glossaryInput);
+  let whisperPrompt: string | undefined;
+  if (stt.provider !== "openrouter") {
+    const glossaryInput = overrides?.glossary?.trim() || rawConfig.glossary;
+    whisperPrompt = overrides?.whisperPrompt?.trim() || rawConfig.whisperPrompt;
+    if (!whisperPrompt && glossaryInput) {
+      whisperPrompt = extractWhisperPromptHints(glossaryInput);
+    }
   }
   return {
+    provider: stt.provider,
+    model: stt.model,
     prompt: whisperPrompt,
-    model: groqModel,
   };
 }
 
@@ -314,10 +321,21 @@ export async function processMediaPipeline(
   });
   const outputFiles: string[] = [];
 
-  const rawConfig = getConfig(options.ffmpegPath, options.lang);
+  let rawConfig = getConfig(options.ffmpegPath, options.lang);
   const lang = options.lang ?? rawConfig.lang ?? "en";
   const i18n = getI18n(lang);
   const m = i18n.pipeline;
+
+  const { config: resolvedSttConfig, stt } = resolveSttSettings(
+    rawConfig,
+    {
+      sttProvider: options.sttProvider,
+      sttModel: options.sttModel,
+      groqModel: options.groqModel,
+    },
+    lang,
+  );
+  rawConfig = resolvedSttConfig;
 
   const outputFormats = parseOutputFormats(options.format || "srt", lang);
   const targetLanguages = parseTargetLanguages(
@@ -464,9 +482,8 @@ export async function processMediaPipeline(
 
   const geminiModel = options.geminiModel?.trim() || rawConfig.geminiModel;
   const glossaryInput = options.glossary?.trim() || rawConfig.glossary;
-  const transcriptionContext = resolveTranscriptionContext(rawConfig, {
+  const transcriptionContext = resolveTranscriptionContext(rawConfig, stt, {
     whisperPrompt: options.whisperPrompt,
-    groqModel: options.groqModel,
     glossary: glossaryInput,
   });
 
@@ -518,17 +535,23 @@ export async function processMediaPipeline(
     spinner.info(`${prefix}${m.step1SkipCache}`);
     spinner.succeed(`${prefix}${m.step2UseCached(langDisplay, srtEntries.length)}`);
   } else {
-    // Ensure Groq API Key and FFmpeg only when transcription is needed
+    // Ensure API Key and FFmpeg only when transcription is needed
     const config = await ensureApiKeys(rawConfig, {
-      requireGroq: true,
+      requireGroq: stt.provider === "groq",
+      requireOpenRouter: stt.provider === "openrouter",
       requireGemini: false,
+      lang,
     });
     await checkFfmpeg(config.ffmpegPath);
+
+    if (stt.source === "auto" && stt.provider === "groq" && !isStdout && !options.silentSttHint) {
+      spinner.info(`${prefix}${m.sttGroqAutoHint}`);
+    }
 
     // 1. Audio extraction / optimization
     const audioStartMsg = isAudio ? m.step1Optimizing : m.step1Extracting;
     spinner.start(`${prefix}${audioStartMsg}`);
-    const transcriber = createTranscriber(config);
+    const transcriber = createTranscriber(config, stt.provider);
     const extractResult = await extractAudio(
       resolvedMediaPath,
       config.ffmpegPath,
@@ -550,14 +573,15 @@ export async function processMediaPipeline(
       : m.step1AudioExtracted(audioPaths.length, formatFileSize(totalAudioBytes));
     spinner.succeed(`${prefix}${audioDoneMsg}`);
 
-    // 2. Transcription with Groq
-    const effectiveGroqModel = transcriptionContext.model || DEFAULT_GROQ_MODEL;
-    const initialGroqText = `${prefix}${m.step2Transcribing(
-      effectiveGroqModel,
+    // 2. Transcription
+    const providerLabel = STT_PROVIDER_LABELS[stt.provider];
+    const initialText = `${prefix}${m.step2Transcribing(
+      providerLabel,
+      stt.model,
       audioPaths.length > 1 ? 1 : undefined,
       audioPaths.length > 1 ? audioPaths.length : undefined,
     )}`;
-    spinner.start(initialGroqText);
+    spinner.start(initialText);
 
     const transcriptResult = await transcribeAudioSegments(
       audioPaths,
@@ -565,11 +589,13 @@ export async function processMediaPipeline(
       verbose,
       (current, total) => {
         if (total > 1) {
-          spinner.updateText(`${prefix}${m.step2Transcribing(effectiveGroqModel, current, total)}`);
+          spinner.updateText(
+            `${prefix}${m.step2Transcribing(providerLabel, stt.model, current, total)}`,
+          );
         }
       },
       {
-        model: transcriptionContext.model,
+        model: stt.model,
         ...(transcriptionContext.prompt ? { prompt: transcriptionContext.prompt } : {}),
         ...(extractResult.durations ? { durations: extractResult.durations } : {}),
       },
@@ -943,7 +969,8 @@ export async function processMediaPipeline(
       whisperPrompt: transcriptionContext.prompt,
       prompt: translationPrompt,
       glossaryTermsCount: totalGlossaryTerms > 0 ? totalGlossaryTerms : undefined,
-      groqModel: transcriptionContext.model,
+      sttProvider: stt.provider,
+      sttModel: stt.model,
       geminiModel: geminiModel || DEFAULT_GEMINI_MODEL,
       cacheStatus:
         transcriptionCacheHit || cachedLanguages.length > 0
@@ -972,6 +999,8 @@ export async function processMediaPipeline(
 
 export interface ResolveTranscriptOptions {
   filePath: string;
+  sttProvider?: string | undefined;
+  sttModel?: string | undefined;
   groqModel?: string | undefined;
   whisperPrompt?: string | undefined;
   noCache?: boolean | undefined;
@@ -1013,12 +1042,23 @@ export async function resolveTranscriptEntries(
     };
   }
 
+  const rawConfig = getConfig(undefined, options.lang);
+  const lang = options.lang ?? rawConfig.lang ?? "en";
+  const { config: resolvedConfig, stt } = resolveSttSettings(
+    rawConfig,
+    {
+      sttProvider: options.sttProvider,
+      sttModel: options.sttModel,
+      groqModel: options.groqModel,
+    },
+    lang,
+  );
+  const transcriptionContext = resolveTranscriptionContext(resolvedConfig, stt, {
+    whisperPrompt: options.whisperPrompt,
+  });
+
   const useCache = !options.noCache && !options.fresh;
   const mediaCache = useCache ? loadMediaCache(resolvedPath, options.cacheDir) : null;
-  const transcriptionContext: TranscriptionCacheContext = {
-    prompt: options.whisperPrompt,
-    model: options.groqModel,
-  };
   const isMatch =
     useCache && isTranscriptionCacheValid(mediaCache?.transcription, transcriptionContext);
 
@@ -1031,17 +1071,17 @@ export async function resolveTranscriptEntries(
     };
   }
 
-  // Not cached, transcribe via Groq
-  const rawConfig = getConfig(undefined, options.lang);
-  const config = await ensureApiKeys(rawConfig, {
-    requireGroq: true,
+  // Not cached, transcribe via provider
+  const config = await ensureApiKeys(resolvedConfig, {
+    requireGroq: stt.provider === "groq",
+    requireOpenRouter: stt.provider === "openrouter",
     requireGemini: false,
-    lang: options.lang,
+    lang,
   });
   await checkFfmpeg(config.ffmpegPath);
 
   const verbose = Boolean(options.verbose);
-  const transcriber = createTranscriber(config);
+  const transcriber = createTranscriber(config, stt.provider);
   const extractResult = await extractAudio(
     resolvedPath,
     config.ffmpegPath,
@@ -1057,8 +1097,8 @@ export async function resolveTranscriptEntries(
       verbose,
       undefined,
       {
-        model: options.groqModel,
-        ...(options.whisperPrompt ? { prompt: options.whisperPrompt } : {}),
+        model: stt.model,
+        ...(transcriptionContext.prompt ? { prompt: transcriptionContext.prompt } : {}),
         ...(extractResult.durations ? { durations: extractResult.durations } : {}),
       },
     );
@@ -1099,6 +1139,8 @@ export interface ProcessChaptersOptions {
   backup?: boolean | undefined;
   geminiModel?: string | undefined;
   groqModel?: string | undefined;
+  sttProvider?: string | undefined;
+  sttModel?: string | undefined;
   whisperPrompt?: string | undefined;
   prompt?: string | undefined;
   noCache?: boolean | undefined;
@@ -1138,11 +1180,20 @@ export async function processChaptersPipeline(
 
   const format = options.format || "txt";
   const rawConfig = getConfig(undefined, lang);
-  const targetLang = resolveTargetLang(options.targetLang, rawConfig.targetLang);
-  const geminiModel = options.geminiModel?.trim() || rawConfig.geminiModel || DEFAULT_GEMINI_MODEL;
-  const transcriptionContext = resolveTranscriptionContext(rawConfig, {
+  const { config: resolvedConfig, stt } = resolveSttSettings(
+    rawConfig,
+    {
+      sttProvider: options.sttProvider,
+      sttModel: options.sttModel,
+      groqModel: options.groqModel,
+    },
+    lang,
+  );
+  const targetLang = resolveTargetLang(options.targetLang, resolvedConfig.targetLang);
+  const geminiModel =
+    options.geminiModel?.trim() || resolvedConfig.geminiModel || DEFAULT_GEMINI_MODEL;
+  const transcriptionContext = resolveTranscriptionContext(resolvedConfig, stt, {
     whisperPrompt: options.whisperPrompt,
-    groqModel: options.groqModel,
   });
 
   let outputPath: string | undefined;
@@ -1213,7 +1264,7 @@ export async function processChaptersPipeline(
   }
 
   // Ensure Gemini API Key
-  const config = await ensureApiKeys(rawConfig, {
+  const config = await ensureApiKeys(resolvedConfig, {
     requireGemini: true,
     requireGroq: false,
     lang,
@@ -1223,8 +1274,10 @@ export async function processChaptersPipeline(
   spinner.start(cm.step1Resolve);
   const transcriptResult = await resolveTranscriptEntries({
     filePath: resolvedInput,
-    groqModel: transcriptionContext.model,
-    whisperPrompt: transcriptionContext.prompt,
+    sttProvider: options.sttProvider,
+    sttModel: options.sttModel,
+    groqModel: options.groqModel,
+    whisperPrompt: options.whisperPrompt,
     noCache: options.noCache,
     fresh: options.fresh,
     cacheDir: options.cacheDir,
@@ -1299,6 +1352,8 @@ export interface ProcessSummaryOptions {
   backup?: boolean | undefined;
   geminiModel?: string | undefined;
   groqModel?: string | undefined;
+  sttProvider?: string | undefined;
+  sttModel?: string | undefined;
   whisperPrompt?: string | undefined;
   prompt?: string | undefined;
   noCache?: boolean | undefined;
@@ -1338,11 +1393,20 @@ export async function processSummaryPipeline(
 
   const format = options.format || "md";
   const rawConfig = getConfig(undefined, lang);
-  const targetLang = resolveTargetLang(options.targetLang, rawConfig.targetLang);
-  const geminiModel = options.geminiModel?.trim() || rawConfig.geminiModel || DEFAULT_GEMINI_MODEL;
-  const transcriptionContext = resolveTranscriptionContext(rawConfig, {
+  const { config: resolvedConfig, stt } = resolveSttSettings(
+    rawConfig,
+    {
+      sttProvider: options.sttProvider,
+      sttModel: options.sttModel,
+      groqModel: options.groqModel,
+    },
+    lang,
+  );
+  const targetLang = resolveTargetLang(options.targetLang, resolvedConfig.targetLang);
+  const geminiModel =
+    options.geminiModel?.trim() || resolvedConfig.geminiModel || DEFAULT_GEMINI_MODEL;
+  const transcriptionContext = resolveTranscriptionContext(resolvedConfig, stt, {
     whisperPrompt: options.whisperPrompt,
-    groqModel: options.groqModel,
   });
 
   let outputPath: string | undefined;
@@ -1413,7 +1477,7 @@ export async function processSummaryPipeline(
   }
 
   // Ensure Gemini API Key
-  const config = await ensureApiKeys(rawConfig, {
+  const config = await ensureApiKeys(resolvedConfig, {
     requireGemini: true,
     requireGroq: false,
     lang,
@@ -1423,8 +1487,10 @@ export async function processSummaryPipeline(
   spinner.start(sm.step1Resolve);
   const transcriptResult = await resolveTranscriptEntries({
     filePath: resolvedInput,
-    groqModel: transcriptionContext.model,
-    whisperPrompt: transcriptionContext.prompt,
+    sttProvider: options.sttProvider,
+    sttModel: options.sttModel,
+    groqModel: options.groqModel,
+    whisperPrompt: options.whisperPrompt,
     noCache: options.noCache,
     fresh: options.fresh,
     cacheDir: options.cacheDir,

@@ -856,5 +856,39 @@ describe("CLI integration harness", () => {
         "Output path or base name for the generated subtitle file(s); with --embed or --burn and a video path (e.g. out.mkv), subtitles are saved as out.<lang>.<format>",
       );
     });
+
+    it.each([
+      {
+        cmd: "root",
+        args: ["video.mp4", "--stt-provider", "openrouter", "--stt-model", "m1"],
+        getMock: () => processMediaPipeline,
+        expected: { sttProvider: "openrouter", sttModel: "m1" },
+      },
+      {
+        cmd: "batch",
+        args: ["batch", "./videos", "--stt-provider", "openrouter", "--stt-model", "m1"],
+        getMock: () => runBatchPipeline,
+        expected: { sttProvider: "openrouter", sttModel: "m1" },
+      },
+      {
+        cmd: "chapters",
+        args: ["chapters", "dummy.mp4", "--stt-provider", "openrouter", "--stt-model", "m1"],
+        getMock: () => processChaptersPipeline,
+        expected: { sttProvider: "openrouter", sttModel: "m1" },
+      },
+      {
+        cmd: "summarize",
+        args: ["summarize", "dummy.mp4", "--stt-provider", "openrouter", "--stt-model", "m1"],
+        getMock: () => processSummaryPipeline,
+        expected: { sttProvider: "openrouter", sttModel: "m1" },
+      },
+    ])(
+      "passes --stt-provider and --stt-model to $cmd pipeline",
+      async ({ args, getMock, expected }) => {
+        const resolvedArgs = args.map((a) => (a === "dummy.mp4" ? dummyVideoPath : a));
+        await runCli(...resolvedArgs);
+        expect(getMock()).toHaveBeenCalledWith(expect.objectContaining(expected));
+      },
+    );
   });
 });

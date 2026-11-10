@@ -562,8 +562,22 @@ export function createProgram(): Command {
     .option("--stdout", "Output chapters directly to stdout", false)
     .option("--prompt <instruction>", "Additional instruction prompt for Gemini chapter generation")
     .option("--gemini-model <model>", "Gemini model to use for chapters generation")
-    .option("--groq-model <model>", "Groq Whisper model to use (if media transcription needed)")
-    .option("--whisper-prompt <text>", "Groq Whisper recognition prompt hint")
+    .option(
+      "--stt-provider <provider>",
+      "Transcription provider: openrouter or groq (default: VSUB_STT_PROVIDER, config, or chosen from your API keys)",
+    )
+    .option(
+      "--stt-model <model>",
+      "Transcription model for the chosen provider (default: elevenlabs/scribe-v2 on OpenRouter, whisper-large-v3-turbo on Groq)",
+    )
+    .option(
+      "--groq-model <model>",
+      "Groq Whisper model to use if media transcription is needed (used only when the provider is groq)",
+    )
+    .option(
+      "--whisper-prompt <text>",
+      "Groq Whisper recognition prompt hint (Groq only; not sent to OpenRouter)",
+    )
     .option("-w, --overwrite", "Overwrite existing output file without confirmation prompt", false)
     .option("--backup", "Create backup (.bak) of existing output file before overwriting", false)
     .option("--no-cache", "Do not use or save intermediate cache")
@@ -582,6 +596,8 @@ export function createProgram(): Command {
         stdout?: boolean;
         prompt?: string;
         geminiModel?: string;
+        sttProvider?: string;
+        sttModel?: string;
         groqModel?: string;
         whisperPrompt?: string;
         overwrite?: boolean;
@@ -608,6 +624,8 @@ export function createProgram(): Command {
           stdout: options.stdout,
           prompt: options.prompt,
           geminiModel: options.geminiModel,
+          sttProvider: options.sttProvider,
+          sttModel: options.sttModel,
           groqModel: options.groqModel,
           whisperPrompt: options.whisperPrompt,
           overwrite: options.overwrite,
@@ -645,8 +663,22 @@ export function createProgram(): Command {
     .option("--stdout", "Output summary directly to stdout", false)
     .option("--prompt <instruction>", "Additional instruction prompt for Gemini summary generation")
     .option("--gemini-model <model>", "Gemini model to use for summary generation")
-    .option("--groq-model <model>", "Groq Whisper model to use (if media transcription needed)")
-    .option("--whisper-prompt <text>", "Groq Whisper recognition prompt hint")
+    .option(
+      "--stt-provider <provider>",
+      "Transcription provider: openrouter or groq (default: VSUB_STT_PROVIDER, config, or chosen from your API keys)",
+    )
+    .option(
+      "--stt-model <model>",
+      "Transcription model for the chosen provider (default: elevenlabs/scribe-v2 on OpenRouter, whisper-large-v3-turbo on Groq)",
+    )
+    .option(
+      "--groq-model <model>",
+      "Groq Whisper model to use if media transcription is needed (used only when the provider is groq)",
+    )
+    .option(
+      "--whisper-prompt <text>",
+      "Groq Whisper recognition prompt hint (Groq only; not sent to OpenRouter)",
+    )
     .option("-w, --overwrite", "Overwrite existing output file without confirmation prompt", false)
     .option("--backup", "Create backup (.bak) of existing output file before overwriting", false)
     .option("--no-cache", "Do not use or save intermediate cache")
@@ -661,6 +693,8 @@ export function createProgram(): Command {
         stdout?: boolean;
         prompt?: string;
         geminiModel?: string;
+        sttProvider?: string;
+        sttModel?: string;
         groqModel?: string;
         whisperPrompt?: string;
         overwrite?: boolean;
@@ -687,6 +721,8 @@ export function createProgram(): Command {
           stdout: options.stdout,
           prompt: options.prompt,
           geminiModel: options.geminiModel,
+          sttProvider: options.sttProvider,
+          sttModel: options.sttModel,
           groqModel: options.groqModel,
           whisperPrompt: options.whisperPrompt,
           overwrite: options.overwrite,
@@ -1533,7 +1569,22 @@ export function createProgram(): Command {
       "--ffmpeg-path <path>",
       "Path to ffmpeg executable (searches VSUB_FFMPEG_PATH or PATH if omitted)",
     )
-    .option("--whisper-prompt <text>", "Prompt hint for Groq Whisper speech recognition")
+    .option(
+      "--stt-provider <provider>",
+      "Transcription provider: openrouter or groq (default: VSUB_STT_PROVIDER, config, or chosen from your API keys)",
+    )
+    .option(
+      "--stt-model <model>",
+      "Transcription model for the chosen provider (default: elevenlabs/scribe-v2 on OpenRouter, whisper-large-v3-turbo on Groq)",
+    )
+    .option(
+      "--groq-model <model>",
+      "Groq Whisper model to use for transcription (used only when the provider is groq)",
+    )
+    .option(
+      "--whisper-prompt <text>",
+      "Prompt hint for Groq Whisper speech recognition (Groq only; not sent to OpenRouter)",
+    )
     .option("--prompt <instruction>", "Additional instruction prompt for Gemini translation")
     .option(
       "--glossary <path-or-terms>",
@@ -1541,7 +1592,6 @@ export function createProgram(): Command {
     )
     .option("--concurrency <number>", "Number of concurrent translation requests to Gemini API")
     .option("--gemini-model <model>", "Gemini model to use for translation")
-    .option("--groq-model <model>", "Groq Whisper model to use for transcription")
     .option("--no-cache", "Do not use or save intermediate transcription/translation cache")
     .option(
       "--fresh",
@@ -1658,7 +1708,22 @@ export function createProgram(): Command {
       "--ffmpeg-path <path>",
       "Path to ffmpeg executable (searches VSUB_FFMPEG_PATH or PATH if omitted)",
     )
-    .option("--whisper-prompt <text>", "Prompt hint for Groq Whisper speech recognition")
+    .option(
+      "--stt-provider <provider>",
+      "Transcription provider: openrouter or groq (default: VSUB_STT_PROVIDER, config, or chosen from your API keys)",
+    )
+    .option(
+      "--stt-model <model>",
+      "Transcription model for the chosen provider (default: elevenlabs/scribe-v2 on OpenRouter, whisper-large-v3-turbo on Groq)",
+    )
+    .option(
+      "--groq-model <model>",
+      "Groq Whisper model to use for transcription (used only when the provider is groq)",
+    )
+    .option(
+      "--whisper-prompt <text>",
+      "Prompt hint for Groq Whisper speech recognition (Groq only; not sent to OpenRouter)",
+    )
     .option("--prompt <instruction>", "Additional instruction prompt for Gemini translation")
     .option(
       "--glossary <path-or-terms>",
@@ -1666,7 +1731,6 @@ export function createProgram(): Command {
     )
     .option("--concurrency <number>", "Number of concurrent translation requests to Gemini API")
     .option("--gemini-model <model>", "Gemini model to use for translation")
-    .option("--groq-model <model>", "Groq Whisper model to use for transcription")
     .option("--no-cache", "Do not use or save intermediate transcription/translation cache")
     .option(
       "--fresh",

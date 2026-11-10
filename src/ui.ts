@@ -1,6 +1,7 @@
 import ora, { type Ora } from "ora";
 import pc from "picocolors";
 import { getI18n, type SupportedLanguage } from "./i18n/index.js";
+import { STT_PROVIDER_LABELS, type SttProvider } from "./transcribe/providers.js";
 
 /**
  * Formats duration in milliseconds into a human-readable string.
@@ -63,7 +64,8 @@ export interface SummaryData {
   glossaryTermsCount?: number | undefined;
   bilingual?: boolean | { order?: string | undefined } | undefined;
   backedUpFiles?: string[] | undefined;
-  groqModel?: string | undefined;
+  sttProvider?: SttProvider | undefined;
+  sttModel?: string | undefined;
   geminiModel?: string | undefined;
   cacheStatus?:
     | {
@@ -117,9 +119,10 @@ export function formatSummaryBox(data: SummaryData, lang?: SupportedLanguage | s
   addRow(mediaLabel, pc.bold(fileName));
   addRow(m.duration, pc.green(formatDuration(data.durationMs)));
 
-  if (data.groqModel && !isSubtitle) {
+  if (data.sttModel && !isSubtitle) {
+    const providerLabel = STT_PROVIDER_LABELS[data.sttProvider ?? "groq"];
     const cacheNote = data.cacheStatus?.transcriptionHit ? ` ${pc.green(m.cacheHitBadge)}` : "";
-    addRow(m.transcription, `Groq (${pc.cyan(data.groqModel)})${cacheNote}`);
+    addRow(m.transcription, `${providerLabel} (${pc.cyan(data.sttModel)})${cacheNote}`);
   } else if (data.cacheStatus?.transcriptionHit) {
     addRow(m.transcription, `${pc.green(m.cachedBadge)}`);
   }
