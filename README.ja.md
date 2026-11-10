@@ -6,7 +6,7 @@
 
 [English](README.md) | [日本語](README.ja.md)
 
-動画ファイルおよび音声ファイルから音声を最適化抽出し、**OpenRouter（ElevenLabs Scribe v2、既定）** または **Groq (`whisper-large-v3-turbo`)** で音声文字起こしを行った後、**Google Gemini API (`@google/genai`)** を用いて多言語字幕・テキスト・チャプター・要約を自動生成する CLI ツールです。
+動画ファイルおよび音声ファイルから音声を最適化抽出し、**OpenRouter（ElevenLabs Scribe v2、既定）** または **Groq (`whisper-large-v3-turbo`)** で音声文字起こしを行った後、**Google Gemini 直接（`gemini-3.8-flash`）または OpenRouter 経由（`google/gemini-3.8-flash`）** を用いて多言語字幕・テキスト・チャプター・要約を自動生成する CLI ツールです。
 
 ---
 
@@ -15,7 +15,7 @@
 * ⚡ **高精度・高速な文字起こし**: 既定で OpenRouter 経由の ElevenLabs Scribe v2（`elevenlabs/scribe-v2`）を使用し、高精度な音声認識を実現。Groq 上の超高速な `whisper-large-v3-turbo` も選択可能。
 * 🎵 **動画・音声ファイル両対応**: 動画ファイル（`.mp4`, `.mkv`, `.mov` 等）だけでなく、音声ファイル（`.mp3`, `.wav`, `.m4a`, `.aac`, `.flac`, `.ogg`, `.opus` 等）も直接入力可能。
 * 🔊 **音質・ファイルサイズ自動最適化**: `ffmpeg` を用いて 16kHz モノラル / 低ビットレート（48kbps）に圧縮・最適化し、提供元ごとの上限に合わせて分割（OpenRouter は 5 分ずつ、Groq は 25MB 超で分割）。実測再生時間に基づくミリ秒精度のタイムコード補正で字幕ズレを防止。
-* 🎯 **タイムコード破綻防止 & 文脈引き継ぎ翻訳**: 字幕テキストのみを Gemini（`gemini-3.8-flash`）の Structured Outputs（`responseSchema`）とスライディングウィンドウ参照（`--context-window`）でチャンク翻訳。タイムコード崩れや行数不一致を 100% 防ぎつつ、チャンク境界でも自然な口調・文脈を維持。
+* 🎯 **タイムコード破綻防止 & 文脈引き継ぎ翻訳**: 字幕テキストのみを Google Gemini 直接（`gemini-3.8-flash`）または OpenRouter 経由（`google/gemini-3.8-flash`）の Structured Outputs（JSON schema: Gemini は `responseSchema`、OpenRouter は `response_format`）とスライディングウィンドウ参照（`--context-window`）でチャンク翻訳。タイムコード崩れや行数不一致を 100% 防ぎつつ、チャンク境界でも自然な口調・文脈を維持。
 * ✂️ **長文セグメントのスマート自動分割 (Subtitle Reflow)**: Scribe v2 では単語レベルのタイムスタンプから字幕の区切りを生成。長大化したセグメントを、句読点や節の自然な切れ目で読みやすい長さに自動分割し、表示時間をミリ秒単位で比例配分（`--max-length`, `--max-duration`, `--no-reflow`）。
 * 🚀 **Gemini API 並列リクエスト制御**: 非同期ワーカプール（`--concurrency`、デフォルト 3 並列）による高速並行翻訳と、429 レートリミット時のジッター付き指数バックオフ再試行を搭載。
 * 💾 **スマート中間キャッシュ & 再開機構**: メディアファイルのパス・サイズ・更新日時から作る SHA-256 ハッシュをキーに（ファイルの中身は読まない）、文字起こし・翻訳・チャプター・要約結果を自動キャッシュ。文字起こしキャッシュは、提供元・モデル・認識のヒントが同じときだけ再利用。再実行時や別言語追加時に、済んだ API 呼び出しを繰り返さない（`vsub cache`）。
@@ -80,8 +80,9 @@ pnpm add -g vsub-cli
 
 1. **ffmpeg / ffprobe**: システムにインストール済みであること（または `--ffmpeg-path` / `VSUB_FFMPEG_PATH` で実行ファイルパスを指定）
 2. **API キー**:
-   * 文字起こし用 API キー: [OpenRouter](https://openrouter.ai/keys) にて取得した `VSUB_OPENROUTER_API_KEY`（既定）、または [Groq Console](https://console.groq.com/) にて取得した `VSUB_GROQ_API_KEY`
-   * 翻訳用 API キー: [Google AI Studio](https://aistudio.google.com/) にて取得した `VSUB_GEMINI_API_KEY`（翻訳には引き続き Gemini のキーが必要です）
+   * **OpenRouter の API キー 1 本**（`VSUB_OPENROUTER_API_KEY`、[OpenRouter](https://openrouter.ai/keys) で取得）で、音声文字起こしから翻訳・チャプター・要約まで全部動きます。
+   * **Gemini の API キー**（`VSUB_GEMINI_API_KEY`、[Google AI Studio](https://aistudio.google.com/) で取得）があれば、翻訳・チャプター・要約に Gemini を直接使用します。
+   * 超高速な Whisper 文字起こしを行いたい場合は、[Groq Console](https://console.groq.com/) で取得した `VSUB_GROQ_API_KEY` も利用可能です。
 3. **Node.js**: v26+ または v24+ *(npm パッケージ利用時またはソースからビルドする場合のみ必要)*
 
 ---
@@ -91,12 +92,15 @@ pnpm add -g vsub-cli
 API キーは **3 つの方法** から設定できます：
 
 ### 方法 1: 対話型セットアップウィザード（推奨・一番簡単）
-`vsub init` コマンドを実行すると対話型ウィザードが起動し、文字起こし提供元（OpenRouter または Groq）の選択と API キー・FFmpeg の疎通確認を行った上でグローバル設定に保存します：
+`vsub init` コマンドを実行すると対話型ウィザードが起動し、文字起こしの提供元（OpenRouter または Groq）および文章の生成の提供元（Gemini または OpenRouter）の選択と API キー・FFmpeg の疎通確認を行った上でグローバル設定に保存します：
 ```bash
 # 対話型セットアップウィザードを起動
 vsub init
 
-# またはコマンドライン引数から直接保存
+# OpenRouter のキー 1 本で全部動かす場合:
+vsub config set --openrouter-key "your_openrouter_key"
+
+# OpenRouter と Gemini の両方のキーを設定する場合:
 vsub config set --openrouter-key "your_openrouter_key" --gemini-key "your_gemini_key"
 
 # Groq を使用する場合:
@@ -106,20 +110,32 @@ vsub config set --stt-provider groq --groq-key "your_groq_key" --gemini-key "you
 ### 方法 2: 環境変数 (`VSUB_` プレフィックス)
 システム環境変数またはシェルの設定ファイルで指定します（他ツールとの競合を防ぐため `VSUB_` プレフィックスを推奨します）：
 ```bash
+# OpenRouter のキー 1 本（これだけで全部動きます）:
 export VSUB_OPENROUTER_API_KEY="your_openrouter_api_key_here"
-export VSUB_GEMINI_API_KEY="your_gemini_api_key_here"
+
+# 省略可能: Gemini のキーがあれば、翻訳・チャプター・要約に Gemini を直接使います:
+# export VSUB_GEMINI_API_KEY="your_gemini_api_key_here"
+
+# 省略可能: Gemini のキーがあっても OpenRouter を使う場合:
+# export VSUB_LLM_PROVIDER="openrouter"
 
 # Groq を使用する場合:
 # export VSUB_STT_PROVIDER="groq"
 # export VSUB_GROQ_API_KEY="your_groq_api_key_here"
 ```
-*(プレフィックスなしの `GROQ_API_KEY`、`GEMINI_API_KEY` もフォールバックとしてサポートしています。汎用の `OPENROUTER_API_KEY` は、OpenRouter を明示したときだけ読み込みます。[文字起こしの提供元の選び方](#文字起こしの提供元の選び方)を参照してください)*
+*(プレフィックスなしの `GROQ_API_KEY`、`GEMINI_API_KEY` もフォールバックとしてサポートしています。汎用の `OPENROUTER_API_KEY` は、OpenRouter を明示したときだけ読み込みます。[文字起こしの提供元の選び方](#文字起こしの提供元の選び方)および[文章の生成の提供元の選び方](#文章の生成の提供元の選び方)を参照してください)*
 
 ### 方法 3: `.env` ファイル
 実行時のカレントディレクトリに `.env` ファイルを配置して設定します：
 ```env
+# OpenRouter のキー 1 本（これだけで全部動きます）:
 VSUB_OPENROUTER_API_KEY=your_openrouter_api_key_here
-VSUB_GEMINI_API_KEY=your_gemini_api_key_here
+
+# 省略可能: Gemini のキーがあれば、翻訳・チャプター・要約に Gemini を直接使います:
+# GEMINI_API_KEY=your_gemini_api_key_here
+
+# 省略可能: Gemini のキーがあっても OpenRouter を使う場合:
+# VSUB_LLM_PROVIDER=openrouter
 
 # Groq を使用する場合:
 # VSUB_STT_PROVIDER=groq
@@ -152,6 +168,34 @@ vsub は、以下の優先順位で文字起こしの提供元を決定します
   - **動作を確認している OpenRouter のモデルは `elevenlabs/scribe-v2` のみです**。他のモデルも `--stt-model` で指定可能ですが、未検証のため正しく動作しない場合があります。
 * **認識のヒント**:
   - 認識ヒント（`--whisper-prompt` や用語集 `--glossary` から自動生成されるヒント）は Groq Whisper にのみ送信され、OpenRouter には送信されません。
+
+---
+
+## 文章の生成の提供元の選び方
+
+vsub は、以下の優先順位で文章の生成の提供元（翻訳・チャプター・要約）を決定します：
+1. コマンドラインオプション `--llm-provider <gemini|openrouter>`
+2. 環境変数 `VSUB_LLM_PROVIDER` または設定ファイルの `llmProvider`
+3. 設定されている API キーによる自動選択:
+   - Gemini のキー（`VSUB_GEMINI_API_KEY`、`GEMINI_API_KEY`、または保存されたキー）がある場合 → **Gemini**
+   - 無い場合 → **OpenRouter**
+
+> [!NOTE]
+> 汎用の環境変数 `OPENROUTER_API_KEY` は、オプションや設定で OpenRouter を明示した場合にのみ読み込まれます（理由は文字起こしと同じです。[文字起こしの提供元の選び方](#文字起こしの提供元の選び方)を参照してください）。
+
+### 今 Gemini を使っている人へ
+現在 Gemini をご利用中の方は、アップデート後も設定を変えずにそのまま Gemini 直接で動作し、既存の翻訳・チャプター・要約のキャッシュもそのまま引き継がれます。
+
+### モデル・残高と費用
+* **モデルの指定**:
+  - `--llm-model <model>` で、選択した提供元の文章生成モデルを一時的に指定できます。
+  - `--gemini-model <model>` / `VSUB_GEMINI_MODEL`（設定ファイル: `geminiModel`）で Gemini のモデルを指定できます（提供元が Gemini のときのみ有効）。
+  - `VSUB_OPENROUTER_LLM_MODEL`（設定ファイル: `openrouterLlmModel`、既定: `google/gemini-3.8-flash`）で OpenRouter の文章生成モデルを指定できます。
+  - **動作を確認している OpenRouter のモデルは `google/gemini-3.8-flash` のみです**。他のモデルも `--llm-model` で指定可能ですが、未検証であり JSON schema（構造化出力）に対応していないと動作しません。
+* **OpenRouter の費用と並行数**:
+  - 1 回のリクエストで、最大出力トークン数（`max_tokens: 16384`）に応じた額が一時的に確保されます。残高が足りないと 402 (Insufficient Credits) で停止し、案内が表示されます。`--concurrency`（既定: 3）を下げると、同時に確保される額を抑えられます。
+* **キャッシュの再利用**:
+  - 提供元やモデルを変更すると、翻訳・チャプター・要約は新しく生成されます（キャッシュは提供元・モデル・プロンプトが一致したときのみ再利用されます）。
 
 ---
 
@@ -191,10 +235,12 @@ Options:
   --stt-model <model>           選択した提供元の文字起こしモデル (デフォルト: OpenRouter は elevenlabs/scribe-v2、Groq は whisper-large-v3-turbo)
   --groq-model <model>          文字起こしに使用する Groq Whisper モデル (提供元が groq の場合のみ使用)
   --whisper-prompt <text>       Groq Whisper 音声認識のヒントプロンプト (Groq のみ有効。OpenRouter には送信されません)
-  --prompt <instruction>        Gemini 翻訳時のカスタム指示プロンプト (口調・スタイル・簡潔さ等)
+  --prompt <instruction>        翻訳時のカスタム指示プロンプト (口調・スタイル・簡潔さ等)
   --glossary <path-or-terms>    用語集 JSON ファイルパスまたはインライン対訳 (Key=Val,Key=Val)
-  --concurrency <number>        Gemini API への同時並行リクエスト数 (デフォルト: 3)
-  --gemini-model <model>        Gemini 翻訳モデルの指定 (デフォルト: gemini-3.8-flash)
+  --concurrency <number>        同時並行リクエスト数 (デフォルト: 3)
+  --gemini-model <model>        Gemini 翻訳モデルの指定 (Gemini 提供元のみ有効)
+  --llm-provider <provider>     文章の生成の提供元 (翻訳・チャプター・要約): gemini または openrouter (デフォルト: VSUB_LLM_PROVIDER、設定の値、または API キーから自動選択)
+  --llm-model <model>           選択した提供元の文章生成モデル (デフォルト: Gemini は gemini-3.8-flash、OpenRouter は google/gemini-3.8-flash)
   --no-cache                    中間キャッシュを使用・保存せずに実行 (デフォルト: false)
   --fresh                       既存キャッシュを無視して新規実行し、結果をキャッシュへ上書き (デフォルト: false)
   --cache-dir <path>            カスタムキャッシュ保存ディレクトリの指定
@@ -207,21 +253,21 @@ Options:
   --burn-font-size <size>       焼き込み字幕のフォントサイズ: small, medium, large, または数値 (デフォルト: auto)
   --embed                       生成された字幕を動画コンテナへ字幕トラックとして埋め込み (softsub) (デフォルト: false)
   --keep-audio                  中間抽出した一時音声ファイルを削除せずに保持 (デフォルト: false)
-  --no-translate                Gemini 翻訳をスキップし、文字起こし結果（原語字幕）のみを出力 (デフォルト: false)
+  --no-translate                翻訳をスキップし、文字起こし結果（原語字幕）のみを出力 (デフォルト: false)
   --save-original               翻訳後字幕に加え、翻訳前の原語文字起こし字幕ファイルも並行保存 (デフォルト: false)
-  --force-translate             検出言語と出力言語が同一の場合でも強制的に Gemini 翻訳を実行 (デフォルト: false)
+  --force-translate             検出言語と出力言語が同一の場合でも強制的に翻訳を実行 (デフォルト: false)
   --no-update-check             新バージョンの自動更新チェックを無効化 (デフォルト: false)
   --verbose                     詳細なログ（APIリクエスト等）を出力 (デフォルト: false)
   -h, --help                    ヘルプを表示
 
 Commands:
   batch <targets...>            複数メディアファイルの一括処理 (フォルダ、複数ファイル、glob パターン)
-  translate <subtitle-file>     既存の字幕ファイル (.srt) を Gemini API で直接別言語に翻訳
+  translate <subtitle-file>     既存の字幕ファイル (.srt) を Gemini または OpenRouter で直接別言語に翻訳
   burn <video-file> <sub-file>  既存の字幕ファイル (.srt) を FFmpeg で動画に直接焼き込み (hardsub)
   embed <video> <sub-files...>  既存の動画と字幕 (.srt) を FFmpeg ストリームコピーで字幕トラックとして高速埋め込み (softsub)
-  chapters <file>               動画・音声・字幕 (.srt) から Gemini でチャプター（目次）を生成
-  summarize <file>              動画・音声・字幕 (.srt) から Gemini で構造化要約・ハイライトを生成
-  init                          文字起こしの提供元（OpenRouter / Groq）の選択と API キー・FFmpeg・基本設定の対話型ウィザード
+  chapters <file>               動画・音声・字幕 (.srt) から Gemini または OpenRouter でチャプター（目次）を生成
+  summarize <file>              動画・音声・字幕 (.srt) から Gemini または OpenRouter で構造化要約・ハイライトを生成
+  init                          文字起こしおよび文章生成の提供元の選択と API キー・FFmpeg・基本設定の対話型ウィザード
   update [options]              スタンドアロンバイナリを最新リリース版へ自己更新 (エイリアス: upgrade)
   cache (path|stats|clean)      中間キャッシュの確認・統計表示・一括削除
   config (path|show|set|init)   グローバル設定の確認・変更・初期化
@@ -390,6 +436,7 @@ vsub config show
 vsub config set --lang ja --prompt "丁寧な敬体で翻訳" --glossary "./glossary.json" --concurrency 4
 vsub config set --max-length 32 --burn-position bottom --burn-font-size medium
 vsub config set --stt-provider openrouter --openrouter-key "your_openrouter_key"
+vsub config set --llm-provider openrouter
 
 # 新バージョンの自動更新チェックを無効化
 vsub config set --disable-update-check true

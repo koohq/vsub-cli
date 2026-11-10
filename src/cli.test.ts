@@ -1091,4 +1091,234 @@ describe("CLI integration harness", () => {
       });
     });
   });
+
+  describe("config set and show LLM provider options", () => {
+    it.each([
+      {
+        name: "--llm-provider only",
+        args: ["--llm-provider", "OpenRouter"],
+        expectedSaved: { llmProvider: "openrouter" },
+        unexpectedKeys: ["openrouterLlmModel"],
+      },
+      {
+        name: "--openrouter-llm-model only",
+        args: ["--openrouter-llm-model", "custom/llm-model"],
+        expectedSaved: { openrouterLlmModel: "custom/llm-model" },
+        unexpectedKeys: ["llmProvider"],
+      },
+      {
+        name: "both --llm-provider and --openrouter-llm-model",
+        args: ["--llm-provider", "OpenRouter", "--openrouter-llm-model", "custom/llm-model"],
+        expectedSaved: {
+          llmProvider: "openrouter",
+          openrouterLlmModel: "custom/llm-model",
+        },
+        unexpectedKeys: [],
+      },
+    ])("saves settings when $name is provided", async ({ args, expectedSaved, unexpectedKeys }) => {
+      await runCli("config", "set", ...args);
+
+      expect(saveGlobalConfig).toHaveBeenCalledWith(
+        expect.objectContaining(expectedSaved),
+        expect.anything(),
+      );
+      const saved = vi.mocked(saveGlobalConfig).mock.calls[0]?.[0] as Record<string, unknown>;
+      for (const key of unexpectedKeys) {
+        expect(saved[key]).toBeUndefined();
+      }
+      expect(exitSpy).not.toHaveBeenCalled();
+    });
+
+    it("exits with code 1 and does not save config when llm-provider is invalid", async () => {
+      let stderrOutput = "";
+      const errorSpy = vi.spyOn(console, "error").mockImplementation((msg: unknown) => {
+        stderrOutput += String(msg);
+      });
+
+      await runCli("config", "set", "--llm-provider", "foo");
+
+      expect(exitSpy).toHaveBeenCalledWith(1);
+      expect(saveGlobalConfig).not.toHaveBeenCalled();
+      expect(stderrOutput).toContain("foo");
+      errorSpy.mockRestore();
+    });
+
+    describe("config show", () => {
+      afterEach(() => {
+        vi.mocked(getConfig).mockReturnValue(mockConfig);
+      });
+
+      it("displays Gemini auto text generation when Gemini API key is configured", async () => {
+        vi.mocked(getConfig).mockReturnValue({
+          ...mockConfig,
+          geminiApiKey: "test-gemini-key",
+          llmProvider: undefined,
+        });
+
+        await runCli("config", "show");
+
+        const logged = logSpy.mock.calls.map((c: unknown[]) => String(c[0])).join("\n");
+        expect(logged).toContain("Text Generation    : Gemini (gemini-3.8-flash) [auto]");
+      });
+
+      it("displays OpenRouter auto text generation when Gemini API key is missing", async () => {
+        vi.mocked(getConfig).mockReturnValue({
+          ...mockConfig,
+          geminiApiKey: "",
+          llmProvider: undefined,
+        });
+
+        await runCli("config", "show");
+
+        const logged = logSpy.mock.calls.map((c: unknown[]) => String(c[0])).join("\n");
+        expect(logged).toContain(
+          "Text Generation    : OpenRouter (google/gemini-3.8-flash) [auto]",
+        );
+      });
+
+      it("displays OpenRouter setting and OpenRouter LLM Model when configured", async () => {
+        const originalEnv = process.env;
+        process.env = {
+          ...originalEnv,
+          VSUB_LLM_PROVIDER: "openrouter",
+          VSUB_OPENROUTER_LLM_MODEL: "custom/llm-model",
+        };
+        try {
+          vi.mocked(getConfig).mockReturnValue({
+            ...mockConfig,
+            llmProvider: "openrouter",
+            openrouterLlmModel: "custom/llm-model",
+          });
+
+          await runCli("config", "show");
+
+          const logged = logSpy.mock.calls.map((c: unknown[]) => String(c[0])).join("\n");
+          expect(logged).toContain("Text Generation    : OpenRouter (custom/llm-model) [setting]");
+          expect(logged).toContain("OpenRouter LLM Model : custom/llm-model");
+        } finally {
+          process.env = originalEnv;
+        }
+      });
+
+      it("displays invalid provider message without throwing when llmProvider is invalid", async () => {
+        vi.mocked(getConfig).mockReturnValue({
+          ...mockConfig,
+          llmProvider: "bar" as unknown as "gemini",
+        });
+
+        await runCli("config", "show");
+
+        const logged = logSpy.mock.calls.map((c: unknown[]) => String(c[0])).join("\n");
+        expect(logged).toContain('Text Generation    : invalid provider "bar"');
+        expect(exitSpy).not.toHaveBeenCalled();
+      });
+    });
+  });
+
+  describe("command help descriptions", () => {
+    const prohibitedPhrases = [
+      "via Gemini API",
+      "for Gemini translation",
+      "to Gemini API",
+      "Force Gemini translation",
+    ];
+
+    it.each([
+      {
+        name: "main program",
+        getHelp: () => createProgram().helpInformation(),
+        expectedPhrases: [
+          "CLI tool to extract audio from video/audio files, transcribe speech via OpenRouter (ElevenLabs Scribe v2, default) or Groq Whisper, and generate multilingual subtitles (.srt, .vtt, .txt, .json) via Gemini directly or through OpenRouter.",
+          "Additional instruction prompt for translation",
+          "Number of concurrent translation requests",
+          "Gemini model to use for translation (Gemini provider only)",
+          "Force translation even if detected language matches target language",
+        ],
+      },
+      {
+        name: "batch subcommand",
+        getHelp: () => {
+          const prog = createProgram();
+          return prog.commands.find((c) => c.name() === "batch")?.helpInformation() ?? "";
+        },
+        expectedPhrases: [
+          "Additional instruction prompt for translation",
+          "Number of concurrent translation requests",
+          "Gemini model to use for translation (Gemini provider only)",
+          "Force translation even if detected language matches target language",
+        ],
+      },
+      {
+        name: "chapters subcommand",
+        getHelp: () => {
+          const prog = createProgram();
+          return prog.commands.find((c) => c.name() === "chapters")?.helpInformation() ?? "";
+        },
+        expectedPhrases: [
+          "Generate video chapters (table of contents) from media or subtitle files via Gemini or OpenRouter",
+          "Additional instruction prompt for chapter generation",
+          "Gemini model to use for chapters generation (Gemini provider only)",
+        ],
+      },
+      {
+        name: "summarize subcommand",
+        getHelp: () => {
+          const prog = createProgram();
+          return prog.commands.find((c) => c.name() === "summarize")?.helpInformation() ?? "";
+        },
+        expectedPhrases: [
+          "Generate structured summary and key topic highlights from media or subtitle files via Gemini or OpenRouter",
+          "Additional instruction prompt for summary generation",
+          "Gemini model to use for summary generation (Gemini provider only)",
+        ],
+      },
+      {
+        name: "translate subcommand",
+        getHelp: () => {
+          const prog = createProgram();
+          return prog.commands.find((c) => c.name() === "translate")?.helpInformation() ?? "";
+        },
+        expectedPhrases: [
+          "Directly translate an existing subtitle file (.srt) into target language(s) via Gemini or OpenRouter",
+          "Additional instruction prompt for translation",
+          "Number of concurrent translation requests",
+          "Gemini model to use for translation (Gemini provider only)",
+        ],
+      },
+      {
+        name: "config set subcommand",
+        getHelp: () => {
+          const prog = createProgram();
+          const configCmd = prog.commands.find((c) => c.name() === "config");
+          return configCmd?.commands.find((c) => c.name() === "set")?.helpInformation() ?? "";
+        },
+        expectedPhrases: [
+          "Default translation instruction prompt",
+          "Default concurrent translation requests (e.g. 3)",
+          "OpenRouter API Key (for transcription and text generation)",
+          "Default text generation provider: gemini or openrouter",
+          "Default OpenRouter text generation model (e.g. google/gemini-3.8-flash)",
+        ],
+      },
+      {
+        name: "init subcommand",
+        getHelp: () => {
+          const prog = createProgram();
+          return prog.commands.find((c) => c.name() === "init")?.helpInformation() ?? "";
+        },
+        expectedPhrases: [
+          "Interactive setup wizard to choose the transcription and text generation providers and verify API keys, FFmpeg, and preferences",
+        ],
+      },
+    ])("verifies help text for $name", ({ getHelp, expectedPhrases }) => {
+      const help = getHelp();
+      const normalizedHelp = help.replace(/\s+/g, " ");
+      for (const phrase of expectedPhrases) {
+        expect(normalizedHelp).toContain(phrase.replace(/\s+/g, " "));
+      }
+      for (const prohibited of prohibitedPhrases) {
+        expect(help).not.toContain(prohibited);
+      }
+    });
+  });
 });

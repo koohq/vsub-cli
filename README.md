@@ -6,7 +6,7 @@
 
 [English](README.md) | [日本語](README.ja.md)
 
-A fast, resilient CLI tool that extracts and optimizes audio from video or audio files, transcribes speech via **OpenRouter (ElevenLabs Scribe v2, default)** or **Groq (`whisper-large-v3-turbo`)**, and generates multilingual subtitles, transcripts, chapters, and summaries using the **Google Gemini API (`@google/genai`)**.
+A fast, resilient CLI tool that extracts and optimizes audio from video or audio files, transcribes speech via **OpenRouter (ElevenLabs Scribe v2, default)** or **Groq (`whisper-large-v3-turbo`)**, and generates multilingual subtitles, transcripts, chapters, and summaries via **Google Gemini directly (`gemini-3.8-flash`) or through OpenRouter (`google/gemini-3.8-flash`)**.
 
 ---
 
@@ -15,7 +15,7 @@ A fast, resilient CLI tool that extracts and optimizes audio from video or audio
 * ⚡ **Accurate & Fast Transcription**: Transcribe speech by default with ElevenLabs Scribe v2 (`elevenlabs/scribe-v2`) via OpenRouter, or choose ultra-fast Groq Whisper (`whisper-large-v3-turbo`).
 * 🎵 **Video & Audio File Support**: Directly accepts video files (`.mp4`, `.mkv`, `.mov`, etc.) and audio files (`.mp3`, `.wav`, `.m4a`, `.aac`, `.flac`, `.ogg`, `.opus`, etc.).
 * 🔊 **Automated Audio Optimization**: Compresses media to 16kHz mono (48kbps) via `ffmpeg` to fit provider limits (OpenRouter splits every 5 minutes; Groq splits when exceeding 25MB). Automatically splits ultra-long media and calculates timecodes with millisecond precision based on measured segment durations.
-* 🎯 **Timecode-Preserving & Context-Aware Translation**: Translates subtitle text in structured chunks via Google Gemini (`gemini-3.8-flash`) using Structured Outputs (`responseSchema`) and a sliding context window (`--context-window`), eliminating timecode corruption or line drift while maintaining natural tone across chunk boundaries.
+* 🎯 **Timecode-Preserving & Context-Aware Translation**: Translates subtitle text in structured chunks via Google Gemini (`gemini-3.8-flash`) directly or through OpenRouter (`google/gemini-3.8-flash`) using Structured Outputs (JSON schema: `responseSchema` for Gemini, `response_format` for OpenRouter) and a sliding context window (`--context-window`), eliminating timecode corruption or line drift while maintaining natural tone across chunk boundaries.
 * ✂️ **Smart Subtitle Reflow**: For Scribe v2, subtitle boundaries are built from word-level timestamps. Overly long segments are automatically split at natural punctuation or clause boundaries with millisecond-proportional timecode allocation (`--max-length`, `--max-duration`, `--no-reflow`).
 * 🚀 **Concurrent Translation Control**: Translates subtitle chunks concurrently using an asynchronous worker pool (`--concurrency`, default: 3) with jittered exponential backoff for 429/rate-limit recovery.
 * 💾 **Smart Intermediate Caching**: Automatically caches transcriptions, translations, chapters, and summaries, keyed by a SHA-256 hash of the media file's path, size, and modification time (the file content is not read). Transcription cache is reused only when provider, model, and recognition hints match. Re-run or add new target languages immediately without repeating API calls (`vsub cache`).
@@ -80,8 +80,9 @@ pnpm add -g vsub-cli
 
 1. **ffmpeg / ffprobe**: Must be installed on your system (or configured via `--ffmpeg-path` / `VSUB_FFMPEG_PATH`)
 2. **API Keys**:
-   * Transcription API key: `VSUB_OPENROUTER_API_KEY` obtained from [OpenRouter](https://openrouter.ai/keys) (default provider) or `VSUB_GROQ_API_KEY` from [Groq Console](https://console.groq.com/)
-   * Translation API key: `VSUB_GEMINI_API_KEY` obtained from [Google AI Studio](https://aistudio.google.com/) (Gemini API key is still required for translation)
+   * With just a single **OpenRouter API key** (`VSUB_OPENROUTER_API_KEY` from [OpenRouter](https://openrouter.ai/keys)), everything works out of the box—from speech recognition to translation, chapters, and summaries.
+   * If a **Gemini API key** (`VSUB_GEMINI_API_KEY` from [Google AI Studio](https://aistudio.google.com/)) is configured, translation, chapters, and summaries use Gemini directly.
+   * For ultra-fast Whisper speech recognition, you can also use `VSUB_GROQ_API_KEY` from [Groq Console](https://console.groq.com/).
 3. **Node.js**: v26+ or v24+ *(Required only when installing via npm/pnpm or building from source)*
 
 ---
@@ -91,12 +92,15 @@ pnpm add -g vsub-cli
 You can configure API keys using **3 methods**:
 
 ### Method 1: Interactive Setup Wizard (Recommended & Easiest)
-Run `vsub init` to launch the interactive setup wizard, which lets you choose your transcription provider (OpenRouter or Groq) and verifies API keys and FFmpeg connectivity before saving your configuration:
+Run `vsub init` to launch the interactive setup wizard, which lets you choose your transcription provider (OpenRouter or Groq) and text generation provider (Gemini or OpenRouter), and verifies API keys and FFmpeg connectivity before saving your configuration:
 ```bash
 # Run interactive setup wizard
 vsub init
 
-# Or set keys directly via CLI arguments
+# Single OpenRouter key works for everything:
+vsub config set --openrouter-key "your_openrouter_key"
+
+# Or set both OpenRouter and Gemini keys:
 vsub config set --openrouter-key "your_openrouter_key" --gemini-key "your_gemini_key"
 
 # Using Groq instead:
@@ -106,20 +110,32 @@ vsub config set --stt-provider groq --groq-key "your_groq_key" --gemini-key "you
 ### Method 2: Environment Variables (`VSUB_` Prefix)
 Set keys in your shell or system environment variables (the `VSUB_` prefix prevents collisions with other tools):
 ```bash
+# Single OpenRouter key (everything works out of the box):
 export VSUB_OPENROUTER_API_KEY="your_openrouter_api_key_here"
-export VSUB_GEMINI_API_KEY="your_gemini_api_key_here"
+
+# Optional: with a Gemini key, translation, chapters and summaries use Gemini directly:
+# export VSUB_GEMINI_API_KEY="your_gemini_api_key_here"
+
+# Optional: keep using OpenRouter even when a Gemini key is set:
+# export VSUB_LLM_PROVIDER="openrouter"
 
 # Or for Groq:
 # export VSUB_STT_PROVIDER="groq"
 # export VSUB_GROQ_API_KEY="your_groq_api_key_here"
 ```
-*(Standard `GROQ_API_KEY` and `GEMINI_API_KEY` are also supported as fallbacks. The generic `OPENROUTER_API_KEY` is read only when OpenRouter is selected explicitly; see [Choosing a Transcription Provider](#choosing-a-transcription-provider).)*
+*(Standard `GROQ_API_KEY` and `GEMINI_API_KEY` are also supported as fallbacks. The generic `OPENROUTER_API_KEY` is read only when OpenRouter is selected explicitly; see [Choosing a Transcription Provider](#choosing-a-transcription-provider) and [Choosing a Text Generation Provider](#choosing-a-text-generation-provider).)*
 
 ### Method 3: `.env` File
 Create a `.env` file in the current working directory:
 ```env
+# Single OpenRouter key (everything works out of the box):
 VSUB_OPENROUTER_API_KEY=your_openrouter_api_key_here
-VSUB_GEMINI_API_KEY=your_gemini_api_key_here
+
+# Optional: with a Gemini key, translation, chapters and summaries use Gemini directly:
+# GEMINI_API_KEY=your_gemini_api_key_here
+
+# Optional: keep using OpenRouter even when a Gemini key is set:
+# VSUB_LLM_PROVIDER=openrouter
 
 # Or for Groq:
 # VSUB_STT_PROVIDER=groq
@@ -152,6 +168,34 @@ Existing Groq users can update `vsub-cli` and continue using Groq seamlessly; yo
   - **The only tested OpenRouter model is `elevenlabs/scribe-v2`**. While other models can be specified with `--stt-model`, they are untested and may not work.
 * **Recognition Hints**:
   - Recognition prompt hints (`--whisper-prompt` and terms extracted from `--glossary`) are sent only to Groq Whisper. They are not sent to OpenRouter.
+
+---
+
+## Choosing a Text Generation Provider
+
+vsub selects the text generation provider (for translation, chapters, and summaries) in the following order of precedence:
+1. `--llm-provider <gemini|openrouter>` CLI option
+2. `VSUB_LLM_PROVIDER` environment variable or `llmProvider` in the configuration file
+3. Automatic selection based on configured keys:
+   - If a Gemini key (`VSUB_GEMINI_API_KEY`, `GEMINI_API_KEY`, or saved key) exists → **Gemini**
+   - Otherwise → **OpenRouter**
+
+> [!NOTE]
+> The generic `OPENROUTER_API_KEY` environment variable is only read when OpenRouter is explicitly selected (via option or setting), for the same reason as transcription (see [Choosing a Transcription Provider](#choosing-a-transcription-provider)).
+
+### For Existing Gemini Users
+Existing Gemini users can update `vsub-cli` and continue using Gemini directly without changing any settings; your existing translation, chapter, and summary caches remain fully valid.
+
+### Models, Credits & Costs
+* **Models**:
+  - `--llm-model <model>` overrides the model for the chosen text generation provider.
+  - `--gemini-model <model>` / `VSUB_GEMINI_MODEL` (config: `geminiModel`) sets the Gemini model (used only when the provider is Gemini).
+  - `VSUB_OPENROUTER_LLM_MODEL` (config: `openrouterLlmModel`, default: `google/gemini-3.8-flash`) sets the default OpenRouter model.
+  - **The only tested OpenRouter model is `google/gemini-3.8-flash`**. While other models can be specified with `--llm-model`, they are untested and may fail if they do not support JSON schema structured outputs.
+* **OpenRouter Credits & Concurrency**:
+  - For each request, OpenRouter temporarily holds an amount corresponding to the maximum output tokens (`max_tokens: 16384`). If your account credit balance is insufficient, requests halt with a 402 Insufficient Credits error and instructions. Lowering `--concurrency` (default: 3) reduces the amount held simultaneously.
+* **Cache Invalidation**:
+  - Changing the provider or model creates fresh translations, chapters, and summaries; intermediate caches are reused only when the provider, model, and prompt match.
 
 ---
 
@@ -191,10 +235,12 @@ Options:
   --stt-model <model>           Transcription model for the chosen provider (default: elevenlabs/scribe-v2 on OpenRouter, whisper-large-v3-turbo on Groq)
   --groq-model <model>          Groq Whisper model to use for transcription (used only when the provider is groq)
   --whisper-prompt <text>       Prompt hint for Groq Whisper speech recognition (Groq only; not sent to OpenRouter)
-  --prompt <instruction>        Additional instruction prompt for Gemini translation (tone, style, brevity)
+  --prompt <instruction>        Additional instruction prompt for translation
   --glossary <path-or-terms>    Glossary file path (JSON) or inline terms (Key=Val,Key=Val)
-  --concurrency <number>        Number of concurrent translation requests to Gemini API (default: 3)
-  --gemini-model <model>        Gemini translation model (default: gemini-3.8-flash)
+  --concurrency <number>        Number of concurrent translation requests (default: 3)
+  --gemini-model <model>        Gemini model to use for translation (Gemini provider only)
+  --llm-provider <provider>     Text generation provider for translation, chapters and summaries: gemini or openrouter (default: VSUB_LLM_PROVIDER, config, or chosen from your API keys)
+  --llm-model <model>           Model for the chosen text generation provider (default: gemini-3.8-flash on Gemini, google/gemini-3.8-flash on OpenRouter)
   --no-cache                    Do not use or save intermediate cache (default: false)
   --fresh                       Ignore existing cache and generate fresh output, overwriting cache (default: false)
   --cache-dir <path>            Custom cache directory path
@@ -209,19 +255,19 @@ Options:
   --keep-audio                  Keep intermediate extracted audio files without deleting (default: false)
   --no-translate                Skip translation and output raw transcribed subtitles (default: false)
   --save-original               Save original transcription subtitle file alongside the result (default: false)
-  --force-translate             Force Gemini translation even if detected language matches target language (default: false)
+  --force-translate             Force translation even if detected language matches target language (default: false)
   --no-update-check             Disable checking for new version updates (default: false)
   --verbose                     Output detailed log messages (API requests, etc.) (default: false)
   -h, --help                    Display help for command
 
 Commands:
   batch <targets...>            Process multiple media files in bulk (directories, multiple files, or glob patterns)
-  translate <subtitle-file>     Directly translate an existing subtitle file (.srt) into target language(s) via Gemini API
+  translate <subtitle-file>     Directly translate an existing subtitle file (.srt) into target language(s) via Gemini or OpenRouter
   burn <video-file> <sub-file>  Burn an existing subtitle file (.srt) directly into a video file via FFmpeg (hardsub)
   embed <video> <sub-files...>  Embed one or more subtitle files (.srt) as soft subtitle tracks into a video via FFmpeg stream copy
-  chapters <file>               Generate video chapters (table of contents) from media or subtitle files via Gemini
-  summarize <file>              Generate structured summary and key topic highlights from media or subtitle files via Gemini
-  init                          Interactive setup wizard to choose the transcription provider (OpenRouter or Groq) and verify API keys, FFmpeg, and preferences
+  chapters <file>               Generate video chapters (table of contents) from media or subtitle files via Gemini or OpenRouter
+  summarize <file>              Generate structured summary and key topic highlights from media or subtitle files via Gemini or OpenRouter
+  init                          Interactive setup wizard to choose the transcription and text generation providers and verify API keys, FFmpeg, and preferences
   update [options]              Update vsub-cli standalone binary to the latest release (alias: upgrade)
   cache (path|stats|clean)      Manage intermediate transcription and translation cache
   config (path|show|set|init)   Manage global configuration settings
@@ -390,6 +436,7 @@ vsub config show
 vsub config set --lang ja --prompt "Translate politely" --glossary "./glossary.json" --concurrency 4
 vsub config set --max-length 32 --burn-position bottom --burn-font-size medium
 vsub config set --stt-provider openrouter --openrouter-key "your_openrouter_key"
+vsub config set --llm-provider openrouter
 
 # Disable automatic version update checks
 vsub config set --disable-update-check true

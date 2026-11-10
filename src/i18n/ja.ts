@@ -270,7 +270,10 @@ export const ja: typeof en = {
       "  環境変数 OPENROUTER_API_KEY が設定されています。Enter を押すとこのキーを使用します（設定ファイルには保存されません）。",
     retryPrompt: "  再入力しますか？ [Y/n/s (s=このまま保存)]: ",
     savedUnverified: "  ⚠️  未検証のままキーを設定対象に含めました。\n",
-    step2Title: "▶ [2/4] Google Gemini API キーの設定 (字幕翻訳用)",
+    step2Title: "▶ [2/4] 文章の生成の提供元と API キー (翻訳・チャプター・要約用)",
+    promptLlmProvider: (current: string) =>
+      `  文章の生成の提供元 (gemini/openrouter) [${current}]: `,
+    usingOpenRouterFromStep1: "  手順 1 の OpenRouter の API キーを使います。",
     step2Url: (url: string) => `  API キー取得先: ${url}`,
     promptGeminiCurrent: "  Gemini API Key を入力 (Enter で現在の設定を維持): ",
     promptGeminiNew: "  Gemini API Key を入力 (Enter でスキップ): ",
@@ -287,6 +290,7 @@ export const ja: typeof en = {
     promptDisplayLang: (current: string) => `  CLI 表示言語 [${current}] (en/ja): `,
     promptTargetLang: (current: string) => `  デフォルト出力言語 [${current}]: `,
     promptOpenRouterModel: (current: string) => `  OpenRouter の文字起こしモデル [${current}]: `,
+    promptOpenRouterLlmModel: (current: string) => `  OpenRouter の文章の生成モデル [${current}]: `,
     configSaved: (path: string) =>
       `\n🎉 初期セットアップが正常に完了しました！\n設定保存先: ${path}\n`,
     configNotSaved: "このウィザードで入力した内容は保存されていません。",

@@ -295,6 +295,7 @@ describe("init.ts", () => {
       const answers = [
         "groq",
         "groq-key",
+        "gemini",
         "gemini-key",
         options.displayLangAnswer ?? "",
         options.targetLangAnswer ?? "",
@@ -335,6 +336,7 @@ describe("init.ts", () => {
         .fn()
         .mockResolvedValueOnce("groq")
         .mockResolvedValueOnce("gsk_new_groq_key")
+        .mockResolvedValueOnce("gemini")
         .mockResolvedValueOnce("AIza_new_gemini_key")
         .mockResolvedValueOnce("ja") // Display lang
         .mockResolvedValueOnce("ja,en") // Target lang
@@ -357,6 +359,7 @@ describe("init.ts", () => {
         expect.objectContaining({
           sttProvider: "groq",
           groqApiKey: "gsk_new_groq_key",
+          llmProvider: "gemini",
           geminiApiKey: "AIza_new_gemini_key",
           ffmpegPath: "ffmpeg",
           lang: "ja",
@@ -381,6 +384,7 @@ describe("init.ts", () => {
         .fn()
         .mockResolvedValueOnce("groq")
         .mockResolvedValueOnce("gsk_new_groq_key")
+        .mockResolvedValueOnce("gemini")
         .mockResolvedValueOnce("AIza_new_gemini_key")
         .mockResolvedValueOnce("en") // Display lang
         .mockResolvedValueOnce("en") // Target lang
@@ -402,6 +406,7 @@ describe("init.ts", () => {
         expect.objectContaining({
           sttProvider: "groq",
           groqApiKey: "gsk_new_groq_key",
+          llmProvider: "gemini",
           geminiApiKey: "AIza_new_gemini_key",
           ffmpegPath: "ffmpeg",
           lang: "en",
@@ -425,6 +430,7 @@ describe("init.ts", () => {
         .mockResolvedValueOnce("bad-key") // Initial bad key
         .mockResolvedValueOnce("y") // Retry choice -> yes
         .mockResolvedValueOnce("good-key") // Good key
+        .mockResolvedValueOnce("gemini")
         .mockResolvedValueOnce("gemini-key") // Gemini key
         .mockResolvedValueOnce("") // Display lang
         .mockResolvedValueOnce("") // Default lang
@@ -466,6 +472,7 @@ describe("init.ts", () => {
         .fn()
         .mockResolvedValueOnce("groq")
         .mockResolvedValueOnce("groq-key")
+        .mockResolvedValueOnce("gemini")
         .mockResolvedValueOnce("gemini-key")
         .mockResolvedValueOnce("custom/bin/ffmpeg") // Custom ffmpeg path
         .mockResolvedValueOnce("") // Display lang
@@ -513,6 +520,7 @@ describe("init.ts", () => {
           .fn()
           .mockResolvedValueOnce("groq")
           .mockResolvedValueOnce("groq-key")
+          .mockResolvedValueOnce("gemini")
           .mockResolvedValueOnce("gemini-key")
           .mockResolvedValueOnce(lang) // Display lang
           .mockResolvedValueOnce("")
@@ -635,12 +643,12 @@ describe("init.ts", () => {
           displayLangAnswer,
         });
 
-        const displayPrompt = prompts[3] ?? "";
+        const displayPrompt = prompts[4] ?? "";
         expect(displayPrompt).toContain(expectedPromptName);
         expect(displayPrompt.match(/\[[^\]]*\]/g)).toEqual([expectedBracket]);
         expect(savedConfig.lang).toBe(expectedSavedLang);
 
-        const targetPrompt = prompts[4] ?? "";
+        const targetPrompt = prompts[5] ?? "";
         if (expectedSubsequentLang === "ja") {
           expect(targetPrompt).toContain("デフォルト出力言語");
           expect(output).toContain("初期セットアップが正常に完了しました");
@@ -693,7 +701,7 @@ describe("init.ts", () => {
           targetLangAnswer: "",
         });
 
-        const targetPrompt = prompts[4] ?? "";
+        const targetPrompt = prompts[5] ?? "";
         expect(targetPrompt).toContain(expectedPromptName);
         expect(targetPrompt.match(/\[[^\]]*\]/g)).toEqual([expectedBracket]);
         expect(savedConfig.targetLang).toBe(expectedSavedTargetLang);
@@ -739,6 +747,7 @@ describe("init.ts", () => {
         const answers = [
           "", // Provider prompt -> enter (defaults to openrouter)
           "sk-or-v1-new-test-key-5678", // OpenRouter key
+          "gemini", // LLM provider
           "AIza_gemini_key", // Gemini key
           "en", // Display lang
           "ja", // Target lang
@@ -788,6 +797,7 @@ describe("init.ts", () => {
           "foo", // Invalid provider
           "groq", // Valid provider
           "gsk_test_key", // Groq key
+          "gemini", // LLM provider
           "gemini_key", // Gemini key
           "", // Display lang
           "", // Target lang
@@ -834,6 +844,7 @@ describe("init.ts", () => {
         const answers = [
           "openrouter", // Provider
           "", // OpenRouter key -> press Enter to use env
+          "gemini", // LLM provider
           "gemini_key", // Gemini key
           "", // Display lang
           "", // Target lang
@@ -893,6 +904,7 @@ describe("init.ts", () => {
             "openrouter", // Provider
             "sk-or-v1-unverified-key", // Bad key
             action, // Retry prompt answer
+            "gemini", // LLM provider
             "gemini_key", // Gemini key
             "", // Display lang
             "", // Target lang
@@ -917,6 +929,282 @@ describe("init.ts", () => {
           const saved = saveSpy.mock.calls[0]?.[0] as Partial<AppConfig>;
           expect(saved.openrouterApiKey).toBe(expectedSavedKey);
           expect(saved.sttProvider).toBe("openrouter");
+        },
+      );
+    });
+
+    describe("LLM provider selection and OpenRouter support in wizard", () => {
+      it("defaults to gemini when Gemini API key is configured, and saves llmProvider: 'gemini' on Enter", async () => {
+        placeConfig({ geminiApiKey: "AIza_dummy_gemini_key" });
+
+        const output = new PassThrough();
+
+        const prompts: string[] = [];
+        const ask = vi.fn().mockImplementation(async (prompt: string) => {
+          prompts.push(prompt);
+          return ""; // Enter on all prompts
+        });
+
+        await runInitWizard({
+          output,
+          ask,
+          openrouterVerifier: async () => ({ success: true }),
+          geminiVerifier: async () => ({ success: true }),
+          ffmpegVerifier: async () => ({ success: true, version: "ffmpeg 7.0" }),
+        });
+
+        const llmPrompt = prompts.find((p) => p.includes("Text generation provider"));
+        expect(llmPrompt).toBeDefined();
+        expect(llmPrompt).toContain("[gemini]");
+        expect(saveSpy).toHaveBeenCalledWith(
+          expect.objectContaining({
+            llmProvider: "gemini",
+          }),
+          expect.anything(),
+        );
+      });
+
+      it("defaults to openrouter when config is empty; when openrouter is selected in step 1, reuses key without asking, saves openrouterLlmModel, and does not save geminiApiKey", async () => {
+        const output = new PassThrough();
+        let outputData = "";
+        output.on("data", (chunk) => {
+          outputData += chunk.toString();
+        });
+
+        const openrouterVerifier = vi.fn().mockResolvedValue({ success: true });
+        const geminiVerifier = vi.fn().mockResolvedValue({ success: true });
+
+        const prompts: string[] = [];
+        const answers = [
+          "openrouter", // [1/4] STT provider
+          "sk-or-v1-test-key", // [1/4] OpenRouter key
+          "", // [2/4] LLM provider -> Enter (defaults to openrouter)
+          // OpenRouter key should NOT be prompted here!
+          "", // [4/4] Display lang
+          "", // [4/4] Target lang
+          "custom/llm-model", // [4/4] OpenRouter LLM model
+          "custom/stt-model", // [4/4] OpenRouter STT model
+        ];
+
+        const ask = vi.fn().mockImplementation(async (prompt: string) => {
+          prompts.push(prompt);
+          return answers[prompts.length - 1] ?? "";
+        });
+
+        await runInitWizard({
+          output,
+          ask,
+          openrouterVerifier,
+          geminiVerifier,
+          ffmpegVerifier: async () => ({ success: true, version: "ffmpeg 7.0" }),
+        });
+
+        const llmPrompt = prompts.find((p) => p.includes("Text generation provider"));
+        expect(llmPrompt).toBeDefined();
+        expect(llmPrompt).toContain("[openrouter]");
+        expect(outputData).toContain("Using the OpenRouter API key from step 1.");
+        expect(openrouterVerifier).toHaveBeenCalledTimes(1);
+        expect(openrouterVerifier).toHaveBeenCalledWith("sk-or-v1-test-key");
+        expect(geminiVerifier).not.toHaveBeenCalled();
+
+        expect(saveSpy).toHaveBeenCalledWith(
+          expect.objectContaining({
+            sttProvider: "openrouter",
+            openrouterApiKey: "sk-or-v1-test-key",
+            llmProvider: "openrouter",
+            openrouterLlmModel: "custom/llm-model",
+            openrouterSttModel: "custom/stt-model",
+          }),
+          expect.anything(),
+        );
+        const saved = saveSpy.mock.calls[0]?.[0] as Partial<AppConfig>;
+        expect(saved.geminiApiKey).toBeUndefined();
+        expect(saved.geminiModel).toBeUndefined();
+      });
+
+      it("prompts and verifies OpenRouter key when groq was chosen in step 1 and openrouter is chosen in step 2", async () => {
+        const output = new PassThrough();
+        const openrouterVerifier = vi.fn().mockResolvedValue({ success: true });
+        const groqVerifier = vi.fn().mockResolvedValue({ success: true, modelCount: 5 });
+
+        const prompts: string[] = [];
+        const answers = [
+          "groq", // [1/4] STT provider
+          "gsk_test_key", // [1/4] Groq key
+          "openrouter", // [2/4] LLM provider
+          "sk-or-v1-new-key", // [2/4] OpenRouter key
+          "", // [4/4] Display lang
+          "", // [4/4] Target lang
+          "", // [4/4] OpenRouter LLM model
+          "", // [4/4] Groq STT model
+        ];
+
+        const ask = vi.fn().mockImplementation(async (prompt: string) => {
+          prompts.push(prompt);
+          return answers[prompts.length - 1] ?? "";
+        });
+
+        await runInitWizard({
+          output,
+          ask,
+          openrouterVerifier,
+          groqVerifier,
+          ffmpegVerifier: async () => ({ success: true, version: "ffmpeg 7.0" }),
+        });
+
+        expect(openrouterVerifier).toHaveBeenCalledWith("sk-or-v1-new-key");
+        expect(saveSpy).toHaveBeenCalledWith(
+          expect.objectContaining({
+            sttProvider: "groq",
+            groqApiKey: "gsk_test_key",
+            llmProvider: "openrouter",
+            openrouterApiKey: "sk-or-v1-new-key",
+          }),
+          expect.anything(),
+        );
+      });
+
+      it("notifies generic OPENROUTER_API_KEY from environment in step 2 when groq was chosen in step 1, and does not save openrouterApiKey", async () => {
+        process.env["OPENROUTER_API_KEY"] = "sk-or-v1-env-generic-secret";
+
+        const output = new PassThrough();
+        let outputData = "";
+        output.on("data", (chunk) => {
+          outputData += chunk.toString();
+        });
+
+        const openrouterVerifier = vi.fn().mockResolvedValue({ success: true });
+
+        const prompts: string[] = [];
+        const answers = [
+          "groq", // [1/4] STT provider
+          "gsk_test_key", // [1/4] Groq key
+          "openrouter", // [2/4] LLM provider
+          "", // [2/4] OpenRouter key -> Enter to use env
+          "", // [4/4] Display lang
+          "", // [4/4] Target lang
+          "", // [4/4] OpenRouter LLM model
+          "", // [4/4] Groq STT model
+        ];
+
+        const ask = vi.fn().mockImplementation(async (prompt: string) => {
+          prompts.push(prompt);
+          return answers[prompts.length - 1] ?? "";
+        });
+
+        await runInitWizard({
+          output,
+          ask,
+          openrouterVerifier,
+          groqVerifier: async () => ({ success: true, modelCount: 5 }),
+          ffmpegVerifier: async () => ({ success: true, version: "ffmpeg 7.0" }),
+        });
+
+        expect(outputData).toContain("OPENROUTER_API_KEY is set in the environment");
+        expect(openrouterVerifier).toHaveBeenCalledWith("sk-or-v1-env-generic-secret");
+        expect(saveSpy).toHaveBeenCalledWith(
+          expect.objectContaining({
+            llmProvider: "openrouter",
+          }),
+          expect.anything(),
+        );
+        const saved = saveSpy.mock.calls[0]?.[0] as Partial<AppConfig>;
+        expect(saved.openrouterApiKey).toBeUndefined();
+      });
+
+      it("re-prompts on invalid LLM provider answer (foo) then proceeds with gemini", async () => {
+        const output = new PassThrough();
+        let outputData = "";
+        output.on("data", (chunk) => {
+          outputData += chunk.toString();
+        });
+
+        const prompts: string[] = [];
+        const answers = [
+          "groq", // [1/4] STT provider
+          "gsk_test_key", // [1/4] Groq key
+          "foo", // [2/4] Invalid LLM provider
+          "gemini", // [2/4] Valid LLM provider
+          "AIza_key", // [2/4] Gemini key
+          "", // [4/4] Display lang
+          "", // [4/4] Target lang
+          "", // [4/4] Gemini model
+          "", // [4/4] Groq STT model
+        ];
+
+        const ask = vi.fn().mockImplementation(async (prompt: string) => {
+          prompts.push(prompt);
+          return answers[prompts.length - 1] ?? "";
+        });
+
+        await runInitWizard({
+          output,
+          ask,
+          groqVerifier: async () => ({ success: true, modelCount: 5 }),
+          geminiVerifier: async () => ({ success: true }),
+          ffmpegVerifier: async () => ({ success: true, version: "ffmpeg 7.0" }),
+        });
+
+        const llmPrompts = prompts.filter((p) => p.includes("Text generation provider"));
+        expect(llmPrompts.length).toBe(2);
+        expect(outputData).toContain("foo");
+        expect(saveSpy).toHaveBeenCalledWith(
+          expect.objectContaining({
+            llmProvider: "gemini",
+            geminiApiKey: "AIza_key",
+          }),
+          expect.anything(),
+        );
+      });
+
+      it.each([
+        {
+          name: "with Gemini key",
+          config: {
+            llmProvider: "invalid_provider" as unknown as "gemini",
+            geminiApiKey: "AIza_existing_gemini_key",
+          },
+          expectedDefault: "[gemini]",
+          expectedSaved: "gemini",
+        },
+        {
+          name: "without Gemini key",
+          config: {
+            llmProvider: "invalid_provider" as unknown as "gemini",
+          },
+          expectedDefault: "[openrouter]",
+          expectedSaved: "openrouter",
+        },
+      ])(
+        "falls back to auto key detection without crashing when config has invalid llmProvider ($name)",
+        async ({ config, expectedDefault, expectedSaved }) => {
+          placeConfig(config);
+
+          const output = new PassThrough();
+
+          const prompts: string[] = [];
+          const ask = vi.fn().mockImplementation(async (prompt: string) => {
+            prompts.push(prompt);
+            return ""; // Enter on all prompts
+          });
+
+          await runInitWizard({
+            output,
+            ask,
+            openrouterVerifier: async () => ({ success: true }),
+            geminiVerifier: async () => ({ success: true }),
+            ffmpegVerifier: async () => ({ success: true, version: "ffmpeg 7.0" }),
+          });
+
+          const llmPrompt = prompts.find((p) => p.includes("Text generation provider"));
+          expect(llmPrompt).toBeDefined();
+          expect(llmPrompt).toContain(expectedDefault);
+          expect(saveSpy).toHaveBeenCalledWith(
+            expect.objectContaining({
+              llmProvider: expectedSaved,
+            }),
+            expect.anything(),
+          );
         },
       );
     });

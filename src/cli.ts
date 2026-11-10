@@ -32,6 +32,12 @@ import {
 import { ensureWritableTargets } from "./safety.js";
 import { parseSrt } from "./srt.js";
 import {
+  LLM_PROVIDER_LABELS,
+  type LlmProvider,
+  parseLlmProvider,
+  resolveLlmSettings,
+} from "./text/select.js";
+import {
   parseSttProvider,
   resolveSttSettings,
   STT_PROVIDER_LABELS,
@@ -186,13 +192,13 @@ function acceptGlobalOptions(rootCmd: Command): void {
 
 function addTranslationOptions(command: Command): Command {
   return command
-    .option("--prompt <instruction>", "Additional instruction prompt for Gemini translation")
+    .option("--prompt <instruction>", "Additional instruction prompt for translation")
     .option(
       "--glossary <path-or-terms>",
       "Glossary file path (JSON) or inline terms (key=val,key=val)",
     )
-    .option("--concurrency <number>", "Number of concurrent translation requests to Gemini API")
-    .option("--gemini-model <model>", "Gemini model to use for translation")
+    .option("--concurrency <number>", "Number of concurrent translation requests")
+    .option("--gemini-model <model>", "Gemini model to use for translation (Gemini provider only)")
     .option(
       "--llm-provider <provider>",
       "Text generation provider for translation, chapters and summaries: gemini or openrouter (default: VSUB_LLM_PROVIDER, config, or chosen from your API keys)",
@@ -218,7 +224,7 @@ export function createProgram(): Command {
     .name("vsub")
     .version(getCurrentVersion())
     .description(
-      "CLI tool to extract audio from video/audio files, transcribe speech via OpenRouter (ElevenLabs Scribe v2, default) or Groq Whisper, and generate multilingual subtitles (.srt, .vtt, .txt, .json) via Gemini API.",
+      "CLI tool to extract audio from video/audio files, transcribe speech via OpenRouter (ElevenLabs Scribe v2, default) or Groq Whisper, and generate multilingual subtitles (.srt, .vtt, .txt, .json) via Gemini directly or through OpenRouter.",
     )
     .enablePositionalOptions()
     .option("-l, --lang <lang>", "UI display language (en, ja)")
@@ -335,6 +341,15 @@ export function createProgram(): Command {
         transcriptionText = `invalid provider "${resolvedConfig.sttProvider}"`;
       }
       console.log(`Transcription      : ${transcriptionText}`);
+      let textGenText: string;
+      try {
+        const { llm } = resolveLlmSettings(resolvedConfig, {});
+        const label = LLM_PROVIDER_LABELS[llm.provider];
+        textGenText = `${label} (${llm.model}) [${llm.source}]`;
+      } catch {
+        textGenText = `invalid provider "${resolvedConfig.llmProvider}"`;
+      }
+      console.log(`Text Generation    : ${textGenText}`);
       console.log(`FFmpeg Path     : ${resolvedConfig.ffmpegPath}`);
       if (resolvedConfig.whisperPrompt) {
         console.log(`Whisper Prompt  : "${resolvedConfig.whisperPrompt}"`);
@@ -353,6 +368,9 @@ export function createProgram(): Command {
       }
       if (resolvedConfig.openrouterSttModel) {
         console.log(`OpenRouter STT Model : ${resolvedConfig.openrouterSttModel}`);
+      }
+      if (resolvedConfig.openrouterLlmModel) {
+        console.log(`OpenRouter LLM Model : ${resolvedConfig.openrouterLlmModel}`);
       }
       if (resolvedConfig.maxLength) {
         console.log(`Max Length      : ${resolvedConfig.maxLength} chars`);
@@ -377,11 +395,16 @@ export function createProgram(): Command {
     .option("-l, --lang <lang>", "UI display language (en, ja)")
     .option("--groq-key <key>", "Groq API Key")
     .option("--gemini-key <key>", "Gemini API Key")
-    .option("--openrouter-key <key>", "OpenRouter API Key (for speech recognition)")
+    .option("--openrouter-key <key>", "OpenRouter API Key (for transcription and text generation)")
     .option("--stt-provider <provider>", "Default transcription provider: openrouter or groq")
     .option(
       "--openrouter-stt-model <model>",
       "Default OpenRouter transcription model (e.g. elevenlabs/scribe-v2)",
+    )
+    .option("--llm-provider <provider>", "Default text generation provider: gemini or openrouter")
+    .option(
+      "--openrouter-llm-model <model>",
+      "Default OpenRouter text generation model (e.g. google/gemini-3.8-flash)",
     )
     .option("--ffmpeg-path <path>", "Path to ffmpeg executable")
     .option("--gemini-model <model>", "Default Gemini translation model (e.g. gemini-3.8-flash)")
@@ -390,12 +413,9 @@ export function createProgram(): Command {
       "Default Groq Whisper transcription model (e.g. whisper-large-v3-turbo)",
     )
     .option("--whisper-prompt <text>", "Default Whisper recognition prompt hint")
-    .option("--prompt <instruction>", "Default Gemini translation instruction prompt")
+    .option("--prompt <instruction>", "Default translation instruction prompt")
     .option("--glossary <path-or-terms>", "Default glossary file path (JSON) or inline terms")
-    .option(
-      "--concurrency <number>",
-      "Default concurrent translation requests to Gemini API (e.g. 3)",
-    )
+    .option("--concurrency <number>", "Default concurrent translation requests (e.g. 3)")
     .option("--disable-update-check <boolean>", "Disable periodic update checks (true/false)")
     .option("--max-length <chars>", "Default max characters per subtitle entry (e.g. 60)")
     .option("--burn-position <position>", "Default subtitle burn position (bottom, top, center)")
@@ -411,6 +431,8 @@ export function createProgram(): Command {
         openrouterKey?: string;
         sttProvider?: string;
         openrouterSttModel?: string;
+        llmProvider?: string;
+        openrouterLlmModel?: string;
         ffmpegPath?: string;
         geminiModel?: string;
         groqModel?: string;
@@ -465,6 +487,16 @@ export function createProgram(): Command {
           }
         }
 
+        let llmProviderVal: LlmProvider | undefined;
+        if (options.llmProvider) {
+          try {
+            llmProviderVal = parseLlmProvider(options.llmProvider, normalizedLang);
+          } catch (err) {
+            console.error(pc.red(`\n✖ ${err instanceof Error ? err.message : String(err)}\n`));
+            return process.exit(1);
+          }
+        }
+
         let burnPositionVal: string | undefined;
         if (options.burnPosition) {
           try {
@@ -491,7 +523,9 @@ export function createProgram(): Command {
           !options.geminiKey &&
           !options.openrouterKey &&
           !options.sttProvider &&
+          !options.llmProvider &&
           !options.openrouterSttModel &&
+          !options.openrouterLlmModel &&
           !options.ffmpegPath &&
           !options.geminiModel &&
           !options.groqModel &&
@@ -520,6 +554,10 @@ export function createProgram(): Command {
               ...(sttProviderVal ? { sttProvider: sttProviderVal } : {}),
               ...(options.openrouterSttModel
                 ? { openrouterSttModel: options.openrouterSttModel.trim() }
+                : {}),
+              ...(llmProviderVal ? { llmProvider: llmProviderVal } : {}),
+              ...(options.openrouterLlmModel
+                ? { openrouterLlmModel: options.openrouterLlmModel.trim() }
                 : {}),
               ...(options.ffmpegPath ? { ffmpegPath: options.ffmpegPath.trim() } : {}),
               ...(options.geminiModel ? { geminiModel: options.geminiModel.trim() } : {}),
@@ -554,7 +592,7 @@ export function createProgram(): Command {
   // Subcommand: init (Top-level wizard)
   addInitCommand(
     program,
-    "Interactive setup wizard to choose the transcription provider (OpenRouter or Groq) and verify API keys, FFmpeg, and preferences",
+    "Interactive setup wizard to choose the transcription and text generation providers and verify API keys, FFmpeg, and preferences",
   );
 
   // Subcommand: cache
@@ -598,7 +636,7 @@ export function createProgram(): Command {
   program
     .command("chapters")
     .description(
-      "Generate video chapters (table of contents) from media or subtitle files via Gemini",
+      "Generate video chapters (table of contents) from media or subtitle files via Gemini or OpenRouter",
     )
     .argument("<file>", "Media file (.mp4, .mp3, etc.) or subtitle file (.srt)")
     .option(
@@ -612,8 +650,11 @@ export function createProgram(): Command {
     )
     .option("-o, --output <path>", "Output file path or '-' for stdout")
     .option("--stdout", "Output chapters directly to stdout", false)
-    .option("--prompt <instruction>", "Additional instruction prompt for Gemini chapter generation")
-    .option("--gemini-model <model>", "Gemini model to use for chapters generation")
+    .option("--prompt <instruction>", "Additional instruction prompt for chapter generation")
+    .option(
+      "--gemini-model <model>",
+      "Gemini model to use for chapters generation (Gemini provider only)",
+    )
     .option(
       "--llm-provider <provider>",
       "Text generation provider for translation, chapters and summaries: gemini or openrouter (default: VSUB_LLM_PROVIDER, config, or chosen from your API keys)",
@@ -718,15 +759,18 @@ export function createProgram(): Command {
   program
     .command("summarize")
     .description(
-      "Generate structured summary and key topic highlights from media or subtitle files via Gemini",
+      "Generate structured summary and key topic highlights from media or subtitle files via Gemini or OpenRouter",
     )
     .argument("<file>", "Media file (.mp4, .mp3, etc.) or subtitle file (.srt)")
     .option("-t, --target-lang <lang>", "Target language for summary (default: config or ja)")
     .option("-f, --format <format>", "Output format: md (Markdown), txt, json (default: md)", "md")
     .option("-o, --output <path>", "Output file path or '-' for stdout")
     .option("--stdout", "Output summary directly to stdout", false)
-    .option("--prompt <instruction>", "Additional instruction prompt for Gemini summary generation")
-    .option("--gemini-model <model>", "Gemini model to use for summary generation")
+    .option("--prompt <instruction>", "Additional instruction prompt for summary generation")
+    .option(
+      "--gemini-model <model>",
+      "Gemini model to use for summary generation (Gemini provider only)",
+    )
     .option(
       "--llm-provider <provider>",
       "Text generation provider for translation, chapters and summaries: gemini or openrouter (default: VSUB_LLM_PROVIDER, config, or chosen from your API keys)",
@@ -827,7 +871,7 @@ export function createProgram(): Command {
   const translateCmd = program
     .command("translate")
     .description(
-      "Directly translate an existing subtitle file (.srt) into target language(s) via Gemini API",
+      "Directly translate an existing subtitle file (.srt) into target language(s) via Gemini or OpenRouter",
     )
     .argument("<subtitle-file>", "Input subtitle file path (.srt)")
     .option(
@@ -1315,7 +1359,7 @@ export function createProgram(): Command {
     )
     .option(
       "--force-translate",
-      "Force Gemini translation even if detected language matches target language",
+      "Force translation even if detected language matches target language",
       false,
     )
     .option("--max-length <chars>", "Max characters per subtitle entry before automatic splitting")
@@ -1446,7 +1490,7 @@ export function createProgram(): Command {
     )
     .option(
       "--force-translate",
-      "Force Gemini translation even if detected language matches target language",
+      "Force translation even if detected language matches target language",
       false,
     )
     .option("--max-length <chars>", "Max characters per subtitle entry before automatic splitting")

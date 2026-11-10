@@ -268,7 +268,11 @@ export const en = {
       "  OPENROUTER_API_KEY is set in the environment; press Enter to use it (it is not saved to the config file).",
     retryPrompt: "  Retry? [Y/n/s (s=save anyway)]: ",
     savedUnverified: "  ⚠️  Saved key without verification.\n",
-    step2Title: "▶ [2/4] Google Gemini API Key Setup (for Translation)",
+    step2Title:
+      "▶ [2/4] Text Generation Provider & API Key (for Translation, Chapters and Summaries)",
+    promptLlmProvider: (current: string) =>
+      `  Text generation provider (gemini/openrouter) [${current}]: `,
+    usingOpenRouterFromStep1: "  Using the OpenRouter API key from step 1.",
     step2Url: (url: string) => `  Get API key at: ${url}`,
     promptGeminiCurrent: "  Enter Gemini API Key (Enter to keep current): ",
     promptGeminiNew: "  Enter Gemini API Key (Enter to skip): ",
@@ -286,6 +290,8 @@ export const en = {
     promptTargetLang: (current: string) => `  Default Target Subtitle Language [${current}]: `,
     promptOpenRouterModel: (current: string) =>
       `  Default OpenRouter transcription model [${current}]: `,
+    promptOpenRouterLlmModel: (current: string) =>
+      `  Default OpenRouter text generation model [${current}]: `,
     configSaved: (path: string) =>
       `\n🎉 Setup completed successfully!\nSettings saved to: ${path}\n`,
     configNotSaved: "The settings you entered in this wizard were not saved.",

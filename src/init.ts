@@ -12,6 +12,8 @@ import {
   saveGlobalConfig,
 } from "./config.js";
 import { getI18n, normalizeLanguage, type SupportedLanguage } from "./i18n/index.js";
+import { DEFAULT_OPENROUTER_LLM_MODEL } from "./text/openrouter.js";
+import { type LlmProvider, parseLlmProvider, resolveLlmSettings } from "./text/select.js";
 import { DEFAULT_OPENROUTER_STT_MODEL } from "./transcribe/openrouter.js";
 import { parseSttProvider, resolveSttSettings, type SttProvider } from "./transcribe/select.js";
 
@@ -296,6 +298,23 @@ export async function runInitWizard(options: InitWizardOptions = {}): Promise<vo
     }
     updatedConfig.sttProvider = chosenProvider;
 
+    const getOpenRouterKeyConfig = (): KeyPromptConfig => ({
+      url: "https://openrouter.ai/keys",
+      currentKey: updatedConfig.openrouterApiKey ?? currentConfig.openrouterApiKey,
+      fallbackKey: currentConfig.openrouterApiKeyFallback,
+      fallbackNotice: m().openrouterEnvNotice,
+      promptCurrent: m().promptOpenRouterCurrent,
+      promptNew: m().promptOpenRouterNew,
+      skippedMessage: m().skippedOpenRouter,
+      testingMessage: m().testingOpenRouter,
+      verify: async (k) => openrouterVerifier(k),
+      formatSuccess: () => m().openrouterSuccess,
+      formatFailed: (err) => m().openrouterFailed(err),
+      onSave: (k) => {
+        updatedConfig.openrouterApiKey = k;
+      },
+    });
+
     if (chosenProvider === "groq") {
       await promptAndVerifyKey({
         url: "https://console.groq.com/keys",
@@ -312,67 +331,83 @@ export async function runInitWizard(options: InitWizardOptions = {}): Promise<vo
         },
       });
     } else {
-      await promptAndVerifyKey({
-        url: "https://openrouter.ai/keys",
-        currentKey: currentConfig.openrouterApiKey,
-        fallbackKey: currentConfig.openrouterApiKeyFallback,
-        fallbackNotice: m().openrouterEnvNotice,
-        promptCurrent: m().promptOpenRouterCurrent,
-        promptNew: m().promptOpenRouterNew,
-        skippedMessage: m().skippedOpenRouter,
-        testingMessage: m().testingOpenRouter,
-        verify: async (k) => openrouterVerifier(k),
-        formatSuccess: () => m().openrouterSuccess,
-        formatFailed: (err) => m().openrouterFailed(err),
-        onSave: (k) => {
-          updatedConfig.openrouterApiKey = k;
-        },
-      });
+      await promptAndVerifyKey(getOpenRouterKeyConfig());
     }
 
     // ---------------------------------------------------------
-    // Step 2: Gemini API Key
+    // Step 2: Text Generation Provider & API Key
     // ---------------------------------------------------------
     out(pc.bold(pc.green(m().step2Title)));
-    out(m().step2Url(pc.cyan("https://aistudio.google.com/apikey")));
 
-    let geminiKey = currentConfig.geminiApiKey;
-    if (geminiKey) {
-      out(m().currentSetting(pc.yellow(maskApiKey(geminiKey))));
+    let defaultLlmProvider: LlmProvider;
+    try {
+      defaultLlmProvider = resolveLlmSettings(currentConfig, {}).llm.provider;
+    } catch {
+      const { llmProvider: _ignored, ...fallbackConfig } = currentConfig;
+      defaultLlmProvider = resolveLlmSettings(fallbackConfig, {}).llm.provider;
     }
 
+    let chosenLlmProvider: LlmProvider;
     while (true) {
-      const promptText = geminiKey ? m().promptGeminiCurrent : m().promptGeminiNew;
-      const answer = (await ask(promptText)).trim();
-      const candidateKey = answer || geminiKey;
-
-      if (!candidateKey) {
-        out(pc.yellow(m().skippedGemini));
+      const answer = (await ask(m().promptLlmProvider(defaultLlmProvider))).trim();
+      const raw = answer || defaultLlmProvider;
+      try {
+        chosenLlmProvider = parseLlmProvider(raw, effectiveLang);
         break;
+      } catch (err) {
+        out(pc.red(`  ✖ ${err instanceof Error ? err.message : String(err)}`));
+      }
+    }
+    updatedConfig.llmProvider = chosenLlmProvider;
+
+    if (chosenLlmProvider === "gemini") {
+      out(m().step2Url(pc.cyan("https://aistudio.google.com/apikey")));
+
+      let geminiKey = currentConfig.geminiApiKey;
+      if (geminiKey) {
+        out(m().currentSetting(pc.yellow(maskApiKey(geminiKey))));
       }
 
-      output.write(m().testingGemini);
-      const result = await geminiVerifier(candidateKey, currentConfig.geminiModel);
-      if (result.success) {
-        output.write(`\r${" ".repeat(40)}\r`);
-        out(pc.green(m().geminiSuccess(currentConfig.geminiModel || DEFAULT_GEMINI_MODEL)));
-        updatedConfig.geminiApiKey = candidateKey;
-        geminiKey = candidateKey;
-        out("");
-        break;
-      } else {
-        output.write(`\r${" ".repeat(40)}\r`);
-        out(pc.red(m().geminiFailed(result.error ?? "")));
-        const retry = (await ask(m().retryPrompt)).trim().toLowerCase();
-        if (retry === "s") {
-          updatedConfig.geminiApiKey = candidateKey;
-          out(pc.yellow(m().savedUnverified));
-          break;
-        }
-        if (retry === "n") {
+      while (true) {
+        const promptText = geminiKey ? m().promptGeminiCurrent : m().promptGeminiNew;
+        const answer = (await ask(promptText)).trim();
+        const candidateKey = answer || geminiKey;
+
+        if (!candidateKey) {
           out(pc.yellow(m().skippedGemini));
           break;
         }
+
+        output.write(m().testingGemini);
+        const result = await geminiVerifier(candidateKey, currentConfig.geminiModel);
+        if (result.success) {
+          output.write(`\r${" ".repeat(40)}\r`);
+          out(pc.green(m().geminiSuccess(currentConfig.geminiModel || DEFAULT_GEMINI_MODEL)));
+          updatedConfig.geminiApiKey = candidateKey;
+          geminiKey = candidateKey;
+          out("");
+          break;
+        } else {
+          output.write(`\r${" ".repeat(40)}\r`);
+          out(pc.red(m().geminiFailed(result.error ?? "")));
+          const retry = (await ask(m().retryPrompt)).trim().toLowerCase();
+          if (retry === "s") {
+            updatedConfig.geminiApiKey = candidateKey;
+            out(pc.yellow(m().savedUnverified));
+            break;
+          }
+          if (retry === "n") {
+            out(pc.yellow(m().skippedGemini));
+            break;
+          }
+        }
+      }
+    } else {
+      if (chosenProvider === "openrouter") {
+        out(m().usingOpenRouterFromStep1);
+        out("");
+      } else {
+        await promptAndVerifyKey(getOpenRouterKeyConfig());
       }
     }
 
@@ -431,11 +466,20 @@ export async function runInitWizard(options: InitWizardOptions = {}): Promise<vo
     const langAnswer = (await ask(m().promptTargetLang(currentTargetLang))).trim();
     updatedConfig.targetLang = langAnswer || currentTargetLang;
 
-    const currentGeminiModel = currentConfig.geminiModel || DEFAULT_GEMINI_MODEL;
-    const geminiModelAnswer = (
-      await ask(`  Default Gemini Model [${currentGeminiModel}]: `)
-    ).trim();
-    updatedConfig.geminiModel = geminiModelAnswer || currentGeminiModel;
+    if (chosenLlmProvider === "gemini") {
+      const currentGeminiModel = currentConfig.geminiModel || DEFAULT_GEMINI_MODEL;
+      const geminiModelAnswer = (
+        await ask(`  Default Gemini Model [${currentGeminiModel}]: `)
+      ).trim();
+      updatedConfig.geminiModel = geminiModelAnswer || currentGeminiModel;
+    } else {
+      const currentOpenRouterLlmModel =
+        currentConfig.openrouterLlmModel || DEFAULT_OPENROUTER_LLM_MODEL;
+      const openrouterLlmModelAnswer = (
+        await ask(m().promptOpenRouterLlmModel(currentOpenRouterLlmModel))
+      ).trim();
+      updatedConfig.openrouterLlmModel = openrouterLlmModelAnswer || currentOpenRouterLlmModel;
+    }
 
     if (chosenProvider === "groq") {
       const currentGroqModel = currentConfig.groqModel || DEFAULT_GROQ_MODEL;
