@@ -2,6 +2,20 @@
 
 All notable changes to this project will be documented in this file. See [standard-version](https://github.com/conventional-changelog/standard-version) for commit guidelines.
 
+## [1.7.2](https://github.com/koohq/vsub-cli/compare/vsub-cli-v1.7.1...vsub-cli-v1.7.2) (2026-11-11)
+
+
+### Bug Fixes
+
+* ask batch for the transcription key only when a file needs transcribing ([e884f4f](https://github.com/koohq/vsub-cli/commit/e884f4f8bb34feffe85a88970f13a6cc4be88b6b))
+* keep notices and failure lines visible with --verbose ([364fd56](https://github.com/koohq/vsub-cli/commit/364fd56b29300bdf86006662ad8bde4ba336ae3a))
+* keep the resume and refine fallback notices visible with --verbose ([1abf412](https://github.com/koohq/vsub-cli/commit/1abf4120712d24bc5d7270ec0eab8a26037ef539))
+* localize the missing API key error ([f65402b](https://github.com/koohq/vsub-cli/commit/f65402b2d5c71517429f87aa15b127d08408a967))
+* show concurrency in config show and accept -l after config subcommands ([a5e9410](https://github.com/koohq/vsub-cli/commit/a5e94102974ba4011e8dfb1378da43555abf60fe))
+* show the saving line when summarize uses its cache ([a6821f7](https://github.com/koohq/vsub-cli/commit/a6821f7309ed3ab9262f494b3e557572caf5a2d3))
+* stop vsub init with a hint when stdin is not a terminal ([117123b](https://github.com/koohq/vsub-cli/commit/117123bac38be06da8df03294ac794a01d9115d3))
+* write --verbose logs to stderr so --stdout output stays clean ([197b914](https://github.com/koohq/vsub-cli/commit/197b914a8bc889dceb8d8201098a91fab7e04c13))
+
 ## [1.7.1](https://github.com/koohq/vsub-cli/compare/vsub-cli-v1.7.0...vsub-cli-v1.7.1) (2026-11-11)
 
 
