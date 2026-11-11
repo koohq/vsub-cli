@@ -104,6 +104,7 @@ vi.mock("./updater.js", async (importOriginal) => {
     ...actual,
     notifyUpdateIfAvailable: vi.fn().mockResolvedValue(undefined),
     isStandaloneBinary: vi.fn().mockReturnValue(false),
+    performSelfUpdate: vi.fn(),
   };
 });
 
@@ -295,6 +296,76 @@ describe("CLI integration harness", () => {
         logSpy.mock.calls.map(([text]: unknown[]) => String(text)).join("\n"),
       );
     }
+
+    describe.each(["en", "ja"] as const)("%s failure notices", (lang) => {
+      it.each([false, true])(
+        "keeps the translate failure before the hint and stack (verbose: %s)",
+        async (verbose) => {
+          const spinner = ui.createSpinner("", { isSilent: true });
+          const fail = vi.spyOn(spinner, "fail");
+          const createSpinner = vi.spyOn(ui, "createSpinner").mockReturnValue(spinner);
+          const error = new TranslationStoppedError(new Error("Unavailable"), "ja", 1, 3);
+          vi.mocked(translateSrtEntries).mockRejectedValueOnce(error);
+          try {
+            await runCli(
+              "translate",
+              dummySrtPath,
+              "--no-cache",
+              "-l",
+              lang,
+              ...(verbose ? ["--verbose"] : []),
+            );
+            const text = getI18n(lang).pipeline.errorOccurred(error.message);
+            const lines = errorSpy.mock.calls.map(([line]: unknown[]) =>
+              stripVTControlCharacters(String(line)),
+            );
+            if (verbose) {
+              expect(lines).toEqual([
+                `✖ ${text}`,
+                getTranslationResumeHint(error, lang),
+                error.stack,
+              ]);
+              expect(fail).not.toHaveBeenCalled();
+            } else {
+              expect(fail).toHaveBeenCalledExactlyOnceWith(text);
+              expect(lines).toEqual([getTranslationResumeHint(error, lang)]);
+            }
+            expect(exitSpy).toHaveBeenCalledExactlyOnceWith(1);
+          } finally {
+            createSpinner.mockRestore();
+          }
+        },
+      );
+
+      it.each(["burn", "embed", "update"] as const)(
+        "prints the %s failure when verbose",
+        async (command) => {
+          if (command === "update") {
+            const { isStandaloneBinary, performSelfUpdate } = await import("./updater.js");
+            vi.mocked(isStandaloneBinary).mockReturnValueOnce(true);
+            vi.mocked(performSelfUpdate).mockRejectedValueOnce(new Error("Unavailable"));
+          }
+          // Missing input deterministically exercises the burn/embed catch before ffmpeg runs.
+          const missing = path.join(tmpDir, "missing.mp4");
+          await runCli(
+            command,
+            ...(command === "update" ? [] : [missing, dummySrtPath]),
+            "--verbose",
+            "-l",
+            lang,
+          );
+          const lines = errorSpy.mock.calls.map(([line]: unknown[]) =>
+            stripVTControlCharacters(String(line)),
+          );
+          expect(lines[0]).toBe(
+            command === "update"
+              ? "✖ Unavailable"
+              : `✖ ${getI18n(lang).pipeline.errorOccurred(getI18n(lang)[command].videoNotFound(missing))}`,
+          );
+          expect(exitSpy).toHaveBeenCalledExactlyOnceWith(1);
+        },
+      );
+    });
 
     it.each([true, false])(
       "prints the media checkpoint hint immediately after the failure (stopped: %s)",

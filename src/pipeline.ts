@@ -67,7 +67,7 @@ import {
 import { transcribeAudioSegments } from "./transcribe/transcriber.js";
 import { buildEntriesFromWords, type WordChunk } from "./transcribe/words.js";
 import { resolveConcurrency, resolveContextWindowSize, translateToTargets } from "./translation.js";
-import { createSpinner, formatFileSize, formatSummaryBox } from "./ui.js";
+import { createSpinner, formatFileSize, formatSummaryBox, showSpinnerNotice } from "./ui.js";
 
 /**
  * Validates and normalizes bilingual order option.
@@ -543,7 +543,7 @@ export async function processMediaPipeline(
     detectedLanguage = mediaCache.transcription.detectedLanguage;
 
     const langDisplay = detectedLanguage ? ` (${detectedLanguage.toUpperCase()})` : "";
-    spinner.info(`${prefix}${m.step1SkipCache}`);
+    showSpinnerNotice(spinner, verbose, "info", `${prefix}${m.step1SkipCache}`);
     spinner.succeed(`${prefix}${m.step2UseCached(langDisplay, srtEntries.length)}`);
   } else {
     // Ensure API Key and FFmpeg only when transcription is needed
@@ -557,7 +557,7 @@ export async function processMediaPipeline(
     await checkFfmpeg(config.ffmpegPath);
 
     if (stt.source === "auto" && stt.provider === "groq" && !isStdout && !options.silentSttHint) {
-      spinner.info(`${prefix}${m.sttGroqAutoHint}`);
+      showSpinnerNotice(spinner, verbose, "info", `${prefix}${m.sttGroqAutoHint}`);
     }
 
     // 1. Audio extraction / optimization
@@ -618,7 +618,7 @@ export async function processMediaPipeline(
     detectedLanguage = transcriptResult.detectedLanguage;
 
     if (srtEntries.length === 0) {
-      spinner.warn(`${prefix}${m.step2NoEntries}`);
+      showSpinnerNotice(spinner, verbose, "warn", `${prefix}${m.step2NoEntries}`);
     } else {
       const langDisplay = detectedLanguage ? ` (${detectedLanguage.toUpperCase()})` : "";
       spinner.succeed(`${prefix}${m.step2Done(langDisplay, srtEntries.length)}`);
@@ -727,7 +727,12 @@ export async function processMediaPipeline(
 
       if (!rawSafety.proceed) {
         const skippedOriginalNames = outputFormats.map((fmt) => `${baseOriginalName}.${fmt}`);
-        spinner.info(`${prefix}${m.skippedOriginal(skippedOriginalNames.join(", "))}`);
+        showSpinnerNotice(
+          spinner,
+          verbose,
+          "info",
+          `${prefix}${m.skippedOriginal(skippedOriginalNames.join(", "))}`,
+        );
       } else {
         const savedOriginalNames: string[] = [];
         for (const fmt of outputFormats) {
@@ -737,7 +742,12 @@ export async function processMediaPipeline(
           outputFiles.push(originalPath);
           savedOriginalNames.push(originalFilename);
         }
-        spinner.info(`${prefix}${m.savedOriginal(savedOriginalNames.join(", "))}`);
+        showSpinnerNotice(
+          spinner,
+          verbose,
+          "info",
+          `${prefix}${m.savedOriginal(savedOriginalNames.join(", "))}`,
+        );
       }
     }
 
@@ -776,9 +786,17 @@ export async function processMediaPipeline(
 
         if (shouldSkip) {
           if (options.noTranslate) {
-            spinner.info(`${prefix}🌐 [3/4] [--no-translate] ${targetL.toUpperCase()}`);
+            showSpinnerNotice(
+              spinner,
+              verbose,
+              "info",
+              `${prefix}🌐 [3/4] [--no-translate] ${targetL.toUpperCase()}`,
+            );
           } else if (isSameLanguage) {
-            spinner.info(
+            showSpinnerNotice(
+              spinner,
+              verbose,
+              "info",
               `${prefix}${m.step3SkippedSameLang(detectedLanguage?.toUpperCase() ?? "", targetL.toUpperCase())}`,
             );
           }
@@ -980,7 +998,12 @@ export async function processMediaPipeline(
       if (!options.keepAudio) {
         await cleanupAudio();
       } else {
-        spinner.info(`${prefix}${m.keptAudio(audioPaths.join(", "))}`);
+        showSpinnerNotice(
+          spinner,
+          verbose,
+          "info",
+          `${prefix}${m.keptAudio(audioPaths.join(", "))}`,
+        );
       }
     }
   }

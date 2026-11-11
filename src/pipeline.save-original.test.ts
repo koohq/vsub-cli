@@ -1,15 +1,18 @@
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
+import { stripVTControlCharacters } from "node:util";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { createCachedTranslation, saveTranscriptionCache, saveTranslationCache } from "./cache.js";
 import { DEFAULT_GEMINI_MODEL } from "./config.js";
 import { checkFfmpeg, extractAudio } from "./ffmpeg.js";
+import { getI18n } from "./i18n/index.js";
 import { processMediaPipeline } from "./pipeline.js";
 import { ensureWritableTargets } from "./safety.js";
 import { isolateConfigAndEnv } from "./test-support/isolate-config-env.js";
 import { DEFAULT_CONTEXT_WINDOW_SIZE, translateSrtEntries } from "./text/tasks.js";
 import { transcribeAudioSegments } from "./transcribe/transcriber.js";
+import * as ui from "./ui.js";
 
 const mustNotBeCalled = vi.hoisted(
   () => (name: string) => new Error(`${name} must not be called: cache should be hit`),
@@ -165,6 +168,40 @@ describe("pipeline.ts --save-original overwrite confirmation", () => {
       return actualSafety.ensureWritableTargets(filePaths, opts);
     });
   }
+
+  describe.each([false, true])("original notices with verbose: %s", (verbose) => {
+    it.each([false, true])("routes the original notice once (declined: %s)", async (declined) => {
+      const { mediaFile, cacheDir, originalSrtPath, targetLang } = setupFixture("notice", {
+        ...(declined ? { existingOriginalContent: "Existing subtitle" } : {}),
+      });
+      if (declined) declineOriginalTargets();
+      const spinner = ui.createSpinner("", { isSilent: true });
+      const info = vi.spyOn(spinner, "info");
+      vi.spyOn(ui, "createSpinner").mockReturnValue(spinner);
+      vi.spyOn(console, "log").mockImplementation(() => {});
+      const stderr = vi.spyOn(console, "error").mockImplementation(() => {});
+      await processMediaPipeline({
+        mediaFile,
+        cacheDir,
+        targetLang,
+        saveOriginal: true,
+        verbose,
+        lang: "ja",
+      });
+      const m = getI18n("ja").pipeline;
+      const expected = (declined ? m.skippedOriginal : m.savedOriginal)(
+        path.basename(originalSrtPath),
+      );
+      if (verbose) {
+        const lines = stderr.mock.calls.map(([line]) => stripVTControlCharacters(String(line)));
+        expect(lines.filter((line) => line === expected)).toEqual([expected]);
+        expect(info).not.toHaveBeenCalled();
+      } else {
+        expect(info.mock.calls.filter(([line]) => line === expected)).toEqual([[expected]]);
+        expect(stderr).not.toHaveBeenCalled();
+      }
+    });
+  });
 
   it.each(["ja", "en"] as const)(
     "should not overwrite original subtitles and should pass UI language to confirmation when declined (lang: %s)",

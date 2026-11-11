@@ -60,6 +60,7 @@ import {
   formatFileSize,
   formatSummaryBox,
   padEndToWidth,
+  showSpinnerNotice,
 } from "./ui.js";
 import {
   checkUpdate,
@@ -515,7 +516,12 @@ export function createProgram(): Command {
           spinner.succeed(m.successTitle);
           console.log(`\n${formatSelfUpdateSummary(result, lang)}\n`);
         } catch (err: unknown) {
-          spinner.fail(err instanceof Error ? err.message : String(err));
+          showSpinnerNotice(
+            spinner,
+            Boolean(options.verbose),
+            "fail",
+            err instanceof Error ? err.message : String(err),
+          );
           process.exit(1);
         }
       },
@@ -1134,7 +1140,10 @@ export function createProgram(): Command {
             disableUpdateCheck: Boolean(options.noUpdateCheck || rawConfig.disableUpdateCheck),
           });
         } catch (error) {
-          spinner.fail(
+          showSpinnerNotice(
+            spinner,
+            verbose,
+            "fail",
             i18n.pipeline.errorOccurred(error instanceof Error ? error.message : String(error)),
           );
           if (verbose && error instanceof Error && error.stack) {
@@ -1320,7 +1329,10 @@ export function createProgram(): Command {
             disableUpdateCheck: Boolean(options.noUpdateCheck || rawConfig.disableUpdateCheck),
           });
         } catch (error) {
-          spinner.fail(
+          showSpinnerNotice(
+            spinner,
+            verbose,
+            "fail",
             i18n.pipeline.errorOccurred(error instanceof Error ? error.message : String(error)),
           );
           if (verbose && error instanceof Error && error.stack) {

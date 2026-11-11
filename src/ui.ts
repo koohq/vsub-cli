@@ -362,10 +362,10 @@ export interface CreateSpinnerOptions {
 export function showSpinnerNotice(
   spinner: ProgressSpinner,
   verbose: boolean,
-  kind: "info" | "warn",
+  kind: "info" | "warn" | "fail",
   text: string,
 ): void {
-  if (verbose) console.error(text);
+  if (verbose) console.error(kind === "fail" ? pc.red(`✖ ${text}`) : text);
   else spinner[kind](text);
 }
 

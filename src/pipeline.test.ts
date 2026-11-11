@@ -1,6 +1,7 @@
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
+import { stripVTControlCharacters } from "node:util";
 import { afterEach, beforeEach, describe, expect, it, type MockInstance, vi } from "vitest";
 import * as cacheModule from "./cache.js";
 import {
@@ -173,6 +174,106 @@ describe("pipeline.ts", () => {
       expect(() => parseBilingualOrder("invalid", "ja")).toThrow(
         /サポートされていないバイリンガル順序/,
       );
+    });
+  });
+
+  describe("verbose pipeline notices", () => {
+    describe.each(["en", "ja"] as const)("%s", (lang) => {
+      const m = getI18n(lang).pipeline;
+
+      it.each(["", "[1/3]"])(
+        "keeps cached and skipped notices visible with prefix %j",
+        async (logPrefix) => {
+          const mediaFile = path.join(tempDir, "sample.mp4");
+          const cacheDir = path.join(tempDir, "cache");
+          fs.writeFileSync(mediaFile, "dummy");
+          saveTranscriptionCache(
+            mediaFile,
+            {
+              entries: [
+                { id: 1, startTime: "00:00:00,000", endTime: "00:00:02,000", text: "Hello" },
+              ],
+              detectedLanguage: "en",
+              createdAt: Date.now(),
+            },
+            cacheDir,
+          );
+          vi.spyOn(console, "log").mockImplementation(() => {});
+          const stderr = vi.spyOn(console, "error").mockImplementation(() => {});
+          for (const noTranslate of [true, false]) {
+            stderr.mockClear();
+            await processMediaPipeline({
+              mediaFile,
+              cacheDir,
+              targetLang: "en",
+              noTranslate,
+              verbose: true,
+              overwrite: true,
+              lang,
+              logPrefix,
+            });
+            const lines = stderr.mock.calls.map(([line]) => stripVTControlCharacters(String(line)));
+            const prefix = logPrefix ? `${logPrefix} ` : "";
+            expect(lines.join("\n")).not.toContain(m.step2UseCached(" (EN)", 1));
+            expect(lines.join("\n")).not.toContain(m.step4Saved("SRT"));
+            expect(lines).toEqual([
+              `${prefix}${m.step1SkipCache}`,
+              `${prefix}${noTranslate ? "🌐 [3/4] [--no-translate] EN" : m.step3SkippedSameLang("EN", "EN")}`,
+            ]);
+          }
+        },
+      );
+
+      describe.each([false, true])("verbose: %s", (verbose) => {
+        it.each(["hint", "empty", "kept"] as const)("routes the %s notice once", async (notice) => {
+          const mediaFile = path.join(tempDir, "sample.mp4");
+          const audioFile = path.join(tempDir, "audio.m4a");
+          fs.writeFileSync(mediaFile, "dummy");
+          fs.writeFileSync(audioFile, "dummy audio");
+          vi.mocked(extractAudio).mockResolvedValueOnce({
+            audioPaths: [audioFile],
+            cleanup: async () => {},
+          });
+          vi.mocked(transcribeAudioSegments).mockResolvedValueOnce({
+            entries:
+              notice === "empty"
+                ? []
+                : [{ id: 1, startTime: "00:00:00,000", endTime: "00:00:02,000", text: "Hello" }],
+            detectedLanguage: "en",
+          });
+          const spinner = ui.createSpinner("", { isSilent: true });
+          const kind = notice === "empty" ? "warn" : "info";
+          const spinnerNotice = vi.spyOn(spinner, kind);
+          vi.spyOn(ui, "createSpinner").mockReturnValue(spinner);
+          vi.spyOn(console, "log").mockImplementation(() => {});
+          const stderr = vi.spyOn(console, "error").mockImplementation(() => {});
+          await processMediaPipeline({
+            mediaFile,
+            targetLang: "en",
+            noTranslate: true,
+            noCache: true,
+            verbose,
+            keepAudio: notice === "kept",
+            lang,
+          });
+          const expected =
+            notice === "hint"
+              ? m.sttGroqAutoHint
+              : notice === "empty"
+                ? m.step2NoEntries
+                : m.keptAudio(audioFile);
+          const lines = stderr.mock.calls.map(([line]) => stripVTControlCharacters(String(line)));
+          if (verbose) {
+            expect(lines.filter((line) => line === expected)).toEqual([expected]);
+            expect(spinnerNotice).not.toHaveBeenCalled();
+          } else {
+            expect(spinnerNotice.mock.calls.filter(([line]) => line === expected)).toEqual([
+              [expected],
+            ]);
+            expect(stderr).not.toHaveBeenCalled();
+          }
+        });
+      });
     });
   });
 

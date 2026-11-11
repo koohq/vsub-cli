@@ -17,7 +17,7 @@ import {
   resolveContextWindowSize,
   translateToTargets,
 } from "./translation.js";
-import { createSpinner, formatSummaryBox } from "./ui.js";
+import { createSpinner, formatSummaryBox, showSpinnerNotice } from "./ui.js";
 import { notifyUpdateIfAvailable } from "./updater.js";
 
 export interface TranslateCommandOptions {
@@ -324,7 +324,10 @@ export async function runTranslateCommand(
       });
     }
   } catch (error) {
-    spinner.fail(
+    showSpinnerNotice(
+      spinner,
+      verbose,
+      "fail",
       i18n.pipeline.errorOccurred(error instanceof Error ? error.message : String(error)),
     );
     const hint = getTranslationResumeHint(error, lang);

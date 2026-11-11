@@ -595,26 +595,31 @@ describe("ui module", () => {
   });
 
   describe("showSpinnerNotice", () => {
-    it.each(["info", "warn"] as const)("routes %s notices according to verbosity", (kind) => {
-      const spinner = createSpinner("", { isSilent: true });
-      const info = vi.spyOn(spinner, "info");
-      const warn = vi.spyOn(spinner, "warn");
-      const error = vi.spyOn(console, "error").mockImplementation(() => {});
-      try {
-        showSpinnerNotice(spinner, true, kind, "Test notice");
-        expect(error.mock.calls.map(([text]) => stripVTControlCharacters(String(text)))).toEqual([
-          "Test notice",
-        ]);
-        expect(info).not.toHaveBeenCalled();
-        expect(warn).not.toHaveBeenCalled();
-        error.mockClear();
-        showSpinnerNotice(spinner, false, kind, "Test notice");
-        expect(spinner[kind]).toHaveBeenCalledExactlyOnceWith("Test notice");
-        expect(error).not.toHaveBeenCalled();
-      } finally {
-        vi.restoreAllMocks();
-      }
-    });
+    it.each(["info", "warn", "fail"] as const)(
+      "routes %s notices according to verbosity",
+      (kind) => {
+        const spinner = createSpinner("", { isSilent: true });
+        const info = vi.spyOn(spinner, "info");
+        const warn = vi.spyOn(spinner, "warn");
+        const fail = vi.spyOn(spinner, "fail");
+        const error = vi.spyOn(console, "error").mockImplementation(() => {});
+        try {
+          showSpinnerNotice(spinner, true, kind, "Test notice");
+          expect(error.mock.calls.map(([text]) => stripVTControlCharacters(String(text)))).toEqual([
+            kind === "fail" ? "✖ Test notice" : "Test notice",
+          ]);
+          expect(info).not.toHaveBeenCalled();
+          expect(warn).not.toHaveBeenCalled();
+          expect(fail).not.toHaveBeenCalled();
+          error.mockClear();
+          showSpinnerNotice(spinner, false, kind, "Test notice");
+          expect(spinner[kind]).toHaveBeenCalledExactlyOnceWith("Test notice");
+          expect(error).not.toHaveBeenCalled();
+        } finally {
+          vi.restoreAllMocks();
+        }
+      },
+    );
   });
 
   describe("createSpinner", () => {
