@@ -120,8 +120,8 @@ export const en = {
       `🌐 [3/4] Translating into ${lang} via ${provider} (${model}) [${currentChunk}/${totalChunks} chunks]...`,
     step3LangDone: (lang: string, count: number) =>
       `  ✔ ${lang} translation complete (${count} lines)`,
-    step3AllDone: (provider: string, langs: string, count: number) =>
-      `🌐 [3/4] ${provider} translation complete (${langs}) - ${count} lines`,
+    step3AllDone: (provider: string, langs: string, count: number, cached = false) =>
+      `🌐 [3/4] ${provider} translation complete (${langs}) - ${count} lines${cached ? " [⚡ Cached]" : ""}`,
     step3SkippedSameLang: (detected: string, target: string) =>
       `🌐 [3/4] Skipped translation because detected language matches target language (${detected} -> ${target})`,
     step4Saving: "💾 [4/4] Saving subtitle files...",
@@ -143,7 +143,7 @@ export const en = {
     stdoutCannotEmbed: "Cannot use --embed with --stdout.",
     savedOriginal: (files: string) => `📄 Saved original subtitles: ${files}`,
     skippedOriginal: (files: string) => `📄 Skipped saving original subtitles: ${files}`,
-    keptAudio: (files: string) => `ℹ️ [--keep-audio] Kept intermediate audio file(s): ${files}`,
+    keptAudio: (files: string) => `[--keep-audio] Kept intermediate audio file(s): ${files}`,
     errorOccurred: (err: string) => `An error occurred during processing: ${err}`,
   },
 
@@ -171,8 +171,8 @@ export const en = {
       totalChunks: number,
     ) =>
       `🌐 [2/3] Translating into ${lang} via ${provider} (${model}) [${currentChunk}/${totalChunks} chunks]...`,
-    step2Done: (provider: string, langs: string, count: number) =>
-      `🌐 [2/3] ${provider} translation complete (${langs}) - ${count} lines`,
+    step2Done: (provider: string, langs: string, count: number, cached = false) =>
+      `🌐 [2/3] ${provider} translation complete (${langs}) - ${count} lines${cached ? " [⚡ Cached]" : ""}`,
     step3Saving: "💾 [3/3] Saving subtitle files...",
     step3Saved: (formats: string) => `💾 [3/3] Subtitle files saved successfully (${formats})`,
     stdoutSingleFormatOnly:
@@ -274,6 +274,8 @@ export const en = {
       "  OPENROUTER_API_KEY is set in the environment; press Enter to use it (it is not saved to the config file).",
     retryPrompt: "  Retry? [Y/n/s (s=save anyway)]: ",
     savedUnverified: "  ⚠️  Saved key without verification.\n",
+    usingEnvKeyUnverified:
+      "  ⚠️  Using the key from the environment variable without verification (not saved to the config file).\n",
     step2Title:
       "▶ [2/4] Text Generation Provider & API Key (for Translation, Chapters and Summaries)",
     promptLlmProvider: (current: string) =>

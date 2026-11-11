@@ -4,6 +4,45 @@ import { getI18n, type SupportedLanguage } from "./i18n/index.js";
 import { LLM_PROVIDER_LABELS, type LlmProvider } from "./text/providers.js";
 import { STT_PROVIDER_LABELS, type SttProvider } from "./transcribe/providers.js";
 
+const WIDE_RANGES = [
+  [0x1100, 0x115f],
+  [0x2e80, 0x303e],
+  [0x3041, 0x33ff],
+  [0x3400, 0x4dbf],
+  [0x4e00, 0x9fff],
+  [0xa000, 0xa4cf],
+  [0xac00, 0xd7a3],
+  [0xf900, 0xfaff],
+  [0xfe30, 0xfe4f],
+  [0xff00, 0xff60],
+  [0xffe0, 0xffe6],
+  [0x1f300, 0x1f64f],
+  [0x1f680, 0x1f6ff],
+  [0x1f900, 0x1f9ff],
+  [0x20000, 0x3fffd],
+] as const;
+const ZERO_WIDTH_RANGES = [
+  [0x200b, 0x200d],
+  [0xfe00, 0xfe0f],
+  [0x0300, 0x036f],
+] as const;
+
+/** Approximates terminal display width by Unicode code point. */
+export function displayWidth(text: string): number {
+  let width = 0;
+  for (const ch of text) {
+    const code = ch.codePointAt(0) ?? 0;
+    if (ZERO_WIDTH_RANGES.some(([start, end]) => code >= start && code <= end)) continue;
+    width += WIDE_RANGES.some(([start, end]) => code >= start && code <= end) ? 2 : 1;
+  }
+  return width;
+}
+
+/** Pads text to an approximate terminal display width. */
+export function padEndToWidth(text: string, width: number): string {
+  return text + " ".repeat(Math.max(0, width - displayWidth(text)));
+}
+
 /**
  * Formats duration in milliseconds into a human-readable string.
  * Examples: "350ms", "4.2s", "1m 15s", "1h 2m 30s"
@@ -90,8 +129,8 @@ export function formatSummaryBox(data: SummaryData, lang?: SupportedLanguage | s
 
   lines.push(pc.cyan(`┌${hr}┐`));
   const title = m.title;
-  const titlePadding = Math.max(0, Math.floor((width - title.length) / 2));
-  const titleRightPadding = Math.max(0, width - title.length - titlePadding);
+  const titlePadding = Math.max(0, Math.floor((width - displayWidth(title)) / 2));
+  const titleRightPadding = Math.max(0, width - displayWidth(title) - titlePadding);
   lines.push(
     pc.cyan("│") +
       " ".repeat(titlePadding) +
@@ -102,7 +141,7 @@ export function formatSummaryBox(data: SummaryData, lang?: SupportedLanguage | s
   lines.push(pc.cyan(`├${hr}┤`));
 
   const addRow = (label: string, value: string) => {
-    const paddedLabel = label.padEnd(15, " ");
+    const paddedLabel = padEndToWidth(label, 15);
     lines.push(`  ${pc.gray(paddedLabel)}: ${value}`);
   };
 
@@ -123,7 +162,7 @@ export function formatSummaryBox(data: SummaryData, lang?: SupportedLanguage | s
 
   if (data.sttModel && !isSubtitle) {
     const providerLabel = STT_PROVIDER_LABELS[data.sttProvider ?? "groq"];
-    const cacheNote = data.cacheStatus?.transcriptionHit ? ` ${pc.green(m.cacheHitBadge)}` : "";
+    const cacheNote = data.cacheStatus?.transcriptionHit ? pc.green(m.cacheHitBadge) : "";
     addRow(m.transcription, `${providerLabel} (${pc.cyan(data.sttModel)})${cacheNote}`);
   } else if (data.cacheStatus?.transcriptionHit) {
     addRow(m.transcription, `${pc.green(m.cachedBadge)}`);
@@ -244,8 +283,8 @@ export function formatBatchSummaryBox(
 
   lines.push(pc.cyan(`┌${hr}┐`));
   const title = m.title;
-  const titlePadding = Math.max(0, Math.floor((width - title.length) / 2));
-  const titleRightPadding = Math.max(0, width - title.length - titlePadding);
+  const titlePadding = Math.max(0, Math.floor((width - displayWidth(title)) / 2));
+  const titleRightPadding = Math.max(0, width - displayWidth(title) - titlePadding);
   lines.push(
     pc.cyan("│") +
       " ".repeat(titlePadding) +
@@ -256,7 +295,7 @@ export function formatBatchSummaryBox(
   lines.push(pc.cyan(`├${hr}┤`));
 
   const addRow = (label: string, value: string) => {
-    const paddedLabel = label.padEnd(15, " ");
+    const paddedLabel = padEndToWidth(label, 15);
     lines.push(`  ${pc.gray(paddedLabel)}: ${value}`);
   };
 

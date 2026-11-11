@@ -2,6 +2,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { PassThrough } from "node:stream";
+import { stripVTControlCharacters } from "node:util";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import * as configModule from "./config.js";
 import { type AppConfig, getGlobalConfigPath } from "./config.js";
@@ -15,6 +16,7 @@ import {
   verifyOpenRouterApiKey,
 } from "./init.js";
 import { isolateConfigAndEnv } from "./test-support/isolate-config-env.js";
+import { displayWidth } from "./ui.js";
 
 // Mock Groq SDK
 vi.mock("groq-sdk", () => {
@@ -324,6 +326,15 @@ describe("init.ts", () => {
         (saveSpy.mock.calls[0]?.[0] as Partial<AppConfig> | undefined) ?? {};
       return { output: outputData, prompts, savedConfig };
     }
+
+    it.each(["en", "ja"] as const)("aligns all three banner lines in %s", async (lang) => {
+      const result = await runWizard({ lang });
+      const banner = stripVTControlCharacters(result.output)
+        .split("\n")
+        .filter((line) => /^[╔║╚]/u.test(line));
+      expect(banner).toHaveLength(3);
+      expect(banner.map(displayWidth)).toEqual([66, 66, 66]);
+    });
 
     it("should complete wizard with provided inputs and save config in Japanese when lang is ja", async () => {
       const output = new PassThrough();
@@ -884,15 +895,35 @@ describe("init.ts", () => {
           action: "s",
           expectedSavedKey: "sk-or-v1-unverified-key",
           expectedOutput: "Saved key without verification",
+          fromEnvironment: false,
+          lang: "en",
+        },
+        {
+          action: "s",
+          expectedSavedKey: undefined,
+          expectedOutput:
+            "Using the key from the environment variable without verification (not saved to the config file).",
+          fromEnvironment: true,
+          lang: "en",
+        },
+        {
+          action: "s",
+          expectedSavedKey: undefined,
+          expectedOutput: "未検証のまま、環境変数のキーを使います (設定ファイルには保存しません)。",
+          fromEnvironment: true,
+          lang: "ja",
         },
         {
           action: "n",
           expectedSavedKey: undefined,
           expectedOutput: "OpenRouter API key skipped",
+          fromEnvironment: false,
+          lang: "en",
         },
-      ])(
+      ] as const)(
         "handles OpenRouter key verification failure with $action action",
-        async ({ action, expectedSavedKey, expectedOutput }) => {
+        async ({ action, expectedSavedKey, expectedOutput, fromEnvironment, lang }) => {
+          if (fromEnvironment) process.env["OPENROUTER_API_KEY"] = "test-env-key";
           const output = new PassThrough();
           let outputData = "";
           output.on("data", (chunk) => {
@@ -902,7 +933,7 @@ describe("init.ts", () => {
           const prompts: string[] = [];
           const answers = [
             "openrouter", // Provider
-            "sk-or-v1-unverified-key", // Bad key
+            fromEnvironment ? "" : "sk-or-v1-unverified-key", // Bad key
             action, // Retry prompt answer
             "gemini", // LLM provider
             "gemini_key", // Gemini key
@@ -920,12 +951,17 @@ describe("init.ts", () => {
           await runInitWizard({
             output,
             ask,
+            lang,
             openrouterVerifier: async () => ({ success: false, error: "401 Unauthorized" }),
             geminiVerifier: async () => ({ success: true }),
             ffmpegVerifier: async () => ({ success: true, version: "ffmpeg 7.0" }),
           });
 
           expect(outputData).toContain(expectedOutput);
+          if (fromEnvironment) {
+            expect(outputData).not.toContain("Saved key without verification");
+            expect(outputData).not.toContain("未検証のままキーを設定対象に含めました");
+          }
           const saved = saveSpy.mock.calls[0]?.[0] as Partial<AppConfig>;
           expect(saved.openrouterApiKey).toBe(expectedSavedKey);
           expect(saved.sttProvider).toBe("openrouter");

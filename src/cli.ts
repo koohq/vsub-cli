@@ -44,7 +44,13 @@ import {
   type SttProvider,
 } from "./transcribe/select.js";
 import { runTranslateCommand, type TranslateCommandOptions } from "./translate.js";
-import { createSpinner, formatFileSize, formatSummaryBox } from "./ui.js";
+import {
+  createSpinner,
+  displayWidth,
+  formatFileSize,
+  formatSummaryBox,
+  padEndToWidth,
+} from "./ui.js";
 import {
   checkUpdate,
   formatSelfUpdateSummary,
@@ -322,16 +328,6 @@ export function createProgram(): Command {
 
       console.log(`\n📁 Config File: ${configPath}`);
       console.log("----------------------------------------");
-      console.log(`Display Language: ${resolvedConfig.lang || "en"}`);
-      console.log(
-        `Groq API Key    : ${resolvedConfig.groqApiKey ? `${resolvedConfig.groqApiKey.slice(0, 4)}...${resolvedConfig.groqApiKey.slice(-4)}` : "(Not configured)"}`,
-      );
-      console.log(
-        `Gemini API Key  : ${resolvedConfig.geminiApiKey ? `${resolvedConfig.geminiApiKey.slice(0, 4)}...${resolvedConfig.geminiApiKey.slice(-4)}` : "(Not configured)"}`,
-      );
-      console.log(
-        `OpenRouter API Key : ${resolvedConfig.openrouterApiKey ? `${resolvedConfig.openrouterApiKey.slice(0, 4)}...${resolvedConfig.openrouterApiKey.slice(-4)}` : "(Not configured)"}`,
-      );
       let transcriptionText: string;
       try {
         const { stt } = resolveSttSettings(resolvedConfig, {});
@@ -340,7 +336,6 @@ export function createProgram(): Command {
       } catch {
         transcriptionText = `invalid provider "${resolvedConfig.sttProvider}"`;
       }
-      console.log(`Transcription      : ${transcriptionText}`);
       let textGenText: string;
       try {
         const { llm } = resolveLlmSettings(resolvedConfig, {});
@@ -349,41 +344,51 @@ export function createProgram(): Command {
       } catch {
         textGenText = `invalid provider "${resolvedConfig.llmProvider}"`;
       }
-      console.log(`Text Generation    : ${textGenText}`);
-      console.log(`FFmpeg Path     : ${resolvedConfig.ffmpegPath}`);
-      if (resolvedConfig.whisperPrompt) {
-        console.log(`Whisper Prompt  : "${resolvedConfig.whisperPrompt}"`);
+      const rows: [string, string | undefined][] = [
+        ["Display Language", resolvedConfig.lang || "en"],
+        [
+          "Groq API Key",
+          resolvedConfig.groqApiKey
+            ? `${resolvedConfig.groqApiKey.slice(0, 4)}...${resolvedConfig.groqApiKey.slice(-4)}`
+            : "(Not configured)",
+        ],
+        [
+          "Gemini API Key",
+          resolvedConfig.geminiApiKey
+            ? `${resolvedConfig.geminiApiKey.slice(0, 4)}...${resolvedConfig.geminiApiKey.slice(-4)}`
+            : "(Not configured)",
+        ],
+        [
+          "OpenRouter API Key",
+          resolvedConfig.openrouterApiKey
+            ? `${resolvedConfig.openrouterApiKey.slice(0, 4)}...${resolvedConfig.openrouterApiKey.slice(-4)}`
+            : "(Not configured)",
+        ],
+        ["Transcription", transcriptionText],
+        ["Text Generation", textGenText],
+        ["FFmpeg Path", `${resolvedConfig.ffmpegPath}`],
+        [
+          "Whisper Prompt",
+          resolvedConfig.whisperPrompt ? `"${resolvedConfig.whisperPrompt}"` : undefined,
+        ],
+        ["Translate Prompt", resolvedConfig.prompt ? `"${resolvedConfig.prompt}"` : undefined],
+        ["Glossary", resolvedConfig.glossary ? `"${resolvedConfig.glossary}"` : undefined],
+        ["Gemini Model", resolvedConfig.geminiModel || undefined],
+        ["Groq Model", resolvedConfig.groqModel || undefined],
+        ["OpenRouter STT Model", resolvedConfig.openrouterSttModel || undefined],
+        ["OpenRouter LLM Model", resolvedConfig.openrouterLlmModel || undefined],
+        ["Max Length", resolvedConfig.maxLength ? `${resolvedConfig.maxLength} chars` : undefined],
+        ["Burn Position", resolvedConfig.burnPosition || undefined],
+        [
+          "Burn Font Size",
+          resolvedConfig.burnFontSize ? `${resolvedConfig.burnFontSize}` : undefined,
+        ],
+        ["Update Check", resolvedConfig.disableUpdateCheck ? "Disabled" : "Enabled"],
+      ];
+      const LABEL_WIDTH = Math.max(...rows.map(([label]) => displayWidth(label)));
+      for (const [label, value] of rows) {
+        if (value !== undefined) console.log(`${padEndToWidth(label, LABEL_WIDTH)} : ${value}`);
       }
-      if (resolvedConfig.prompt) {
-        console.log(`Translate Prompt : "${resolvedConfig.prompt}"`);
-      }
-      if (resolvedConfig.glossary) {
-        console.log(`Glossary        : "${resolvedConfig.glossary}"`);
-      }
-      if (resolvedConfig.geminiModel) {
-        console.log(`Gemini Model    : ${resolvedConfig.geminiModel}`);
-      }
-      if (resolvedConfig.groqModel) {
-        console.log(`Groq Model      : ${resolvedConfig.groqModel}`);
-      }
-      if (resolvedConfig.openrouterSttModel) {
-        console.log(`OpenRouter STT Model : ${resolvedConfig.openrouterSttModel}`);
-      }
-      if (resolvedConfig.openrouterLlmModel) {
-        console.log(`OpenRouter LLM Model : ${resolvedConfig.openrouterLlmModel}`);
-      }
-      if (resolvedConfig.maxLength) {
-        console.log(`Max Length      : ${resolvedConfig.maxLength} chars`);
-      }
-      if (resolvedConfig.burnPosition) {
-        console.log(`Burn Position   : ${resolvedConfig.burnPosition}`);
-      }
-      if (resolvedConfig.burnFontSize) {
-        console.log(`Burn Font Size  : ${resolvedConfig.burnFontSize}`);
-      }
-      console.log(
-        `Update Check    : ${resolvedConfig.disableUpdateCheck ? "Disabled" : "Enabled"}`,
-      );
       console.log("----------------------------------------\n");
     });
 

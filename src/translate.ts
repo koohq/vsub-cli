@@ -239,7 +239,15 @@ export async function runTranslateCommand(
 
     const langListDisplay = targetLanguages.map((l) => l.toUpperCase()).join(", ");
     const providerLabel = LLM_PROVIDER_LABELS[llm.provider];
-    spinner.succeed(tm.step2Done(providerLabel, langListDisplay, srtEntries.length));
+    spinner.succeed(
+      tm.step2Done(
+        providerLabel,
+        langListDisplay,
+        srtEntries.length,
+        translationResult.translatedLanguages.length > 0 &&
+          translationResult.cachedLanguages.length === translationResult.translatedLanguages.length,
+      ),
+    );
 
     // 3. Save output subtitle files or write to stdout
     if (isStdout) {

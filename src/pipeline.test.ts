@@ -2330,16 +2330,17 @@ describe("pipeline.ts", () => {
       const spinnerInfoSpy = vi.fn();
       const spinnerStartSpy = vi.fn();
       const spinnerUpdateSpy = vi.fn();
+      const spinnerSucceedSpy = vi.fn().mockReturnThis();
       vi.spyOn(ui, "createSpinner").mockReturnValue({
         start: spinnerStartSpy.mockReturnThis(),
-        succeed: vi.fn().mockReturnThis(),
+        succeed: spinnerSucceedSpy,
         fail: vi.fn().mockReturnThis(),
         warn: vi.fn().mockReturnThis(),
         info: spinnerInfoSpy,
         updateText: spinnerUpdateSpy.mockReturnThis(),
         stop: vi.fn().mockReturnThis(),
       });
-      return { spinnerInfoSpy, spinnerStartSpy, spinnerUpdateSpy };
+      return { spinnerInfoSpy, spinnerStartSpy, spinnerUpdateSpy, spinnerSucceedSpy };
     }
 
     beforeEach(() => {
@@ -2348,6 +2349,23 @@ describe("pipeline.ts", () => {
       cacheDir = path.join(tempDir, "cache");
       vi.clearAllMocks();
     });
+
+    it.each([
+      { targetLang: "en", noTranslate: false, expected: "🌐 [3/4] Skipped translation" },
+      { targetLang: "ja", noTranslate: true, expected: "🌐 [3/4] [--no-translate] JA" },
+    ])(
+      "emits one translation step marker when skipping $targetLang ($noTranslate)",
+      async ({ targetLang, noTranslate, expected }) => {
+        const { spinnerInfoSpy } = mockSpinner();
+        await processMediaPipeline({ mediaFile, cacheDir, targetLang, noTranslate });
+        const message = spinnerInfoSpy.mock.calls.find(([text]) =>
+          String(text).includes("[3/4]"),
+        )?.[0] as string;
+        expect(message).toContain(expected);
+        expect(message).not.toContain("ℹ️");
+        expect(message.match(/\[3\/4\]/g)).toHaveLength(1);
+      },
+    );
 
     it("existing user with Groq and Gemini keys uses Gemini for translation, checks keys correctly, matches UI wording, and hits legacy cache", async () => {
       delete process.env["VSUB_OPENROUTER_API_KEY"];
@@ -2359,7 +2377,7 @@ describe("pipeline.ts", () => {
 
       const ensureApiKeysSpy = vi.spyOn(configModule, "ensureApiKeys");
       const createTextModelSpy = vi.spyOn(selectModule, "createTextModel");
-      const { spinnerStartSpy } = mockSpinner();
+      const { spinnerStartSpy, spinnerSucceedSpy } = mockSpinner();
 
       const result = await processMediaPipeline({
         mediaFile,
@@ -2369,6 +2387,9 @@ describe("pipeline.ts", () => {
 
       expect(result.llmProvider).toBe("gemini");
       expect(result.llmModel).toBe(DEFAULT_GEMINI_MODEL);
+      expect(spinnerSucceedSpy).toHaveBeenCalledWith(
+        "🌐 [3/4] Gemini translation complete (JA) - 1 lines",
+      );
 
       // Verify ensureApiKeys calls:
       // Call 0: STT (groq) -> requireGroq: true, requireOpenRouter: false, requireGemini: false
@@ -2404,6 +2425,7 @@ describe("pipeline.ts", () => {
       // Verify legacy cache hit without provider
       createTextModelSpy.mockClear();
       ensureApiKeysSpy.mockClear();
+      spinnerSucceedSpy.mockClear();
 
       fs.rmSync(cacheDir, { recursive: true, force: true });
       const cachedEntries = [
@@ -2443,6 +2465,15 @@ describe("pipeline.ts", () => {
 
       expect(cachedResult.cacheStatus?.cachedLanguages).toContain("ja");
       expect(createTextModelSpy).not.toHaveBeenCalled();
+      expect(spinnerSucceedSpy).toHaveBeenCalledWith(
+        "🌐 [3/4] Gemini translation complete (JA) - 1 lines [⚡ Cached]",
+      );
+
+      spinnerSucceedSpy.mockClear();
+      await processMediaPipeline({ mediaFile, cacheDir, targetLang: "ja,fr", overwrite: true });
+      expect(spinnerSucceedSpy).toHaveBeenCalledWith(
+        "🌐 [3/4] Gemini translation complete (JA, FR) - 1 lines",
+      );
     });
 
     it("uses OpenRouter for translation, chapters, and summary when only OpenRouter key is set, and records provider in cache", async () => {

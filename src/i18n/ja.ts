@@ -121,8 +121,8 @@ export const ja: typeof en = {
     ) =>
       `🌐 [3/4] ${provider} (${model}) で ${lang} に翻訳中 [${currentChunk}/${totalChunks} チャンク]...`,
     step3LangDone: (lang: string, count: number) => `  ✔ ${lang} 翻訳完了 (${count} 行)`,
-    step3AllDone: (provider: string, langs: string, count: number) =>
-      `🌐 [3/4] ${provider} 翻訳完了 (${langs}) - ${count} 行`,
+    step3AllDone: (provider: string, langs: string, count: number, cached = false) =>
+      `🌐 [3/4] ${provider} 翻訳完了 (${langs}) - ${count} 行${cached ? " [⚡ キャッシュ利用]" : ""}`,
     step3SkippedSameLang: (detected: string, target: string) =>
       `🌐 [3/4] 検出言語と出力言語が同一のため翻訳をスキップ (${detected} -> ${target})`,
     step4Saving: "💾 [4/4] 字幕ファイルを保存中...",
@@ -145,7 +145,7 @@ export const ja: typeof en = {
       "--stdout と --embed (ソフトサブ埋め込み) を同時に指定することはできません。",
     savedOriginal: (files: string) => `📄 原文字幕を保存: ${files}`,
     skippedOriginal: (files: string) => `📄 原語字幕の保存をスキップ: ${files}`,
-    keptAudio: (files: string) => `ℹ️ [--keep-audio] 中間音声ファイルを保持: ${files}`,
+    keptAudio: (files: string) => `[--keep-audio] 中間音声ファイルを保持: ${files}`,
     errorOccurred: (err: string) => `処理中にエラーが発生しました: ${err}`,
   },
 
@@ -174,8 +174,8 @@ export const ja: typeof en = {
       totalChunks: number,
     ) =>
       `🌐 [2/3] ${provider} (${model}) で ${lang} に翻訳中 [${currentChunk}/${totalChunks} チャンク]...`,
-    step2Done: (provider: string, langs: string, count: number) =>
-      `🌐 [2/3] ${provider} 翻訳完了 (${langs}) - ${count} 行`,
+    step2Done: (provider: string, langs: string, count: number, cached = false) =>
+      `🌐 [2/3] ${provider} 翻訳完了 (${langs}) - ${count} 行${cached ? " [⚡ キャッシュ利用]" : ""}`,
     step3Saving: "💾 [3/3] 字幕ファイルを保存中...",
     step3Saved: (formats: string) => `💾 [3/3] 字幕ファイルを保存完了 (${formats})`,
     stdoutSingleFormatOnly:
@@ -276,6 +276,8 @@ export const ja: typeof en = {
       "  環境変数 OPENROUTER_API_KEY が設定されています。Enter を押すとこのキーを使用します（設定ファイルには保存されません）。",
     retryPrompt: "  再入力しますか？ [Y/n/s (s=このまま保存)]: ",
     savedUnverified: "  ⚠️  未検証のままキーを設定対象に含めました。\n",
+    usingEnvKeyUnverified:
+      "  ⚠️  未検証のまま、環境変数のキーを使います (設定ファイルには保存しません)。\n",
     step2Title: "▶ [2/4] 文章の生成の提供元と API キー (翻訳・チャプター・要約用)",
     promptLlmProvider: (current: string) =>
       `  文章の生成の提供元 (gemini/openrouter) [${current}]: `,

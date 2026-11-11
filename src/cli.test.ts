@@ -21,6 +21,7 @@ import {
 } from "./pipeline.js";
 import { parseSrt, reflowSrtEntries } from "./srt.js";
 import { DEFAULT_CONTEXT_WINDOW_SIZE, translateSrtEntries } from "./text/tasks.js";
+import * as ui from "./ui.js";
 import { notifyUpdateIfAvailable } from "./updater.js";
 
 const { mockConfig } = vi.hoisted(() => ({
@@ -562,6 +563,7 @@ describe("CLI integration harness", () => {
 
     describe("translate translation cache", () => {
       let sourceEntries: ReturnType<typeof parseSrt>;
+      const spinnerSucceedSpy = vi.fn();
 
       function mockCacheWithTranslation(cached: ReturnType<typeof createCachedTranslation>): void {
         vi.mocked(loadMediaCache).mockReturnValue({
@@ -579,10 +581,20 @@ describe("CLI integration harness", () => {
 
       beforeEach(() => {
         sourceEntries = parseSrt(fs.readFileSync(dummySrtPath, "utf-8"));
+        vi.spyOn(ui, "createSpinner").mockReturnValue({
+          start: vi.fn().mockReturnThis(),
+          succeed: spinnerSucceedSpy.mockReturnThis(),
+          fail: vi.fn().mockReturnThis(),
+          warn: vi.fn().mockReturnThis(),
+          info: vi.fn().mockReturnThis(),
+          updateText: vi.fn().mockReturnThis(),
+          stop: vi.fn().mockReturnThis(),
+        });
       });
 
       afterEach(() => {
         vi.mocked(loadMediaCache).mockReturnValue(null);
+        vi.mocked(ui.createSpinner).mockRestore();
       });
 
       it("does not call translateSrtEntries when matching cache exists", async () => {
@@ -601,6 +613,9 @@ describe("CLI integration harness", () => {
 
         expect(translateSrtEntries).not.toHaveBeenCalled();
         expect(exitSpy).not.toHaveBeenCalled();
+        expect(spinnerSucceedSpy).toHaveBeenCalledWith(
+          "🌐 [2/3] Gemini translation complete (JA) - 2 lines [⚡ Cached]",
+        );
       });
 
       it("calls translateSrtEntries when prompt was specified in cache but omitted in CLI run", async () => {
@@ -637,6 +652,9 @@ describe("CLI integration harness", () => {
 
       it("saves translation cache with sourceHash matching computeEntriesHash of translated entries", async () => {
         await runCli("translate", dummySrtPath, "-t", "ja");
+        expect(spinnerSucceedSpy).toHaveBeenCalledWith(
+          "🌐 [2/3] Gemini translation complete (JA) - 2 lines",
+        );
 
         expect(translateSrtEntries).toHaveBeenCalledTimes(1);
         const passedEntries = vi.mocked(translateSrtEntries).mock.calls[0]?.[0] as ReturnType<
@@ -1059,6 +1077,37 @@ describe("CLI integration harness", () => {
         vi.mocked(getConfig).mockReturnValue(mockConfig);
       });
 
+      it.each([false, true])(
+        "aligns every config row with optional settings present: %s",
+        async (withOptional) => {
+          vi.mocked(getConfig).mockReturnValue({
+            ...mockConfig,
+            ...(withOptional
+              ? {
+                  whisperPrompt: "test hint",
+                  prompt: "test prompt",
+                  glossary: "test=example",
+                  geminiModel: "test-gemini",
+                  groqModel: "test-groq",
+                  openrouterSttModel: "test/stt",
+                  openrouterLlmModel: "test/llm",
+                  maxLength: 42,
+                  burnPosition: "top",
+                  burnFontSize: 24,
+                }
+              : {}),
+          });
+          await runCli("config", "show");
+          const rows: string[] = logSpy.mock.calls
+            .map(([text]: unknown[]) => String(text))
+            .filter((line: string) => line.includes(":") && !line.includes("Config File:"));
+          expect(rows.length).toBe(withOptional ? 18 : 8);
+          expect(rows.map((line) => ui.displayWidth(line.slice(0, line.indexOf(":"))))).toEqual(
+            rows.map(() => "OpenRouter STT Model".length + 1),
+          );
+        },
+      );
+
       it("displays Groq auto transcription when only Groq API key is configured", async () => {
         vi.mocked(getConfig).mockReturnValue({
           ...mockConfig,
@@ -1069,8 +1118,8 @@ describe("CLI integration harness", () => {
         await runCli("config", "show");
 
         const logged = logSpy.mock.calls.map((c: unknown[]) => String(c[0])).join("\n");
-        expect(logged).toContain("Transcription      : Groq (whisper-large-v3-turbo) [auto]");
-        expect(logged).toContain("OpenRouter API Key : (Not configured)");
+        expect(logged).toContain("Transcription        : Groq (whisper-large-v3-turbo) [auto]");
+        expect(logged).toContain("OpenRouter API Key   : (Not configured)");
         expect(logged).not.toContain("gsk_testgroqkey12345678");
       });
 
@@ -1085,8 +1134,8 @@ describe("CLI integration harness", () => {
         await runCli("config", "show");
 
         const logged = logSpy.mock.calls.map((c: unknown[]) => String(c[0])).join("\n");
-        expect(logged).toContain("Transcription      : OpenRouter (elevenlabs/scribe-v2) [auto]");
-        expect(logged).toContain("OpenRouter API Key : sk-o...1234");
+        expect(logged).toContain("Transcription        : OpenRouter (elevenlabs/scribe-v2) [auto]");
+        expect(logged).toContain("OpenRouter API Key   : sk-o...1234");
         expect(logged).toContain("OpenRouter STT Model : elevenlabs/scribe-v2");
         expect(logged).not.toContain("sk-or-v1-openroutersecret1234");
       });
@@ -1100,7 +1149,7 @@ describe("CLI integration harness", () => {
         await runCli("config", "show");
 
         const logged = logSpy.mock.calls.map((c: unknown[]) => String(c[0])).join("\n");
-        expect(logged).toContain('Transcription      : invalid provider "bar"');
+        expect(logged).toContain('Transcription        : invalid provider "bar"');
         expect(exitSpy).not.toHaveBeenCalled();
       });
     });
@@ -1172,7 +1221,7 @@ describe("CLI integration harness", () => {
         await runCli("config", "show");
 
         const logged = logSpy.mock.calls.map((c: unknown[]) => String(c[0])).join("\n");
-        expect(logged).toContain("Text Generation    : Gemini (gemini-3.8-flash) [auto]");
+        expect(logged).toContain("Text Generation      : Gemini (gemini-3.8-flash) [auto]");
       });
 
       it("displays OpenRouter auto text generation when Gemini API key is missing", async () => {
@@ -1186,7 +1235,7 @@ describe("CLI integration harness", () => {
 
         const logged = logSpy.mock.calls.map((c: unknown[]) => String(c[0])).join("\n");
         expect(logged).toContain(
-          "Text Generation    : OpenRouter (google/gemini-3.8-flash) [auto]",
+          "Text Generation      : OpenRouter (google/gemini-3.8-flash) [auto]",
         );
       });
 
@@ -1207,7 +1256,9 @@ describe("CLI integration harness", () => {
           await runCli("config", "show");
 
           const logged = logSpy.mock.calls.map((c: unknown[]) => String(c[0])).join("\n");
-          expect(logged).toContain("Text Generation    : OpenRouter (custom/llm-model) [setting]");
+          expect(logged).toContain(
+            "Text Generation      : OpenRouter (custom/llm-model) [setting]",
+          );
           expect(logged).toContain("OpenRouter LLM Model : custom/llm-model");
         } finally {
           process.env = originalEnv;
@@ -1223,7 +1274,7 @@ describe("CLI integration harness", () => {
         await runCli("config", "show");
 
         const logged = logSpy.mock.calls.map((c: unknown[]) => String(c[0])).join("\n");
-        expect(logged).toContain('Text Generation    : invalid provider "bar"');
+        expect(logged).toContain('Text Generation      : invalid provider "bar"');
         expect(exitSpy).not.toHaveBeenCalled();
       });
     });

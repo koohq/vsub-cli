@@ -780,10 +780,10 @@ export async function processMediaPipeline(
 
         if (shouldSkip) {
           if (options.noTranslate) {
-            spinner.info(`${prefix}ℹ️ [3/4] [--no-translate] ${targetL.toUpperCase()}`);
+            spinner.info(`${prefix}🌐 [3/4] [--no-translate] ${targetL.toUpperCase()}`);
           } else if (isSameLanguage) {
             spinner.info(
-              `${prefix}ℹ️ [3/4] ${m.step3SkippedSameLang(detectedLanguage?.toUpperCase() ?? "", targetL.toUpperCase())}`,
+              `${prefix}${m.step3SkippedSameLang(detectedLanguage?.toUpperCase() ?? "", targetL.toUpperCase())}`,
             );
           }
         }
@@ -806,7 +806,7 @@ export async function processMediaPipeline(
       const langListDisplay = translatedLanguages.map((l) => l.toUpperCase()).join(", ");
       const providerLabel = LLM_PROVIDER_LABELS[llm.provider];
       spinner.succeed(
-        `${prefix}${m.step3AllDone(providerLabel, langListDisplay, srtEntries.length)}`,
+        `${prefix}${m.step3AllDone(providerLabel, langListDisplay, srtEntries.length, translatedLanguages.length > 0 && cachedLanguages.length === translatedLanguages.length)}`,
       );
     }
 

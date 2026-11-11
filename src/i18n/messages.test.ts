@@ -4,6 +4,26 @@ import { ja } from "./ja.js";
 
 describe("i18n messages backwards compatibility with Gemini", () => {
   const table = [
+    ...[
+      { lang: "en", messages: en, suffix: "lines [⚡ Cached]" },
+      { lang: "ja", messages: ja, suffix: "行 [⚡ キャッシュ利用]" },
+    ].flatMap(({ lang, messages, suffix }) => [
+      {
+        name: `${lang}.pipeline.step3AllDone cached`,
+        actual: messages.pipeline.step3AllDone("Gemini", "JA", 10, true),
+        expected: `${messages.pipeline.step3AllDone("Gemini", "JA", 10)} [⚡ ${lang === "en" ? "Cached" : "キャッシュ利用"}]`,
+      },
+      {
+        name: `${lang}.translate.step2Done cached`,
+        actual: messages.translate.step2Done("Gemini", "JA", 10, true),
+        expected: `🌐 [2/3] Gemini ${lang === "en" ? "translation complete" : "翻訳完了"} (JA) - 10 ${suffix}`,
+      },
+      {
+        name: `${lang}.pipeline.keptAudio`,
+        actual: messages.pipeline.keptAudio("sample.m4a"),
+        expected: `[--keep-audio] ${lang === "en" ? "Kept intermediate audio file(s)" : "中間音声ファイルを保持"}: sample.m4a`,
+      },
+    ]),
     // English messages
     {
       name: "en.pipeline.step3TranslatingMulti",

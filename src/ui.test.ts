@@ -1,13 +1,94 @@
+import { stripVTControlCharacters } from "node:util";
 import { describe, expect, it } from "vitest";
 import {
   createSpinner,
+  displayWidth,
   formatBatchSummaryBox,
   formatDuration,
   formatFileSize,
   formatSummaryBox,
+  padEndToWidth,
 } from "./ui.js";
 
 describe("ui module", () => {
+  it.each([
+    ["abc", 3],
+    ["処理", 4],
+    ["🎬", 2],
+    ["ℹ️", 1],
+    ["A処理🎬ℹ️e\u0301\u200b\u200c\u200d", 9],
+    ["", 0],
+  ])("counts the display width of %s as %i", (text, width) => {
+    expect(displayWidth(text)).toBe(width);
+  });
+
+  it("pads Japanese text to the requested display width without truncating", () => {
+    expect(padEndToWidth("処理", 7)).toBe("処理   ");
+    expect(displayWidth(padEndToWidth("処理", 7))).toBe(7);
+    expect(padEndToWidth("処理", 4)).toBe("処理");
+    expect(padEndToWidth("処理", 2)).toBe("処理");
+  });
+
+  function expectAlignedBox(box: string) {
+    const lines = stripVTControlCharacters(box).split("\n");
+    expect.soft(displayWidth(lines[1] ?? "")).toBe(displayWidth(lines[0] ?? ""));
+    const columns = lines
+      .filter((line) => line.includes(":"))
+      .map((line) => displayWidth(line.slice(0, line.indexOf(":"))));
+    expect(columns.length).toBeGreaterThan(1);
+    expect(new Set(columns).size).toBe(1);
+  }
+
+  it("aligns the Japanese summary heading and label columns", () => {
+    expectAlignedBox(
+      formatSummaryBox(
+        {
+          mediaFile: "sample.mp4",
+          durationMs: 1000,
+          detectedLanguage: "en",
+          targetLanguage: "ja",
+          sttModel: "test-model",
+          entriesCount: 2,
+          outputFiles: [],
+        },
+        "ja",
+      ),
+    );
+  });
+
+  it("aligns the Japanese batch heading and label columns", () => {
+    expectAlignedBox(
+      formatBatchSummaryBox(
+        {
+          totalFiles: 2,
+          succeededCount: 1,
+          failedCount: 1,
+          totalDurationMs: 1000,
+          items: [],
+        },
+        "ja",
+      ),
+    );
+  });
+
+  it("uses one space before the transcription cache badge", () => {
+    const summary = stripVTControlCharacters(
+      formatSummaryBox(
+        {
+          mediaFile: "sample.mp4",
+          durationMs: 1000,
+          sttProvider: "openrouter",
+          sttModel: "test-model",
+          cacheStatus: { transcriptionHit: true },
+          entriesCount: 2,
+          outputFiles: [],
+        },
+        "en",
+      ),
+    );
+    expect(summary).toContain("OpenRouter (test-model) [Cached ⚡]");
+  });
+
   describe("formatDuration", () => {
     it("should format milliseconds", () => {
       expect(formatDuration(450)).toBe("450ms");

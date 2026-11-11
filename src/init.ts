@@ -16,6 +16,7 @@ import { DEFAULT_OPENROUTER_LLM_MODEL } from "./text/openrouter.js";
 import { type LlmProvider, parseLlmProvider, resolveLlmSettings } from "./text/select.js";
 import { DEFAULT_OPENROUTER_STT_MODEL } from "./transcribe/openrouter.js";
 import { parseSttProvider, resolveSttSettings, type SttProvider } from "./transcribe/select.js";
+import { displayWidth } from "./ui.js";
 
 /**
  * Masks an API key for safe terminal display (e.g. "gsk_...3a4b" or "AIza...9z1x").
@@ -176,12 +177,13 @@ export async function runInitWizard(options: InitWizardOptions = {}): Promise<vo
   const out = (text = "") => output.write(`${text}\n`);
 
   out("");
-  out(pc.bold(pc.cyan("╔════════════════════════════════════════════════════════════════╗")));
+  const BANNER_WIDTH = 64;
+  out(pc.bold(pc.cyan(`╔${"═".repeat(BANNER_WIDTH)}╗`)));
   const banner = m().bannerTitle;
-  const bannerPad = Math.max(0, Math.floor((62 - banner.length) / 2));
-  const bannerRightPad = Math.max(0, 62 - banner.length - bannerPad);
+  const bannerPad = Math.max(0, Math.floor((BANNER_WIDTH - displayWidth(banner)) / 2));
+  const bannerRightPad = Math.max(0, BANNER_WIDTH - displayWidth(banner) - bannerPad);
   out(pc.bold(pc.cyan(`║${" ".repeat(bannerPad)}${banner}${" ".repeat(bannerRightPad)}║`)));
-  out(pc.bold(pc.cyan("╚════════════════════════════════════════════════════════════════╝")));
+  out(pc.bold(pc.cyan(`╚${"═".repeat(BANNER_WIDTH)}╝`)));
   out("");
   out(`${m().configLocation(pc.yellow(configPath))}`);
   out(m().description1);
@@ -261,7 +263,7 @@ export async function runInitWizard(options: InitWizardOptions = {}): Promise<vo
           if (!isFromFallback) {
             cfg.onSave(candidateKey);
           }
-          out(pc.yellow(m().savedUnverified));
+          out(pc.yellow(isFromFallback ? m().usingEnvKeyUnverified : m().savedUnverified));
           break;
         }
         if (retry === "n") {
