@@ -41,6 +41,10 @@ export interface CachedTranslation {
   glossaryHash?: string | undefined;
   sourceHash?: string | undefined;
   contextWindowSize?: number | undefined;
+  /** Chunk size used when the partial chunks were saved. */
+  chunkSize?: number | undefined;
+  /** Finished translations keyed by zero-based chunk index while incomplete. */
+  partialChunks?: Record<string, string[]> | undefined;
   entries: SrtEntry[];
   createdAt: number;
 }
@@ -240,12 +244,19 @@ export function isTranslationCacheValid(
   cached: CachedTranslation | undefined,
   context: TranslationCacheContext,
 ): boolean {
-  if (!cached || !isLlmSourceCacheValid(cached, context)) {
-    return false;
-  }
-  if (cached.entries.length === 0 || cached.entries.length !== context.sourceEntries.length) {
-    return false;
-  }
+  return (
+    hasTranslationCacheContext(cached, context) &&
+    cached !== undefined &&
+    cached.entries.length > 0 &&
+    cached.entries.length === context.sourceEntries.length
+  );
+}
+
+function hasTranslationCacheContext(
+  cached: CachedTranslation | undefined,
+  context: TranslationCacheContext,
+): boolean {
+  if (!cached || !isLlmSourceCacheValid(cached, context)) return false;
   if (normalizeCacheString(cached.glossaryHash) !== normalizeCacheString(context.glossaryHash)) {
     return false;
   }
@@ -253,6 +264,51 @@ export function isTranslationCacheValid(
     return false;
   }
   return true;
+}
+
+/** Creates an incomplete translation using the same cache context as a full result. */
+export function createPartialTranslation(
+  targetLang: string,
+  context: TranslationCacheContext,
+  chunkSize: number,
+  partialChunks: Record<string, string[]>,
+): CachedTranslation {
+  return { ...createCachedTranslation(targetLang, context, []), chunkSize, partialChunks };
+}
+
+/** Selects only well-formed chunks whose context matches the current translation. */
+export function getPartialTranslationChunks(
+  cached: CachedTranslation | undefined,
+  targetLang: string,
+  context: TranslationCacheContext,
+  chunkSize: number,
+): Record<string, string[]> {
+  if (
+    !cached ||
+    !hasTranslationCacheContext(cached, context) ||
+    cached.targetLang !== targetLang ||
+    cached.chunkSize !== chunkSize ||
+    !cached.partialChunks ||
+    cached.entries.length !== 0
+  )
+    return {};
+
+  const totalChunks = Math.ceil(context.sourceEntries.length / chunkSize);
+  const chunks: Record<string, string[]> = {};
+  for (const [key, texts] of Object.entries(cached.partialChunks)) {
+    const index = Number(key);
+    if (!Number.isInteger(index) || index < 0 || index >= totalChunks || String(index) !== key)
+      continue;
+    const expectedLength = Math.min(chunkSize, context.sourceEntries.length - index * chunkSize);
+    if (
+      Array.isArray(texts) &&
+      texts.length === expectedLength &&
+      texts.every((text) => typeof text === "string")
+    ) {
+      chunks[key] = texts;
+    }
+  }
+  return chunks;
 }
 
 /**

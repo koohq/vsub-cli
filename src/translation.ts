@@ -1,6 +1,9 @@
 import {
   createCachedTranslation,
+  createPartialTranslation,
+  getPartialTranslationChunks,
   isTranslationCacheValid,
+  loadMediaCache,
   type MediaCacheData,
   saveTranslationCache,
   type TranslationCacheContext,
@@ -10,7 +13,11 @@ import { getI18n, type SupportedLanguage } from "./i18n/index.js";
 import type { SrtEntry } from "./srt.js";
 import type { TextModel } from "./text/model.js";
 import { LLM_PROVIDER_LABELS, type LlmProvider } from "./text/providers.js";
-import { DEFAULT_CONTEXT_WINDOW_SIZE, translateSrtEntries } from "./text/tasks.js";
+import {
+  DEFAULT_CHUNK_SIZE,
+  DEFAULT_CONTEXT_WINDOW_SIZE,
+  translateSrtEntries,
+} from "./text/tasks.js";
 import type { ProgressSpinner } from "./ui.js";
 
 export interface TranslateToTargetsParams {
@@ -67,6 +74,28 @@ export interface TranslateToTargetsResult {
   totalGlossaryTerms: number;
 }
 
+export class TranslationStoppedError extends Error {
+  constructor(
+    cause: unknown,
+    public readonly targetLang: string,
+    public readonly savedChunks: number,
+    public readonly totalChunks: number,
+  ) {
+    super(cause instanceof Error ? cause.message : String(cause), { cause });
+    this.name = "TranslationStoppedError";
+  }
+}
+
+/** Returns the shared recovery hint only for translations with saved progress. */
+export function getTranslationResumeHint(error: unknown, lang?: string): string | undefined {
+  if (!(error instanceof TranslationStoppedError)) return undefined;
+  return getI18n(lang).pipeline.translationSaved(
+    error.targetLang.toUpperCase(),
+    error.savedChunks,
+    error.totalChunks,
+  );
+}
+
 export function resolveContextWindowSize(
   optionValue: string | number | undefined,
   defaultValue = DEFAULT_CONTEXT_WINDOW_SIZE,
@@ -104,7 +133,7 @@ export async function translateToTargets(
 
   let textModel: TextModel | null = null;
   const isMultiLang = params.targetLanguages.length > 1;
-  const totalChunks = Math.max(1, Math.ceil(params.sourceEntries.length / 50));
+  const totalChunks = Math.max(1, Math.ceil(params.sourceEntries.length / DEFAULT_CHUNK_SIZE));
   let totalGlossaryTerms = 0;
   const i18n = getI18n(params.lang);
 
@@ -138,7 +167,9 @@ export async function translateToTargets(
 
     const cachedTranslation = params.mediaCache?.translations?.[targetL.toLowerCase()];
     const isCacheValid =
-      params.useCache && isTranslationCacheValid(cachedTranslation, cacheContext);
+      params.useCache &&
+      !params.noCache &&
+      isTranslationCacheValid(cachedTranslation, cacheContext);
 
     if (isCacheValid && cachedTranslation) {
       resultsByLang.set(targetL, cachedTranslation.entries);
@@ -153,40 +184,97 @@ export async function translateToTargets(
       continue;
     }
 
-    if (!textModel) {
-      textModel = await params.getTextModel();
+    const completedChunks =
+      params.useCache && !params.noCache
+        ? getPartialTranslationChunks(cachedTranslation, targetL, cacheContext, DEFAULT_CHUNK_SIZE)
+        : {};
+    const savedCount = Object.keys(completedChunks).length;
+    if (savedCount > 0) {
+      params.spinner.info(
+        `${params.prefix}${i18n.pipeline.translationResuming(targetL.toUpperCase(), savedCount, totalChunks)}`,
+      );
     }
 
-    const initialText = isMultiLang
-      ? `${params.prefix}${params.messages.translatingMulti(providerLabel, params.llm.model, i + 1, params.targetLanguages.length, targetL.toUpperCase(), 1, totalChunks)}`
-      : `${params.prefix}${params.messages.translatingSingle(providerLabel, params.llm.model, targetL, 1, totalChunks)}`;
-
-    params.spinner.start(initialText);
-
-    const translatedEntries = await translateSrtEntries(
-      params.sourceEntries,
-      targetL,
-      textModel,
-      params.verbose,
-      (currentChunk, chunksCount) => {
-        if (isMultiLang) {
-          params.spinner.updateText(
-            `${params.prefix}${params.messages.translatingMulti(providerLabel, params.llm.model, i + 1, params.targetLanguages.length, targetL.toUpperCase(), currentChunk, chunksCount)}`,
-          );
-        } else {
-          params.spinner.updateText(
-            `${params.prefix}${params.messages.translatingSingle(providerLabel, params.llm.model, targetL, currentChunk, chunksCount)}`,
-          );
+    let translatedEntries: SrtEntry[];
+    try {
+      if (savedCount === totalChunks) {
+        translatedEntries = params.sourceEntries.map((entry, index) => ({
+          ...entry,
+          text:
+            completedChunks[String(Math.floor(index / DEFAULT_CHUNK_SIZE))]?.[
+              index % DEFAULT_CHUNK_SIZE
+            ] ?? entry.text,
+        }));
+      } else {
+        if (!textModel) {
+          textModel = await params.getTextModel();
         }
-      },
-      {
-        prompt: params.prompt,
-        glossary: glossaryMap,
-        concurrency: params.concurrency,
-        lang: params.lang,
-        contextWindowSize: params.contextWindowSize,
-      },
-    );
+
+        const initialText = isMultiLang
+          ? `${params.prefix}${params.messages.translatingMulti(providerLabel, params.llm.model, i + 1, params.targetLanguages.length, targetL.toUpperCase(), savedCount + 1, totalChunks)}`
+          : `${params.prefix}${params.messages.translatingSingle(providerLabel, params.llm.model, targetL, savedCount + 1, totalChunks)}`;
+
+        params.spinner.start(initialText);
+
+        translatedEntries = await translateSrtEntries(
+          params.sourceEntries,
+          targetL,
+          textModel,
+          params.verbose,
+          (currentChunk, chunksCount) => {
+            if (isMultiLang) {
+              params.spinner.updateText(
+                `${params.prefix}${params.messages.translatingMulti(providerLabel, params.llm.model, i + 1, params.targetLanguages.length, targetL.toUpperCase(), currentChunk, chunksCount)}`,
+              );
+            } else {
+              params.spinner.updateText(
+                `${params.prefix}${params.messages.translatingSingle(providerLabel, params.llm.model, targetL, currentChunk, chunksCount)}`,
+              );
+            }
+          },
+          {
+            prompt: params.prompt,
+            glossary: glossaryMap,
+            concurrency: params.concurrency,
+            lang: params.lang,
+            contextWindowSize: params.contextWindowSize,
+            completedChunks,
+            onChunkComplete: (chunkIndex, texts) => {
+              if (params.noCache) return;
+              completedChunks[String(chunkIndex)] = texts;
+              saveTranslationCache(
+                params.cacheFilePath,
+                targetL,
+                createPartialTranslation(
+                  targetL,
+                  cacheContext,
+                  DEFAULT_CHUNK_SIZE,
+                  completedChunks,
+                ),
+                params.cacheDir,
+              );
+            },
+          },
+        );
+      }
+    } catch (error) {
+      // Read back persisted progress: cache writes are intentionally non-fatal.
+      const saved = params.noCache
+        ? {}
+        : getPartialTranslationChunks(
+            loadMediaCache(params.cacheFilePath, params.cacheDir)?.translations?.[
+              targetL.toLowerCase()
+            ],
+            targetL,
+            cacheContext,
+            DEFAULT_CHUNK_SIZE,
+          );
+      const count = Object.keys(saved).length;
+      if (count > 0 && (params.useCache || Object.keys(completedChunks).length > 0)) {
+        throw new TranslationStoppedError(error, targetL, count, totalChunks);
+      }
+      throw error;
+    }
 
     resultsByLang.set(targetL, translatedEntries);
     translatedLanguages.push(targetL);

@@ -56,6 +56,10 @@ export const en = {
     skippedBadge: "(skipped)",
   },
   pipeline: {
+    translationSaved: (lang: string, saved: number, total: number) =>
+      `ℹ️ Saved ${saved}/${total} chunks of the ${lang} translation. Run the same command again to continue from there.`,
+    translationResuming: (lang: string, saved: number, total: number) =>
+      `  ↻ ${lang}: resuming from the cache (${saved} of ${total} chunks already saved)`,
     startProcessing: (name: string) => `vsub-cli - Processing started: ${name}`,
     mediaNotFound: (path: string) => `Media file not found: ${path}`,
     conflictAbort:

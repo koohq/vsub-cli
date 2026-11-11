@@ -13,10 +13,12 @@ import {
   createCachedSummary,
   createCachedTranscription,
   createCachedTranslation,
+  createPartialTranslation,
   type GeneratedCacheContext,
   getCacheDir,
   getCacheStats,
   getFileCacheKey,
+  getPartialTranslationChunks,
   isChaptersCacheValid,
   isRefinementCacheValid,
   isSummaryCacheValid,
@@ -56,6 +58,76 @@ describe("cache module", () => {
     } catch {
       // ignore
     }
+  });
+
+  describe("partial translations", () => {
+    const sourceEntries = Array.from({ length: 51 }, (_, index) => ({
+      id: index + 1,
+      startTime: "00:00:00,000",
+      endTime: "00:00:01,000",
+      text: `Line ${index}`,
+    }));
+    const context: TranslationCacheContext = {
+      sourceEntries,
+      provider: "gemini",
+      model: "test-model",
+      prompt: "Notes",
+      glossaryHash: "terms",
+      contextWindowSize: 5,
+    };
+    const chunks = { "0": Array<string>(50).fill("Translated"), "1": ["Last"] };
+
+    it("round trips valid chunks without exposing an incomplete translation as complete", () => {
+      const cached = createPartialTranslation("ja", context, 50, chunks);
+      expect(cached.entries).toEqual([]);
+      expect(getPartialTranslationChunks(cached, "ja", context, 50)).toEqual(chunks);
+      expect(isTranslationCacheValid(cached, context)).toBe(false);
+      expect(
+        isTranslationCacheValid(createCachedTranslation("ja", context, sourceEntries), context),
+      ).toBe(true);
+    });
+
+    it.each([
+      { sourceEntries: sourceEntries.slice(1) },
+      { provider: "openrouter" as const },
+      { model: "other" },
+      { prompt: "Other" },
+      { glossaryHash: "other" },
+      { contextWindowSize: 0 },
+    ])("rejects a changed cache context %s", (change) => {
+      expect(
+        getPartialTranslationChunks(
+          createPartialTranslation("ja", context, 50, chunks),
+          "ja",
+          { ...context, ...change },
+          50,
+        ),
+      ).toEqual({});
+    });
+
+    it("rejects changed language or chunk size and drops only malformed chunks", () => {
+      const cached = createPartialTranslation("ja", context, 50, chunks);
+      expect(getPartialTranslationChunks(cached, "en", context, 50)).toEqual({});
+      expect(getPartialTranslationChunks(cached, "ja", context, 25)).toEqual({});
+      const malformed = {
+        ...cached,
+        partialChunks: {
+          ...chunks,
+          "0": ["Too short"],
+          "2": ["Outside"],
+          "-1": [],
+          "01": ["Alias"],
+          "1.5": [],
+        },
+      };
+      expect(getPartialTranslationChunks(malformed, "ja", context, 50)).toEqual({ "1": ["Last"] });
+      const nonString = JSON.parse(
+        JSON.stringify({ ...cached, partialChunks: { ...chunks, "1": [123] } }),
+      ) as typeof cached;
+      expect(getPartialTranslationChunks(nonString, "ja", context, 50)).toEqual({
+        "0": chunks["0"],
+      });
+    });
   });
 
   describe("getCacheDir", () => {

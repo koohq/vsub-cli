@@ -64,6 +64,62 @@ describe("src/text/tasks.ts", () => {
 
   const defaultModel = createGeminiTextModel("fake-key", "gemini-3.8-flash");
 
+  describe("translation checkpoints", () => {
+    afterEach(() => vi.useRealTimers());
+
+    it.each(["translation", "refinement"])(
+      "does not send the third %s chunk after four failures",
+      async (task) => {
+        vi.useFakeTimers();
+        mockGenerateContent.mockImplementation(async ({ contents }: { contents: string }) => {
+          const input = readInput(contents);
+          if (input[0]?.id !== 1) throw new Error("Unavailable");
+          return { text: JSON.stringify(input) };
+        });
+        const entries = makeEntries(101);
+        const result =
+          task === "translation"
+            ? translateSrtEntries(entries, "ja", defaultModel, false, undefined, { concurrency: 1 })
+            : refineSrtEntries(entries, defaultModel, false, undefined, { concurrency: 1 });
+        const assertion = expect(result).rejects.toThrow("failed after 4 attempts on chunk 2/3");
+        await vi.runAllTimersAsync();
+        await assertion;
+        expect(mockGenerateContent).toHaveBeenCalledTimes(5);
+      },
+    );
+
+    it("reuses checkpoints while keeping request ids, context, and progress", async () => {
+      const entries = makeEntries(101);
+      mockGenerateContent.mockImplementation(async ({ contents }: { contents: string }) => ({
+        text: JSON.stringify(readInput(contents)),
+      }));
+      await translateSrtEntries(entries, "ja", defaultModel, false, undefined, { concurrency: 1 });
+      const originalRequests = mockGenerateContent.mock.calls.map(([request]) => request.contents);
+      mockGenerateContent.mockClear();
+      const onProgress = vi.fn();
+      const onChunkComplete = vi.fn();
+      const saved = entries.slice(0, 50).map(() => "Saved translation");
+      const result = await translateSrtEntries(entries, "ja", defaultModel, false, onProgress, {
+        concurrency: 1,
+        completedChunks: { "0": saved },
+        onChunkComplete,
+      });
+      expect(result.slice(0, 50).map((entry) => entry.text)).toEqual(saved);
+      expect(result.slice(50)).toEqual(entries.slice(50));
+      expect(mockGenerateContent.mock.calls.map(([request]) => request.contents)).toEqual(
+        originalRequests.slice(1),
+      );
+      expect(onChunkComplete.mock.calls).toEqual([
+        [1, entries.slice(50, 100).map((entry) => entry.text)],
+        [2, [entries[100]?.text]],
+      ]);
+      expect(onProgress.mock.calls).toEqual([
+        [2, 3],
+        [3, 3],
+      ]);
+    });
+  });
+
   describe("subtitle id matching", () => {
     const entries = makeEntries(4).map((entry) => ({ ...entry, id: 9 }));
     const answer = textItems(["One", "Two", "Three", "Four"]);
@@ -246,6 +302,44 @@ describe("src/text/tasks.ts", () => {
   });
 
   describe("asyncPool", () => {
+    it.each([false, true])(
+      "drains started tasks and preserves the first failure (both fail: %s)",
+      async (bothFail) => {
+        const first = new Error("First failure");
+        const pending = Promise.withResolvers<void>();
+        const started: number[] = [];
+        let finished = false;
+        let settled = false;
+        const flush = () => new Promise<void>((resolve) => setTimeout(resolve, 0));
+        const result = asyncPool(2, [0, 1, 2, 3, 4], async (item) => {
+          started.push(item);
+          if (item === 1) throw first;
+          await pending.promise;
+          finished = true;
+          if (bothFail) throw new Error("Later failure");
+          return item;
+        });
+        const outcome = result.then(
+          () => {
+            settled = true;
+            return undefined;
+          },
+          (error: unknown) => {
+            settled = true;
+            return error;
+          },
+        );
+        await flush();
+        // The started task is still running, so the pool must not have settled yet.
+        expect(settled).toBe(false);
+        pending.resolve();
+        await expect(outcome).resolves.toBe(first);
+        expect(finished).toBe(true);
+        await flush();
+        // No new task may start after the first failure.
+        expect(started).toEqual([0, 1]);
+      },
+    );
     it("should return empty array for empty items", async () => {
       const result = await asyncPool(3, [], async (x) => x);
       expect(result).toEqual([]);

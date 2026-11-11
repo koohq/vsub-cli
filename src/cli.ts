@@ -24,7 +24,6 @@ import {
   normalizeTargetLangSetting,
   parseTargetLanguages,
 } from "./languages.js";
-
 import { printLicenses } from "./licenses.js";
 import {
   findOutputPathConflict,
@@ -48,6 +47,7 @@ import {
   type SttProvider,
 } from "./transcribe/select.js";
 import { runTranslateCommand, type TranslateCommandOptions } from "./translate.js";
+import { getTranslationResumeHint } from "./translation.js";
 import {
   createSpinner,
   displayWidth,
@@ -1599,6 +1599,8 @@ export function createProgram(): Command {
               `\n✖ ${i18n.pipeline.errorOccurred(error instanceof Error ? error.message : String(error))}`,
             ),
           );
+          const hint = getTranslationResumeHint(error, normalizeLanguage(lang));
+          if (hint) console.error(hint);
           if (options.verbose && error instanceof Error && error.stack) {
             console.error(error.stack);
           }

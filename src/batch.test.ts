@@ -8,6 +8,7 @@ import * as ffmpegModule from "./ffmpeg.js";
 import * as pipelineModule from "./pipeline.js";
 import * as tasksModule from "./text/tasks.js";
 import * as transcriberModule from "./transcribe/transcriber.js";
+import { getTranslationResumeHint, TranslationStoppedError } from "./translation.js";
 
 describe("batch.ts", () => {
   let tempDir: string;
@@ -515,6 +516,25 @@ describe("batch.ts", () => {
           ),
         );
       });
+
+      it.each([true, false])(
+        "prints a checkpoint hint directly after the numbered failure (stopped: %s)",
+        async (stopped) => {
+          const error = stopped
+            ? new TranslationStoppedError(new Error("Unavailable"), "ja", 1, 3)
+            : new Error("Unavailable");
+          processMediaPipelineSpy.mockRejectedValue(error);
+          const output = vi.spyOn(console, "error").mockImplementation(() => {});
+          const summary = await runBatchPipeline({ targets: [dummyFile] });
+          const lines = output.mock.calls.flat().map(String).join("\n").split("\n");
+          const failureIndex = lines.findIndex((line) => line.includes("Failed: Unavailable"));
+          expect(failureIndex).toBeGreaterThanOrEqual(0);
+          if (stopped)
+            expect(lines[failureIndex + 1]).toBe(`[1/1] ${getTranslationResumeHint(error, "en")}`);
+          else expect(lines.join("\n")).not.toContain("Run the same command");
+          expect(summary.failedCount).toBe(1);
+        },
+      );
     });
 
     describe("--embed container pre-check", () => {

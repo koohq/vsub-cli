@@ -7,6 +7,7 @@ import { getI18n } from "./i18n/index.js";
 import { type ProcessMediaOptions, processMediaPipeline } from "./pipeline.js";
 import { resolveLlmSettings } from "./text/select.js";
 import { resolveSttSettings } from "./transcribe/select.js";
+import { getTranslationResumeHint } from "./translation.js";
 import { type BatchSummaryData, type BatchSummaryItem, formatBatchSummaryBox } from "./ui.js";
 
 const IGNORED_DIR_NAMES = new Set([
@@ -228,7 +229,11 @@ export async function runBatchPipeline(options: BatchPipelineOptions): Promise<B
         durationMs: itemDuration,
         error: errorMessage,
       });
-      console.error(`${pc.red(fileIndexStr)} ${i18n.batch.failedItem(errorMessage)}\n`);
+      const hint = getTranslationResumeHint(error, lang);
+      console.error(
+        `${pc.red(fileIndexStr)} ${i18n.batch.failedItem(errorMessage)}${hint ? "" : "\n"}`,
+      );
+      if (hint) console.error(`${pc.red(fileIndexStr)} ${hint}\n`);
 
       if (options.failFast) {
         console.warn(i18n.batch.failFastAbort);

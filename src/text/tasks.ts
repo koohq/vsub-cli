@@ -100,6 +100,8 @@ export interface TranslateOptions {
   concurrency?: number | undefined;
   lang?: SupportedLanguage | undefined;
   contextWindowSize?: number | undefined;
+  completedChunks?: Record<string, string[]> | undefined;
+  onChunkComplete?: ((chunkIndex: number, texts: string[]) => void) | undefined;
 }
 
 export interface RefineOptions {
@@ -146,18 +148,28 @@ export async function asyncPool<T, R>(
   const results = new Array<R>(items.length);
   const limit = Math.max(1, Math.min(concurrency, items.length));
   let currentIndex = 0;
+  let failed = false;
+  let firstError: unknown;
 
   async function worker(): Promise<void> {
-    while (currentIndex < items.length) {
+    while (!failed && currentIndex < items.length) {
       const idx = currentIndex++;
       const item = items[idx];
       if (item === undefined) break;
-      results[idx] = await taskFn(item, idx);
+      try {
+        results[idx] = await taskFn(item, idx);
+      } catch (error) {
+        if (!failed) {
+          failed = true;
+          firstError = error;
+        }
+      }
     }
   }
 
   const workers = Array.from({ length: limit }, () => worker());
   await Promise.all(workers);
+  if (failed) throw firstError;
   return results;
 }
 
@@ -249,6 +261,8 @@ async function runChunkedTextTransform(
     verbose: boolean;
     verboseAction: string;
     onProgress?: ((completedChunks: number, totalChunks: number) => void) | undefined;
+    completedChunks?: Record<string, string[]> | undefined;
+    onChunkComplete?: ((chunkIndex: number, texts: string[]) => void) | undefined;
     transformChunk: (params: {
       chunkIndex: number;
       totalChunks: number;
@@ -263,9 +277,13 @@ async function runChunkedTextTransform(
     options.concurrency && options.concurrency > 0
       ? Math.floor(options.concurrency)
       : model.limits.defaultConcurrency;
-  let completedChunks = 0;
+  const textsByChunk = chunks.map((_, index) => options.completedChunks?.[String(index)]);
+  let completedChunks = textsByChunk.filter((texts) => texts !== undefined).length;
+  const pendingChunks = chunks
+    .map((chunk, chunkIdx) => ({ chunk, chunkIdx }))
+    .filter(({ chunkIdx }) => textsByChunk[chunkIdx] === undefined);
 
-  const chunkResults = await asyncPool(concurrency, chunks, async (chunk, chunkIdx) => {
+  await asyncPool(concurrency, pendingChunks, async ({ chunk, chunkIdx }) => {
     const chunkIndex = chunkIdx + 1;
     const items = chunk.map((entry, index) => ({
       id: chunkIdx * DEFAULT_CHUNK_SIZE + index + 1,
@@ -296,16 +314,20 @@ async function runChunkedTextTransform(
       contextTexts,
     });
 
+    textsByChunk[chunkIdx] = nextTexts;
+    options.onChunkComplete?.(chunkIdx, nextTexts);
     completedChunks++;
     options.onProgress?.(completedChunks, totalChunks);
+  });
 
-    return chunk.map((item, j) => ({
+  const chunkResults = chunks.map((chunk, chunkIdx) =>
+    chunk.map((item, j) => ({
       id: item.id,
       startTime: item.startTime,
       endTime: item.endTime,
-      text: nextTexts[j] ?? item.text,
-    }));
-  });
+      text: textsByChunk[chunkIdx]?.[j] ?? item.text,
+    })),
+  );
 
   return { entries: chunkResults.flat(), totalChunks };
 }
@@ -334,6 +356,8 @@ export async function translateSrtEntries(
     verbose,
     verboseAction: "Translating chunk",
     onProgress,
+    completedChunks: options?.completedChunks,
+    onChunkComplete: options?.onChunkComplete,
     transformChunk: async ({ chunkIndex, totalChunks, items, contextTexts }) => {
       const prompt = buildTranslationPrompt(items, targetLang, options, contextTexts);
 

@@ -2,6 +2,24 @@ import { describe, expect, it } from "vitest";
 import { en } from "./en.js";
 import { ja } from "./ja.js";
 
+describe("translation checkpoint messages", () => {
+  it.each([
+    {
+      messages: en,
+      hint: "ℹ️ Saved 14/30 chunks of the JA translation. Run the same command again to continue from there.",
+      resume: "  ↻ JA: resuming from the cache (14 of 30 chunks already saved)",
+    },
+    {
+      messages: ja,
+      hint: "ℹ️ JA の翻訳は 30 チャンクのうち 14 を保存しました。同じコマンドをもう一度実行すると、続きから翻訳します。",
+      resume: "  ↻ JA: 途中から再開します（30 チャンクのうち 14 は保存済み）",
+    },
+  ])("matches the specified hint and resume wording", ({ messages, hint, resume }) => {
+    expect(messages.pipeline.translationSaved("JA", 14, 30)).toBe(hint);
+    expect(messages.pipeline.translationResuming("JA", 14, 30)).toBe(resume);
+  });
+});
+
 describe("refinement fallback warnings", () => {
   it.each([
     {

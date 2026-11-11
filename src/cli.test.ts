@@ -23,6 +23,7 @@ import {
 import { parseSrt, reflowSrtEntries } from "./srt.js";
 import { isolateConfigAndEnv } from "./test-support/isolate-config-env.js";
 import { DEFAULT_CONTEXT_WINDOW_SIZE, translateSrtEntries } from "./text/tasks.js";
+import { getTranslationResumeHint, TranslationStoppedError } from "./translation.js";
 import * as ui from "./ui.js";
 import { notifyUpdateIfAvailable } from "./updater.js";
 
@@ -182,6 +183,25 @@ describe("CLI integration harness", () => {
     function output(): string {
       return logSpy.mock.calls.map(([text]: unknown[]) => String(text)).join("\n");
     }
+
+    it.each([true, false])(
+      "prints the media checkpoint hint immediately after the failure (stopped: %s)",
+      async (stopped) => {
+        const error = stopped
+          ? new TranslationStoppedError(new Error("Unavailable"), "ja", 1, 3)
+          : new Error("Unavailable");
+        vi.mocked(processMediaPipeline).mockRejectedValueOnce(error);
+        await runCli(dummyVideoPath);
+        const lines: string[] = errorSpy.mock.calls.flat().map(String).join("\n").split("\n");
+        const index = lines.findIndex((line) =>
+          line.includes("An error occurred during processing: Unavailable"),
+        );
+        expect(index).toBeGreaterThanOrEqual(0);
+        if (stopped) expect(lines[index + 1]).toBe(getTranslationResumeHint(error, "en"));
+        else expect(lines.join("\n")).not.toContain("Run the same command");
+        expect(exitSpy).toHaveBeenCalledWith(1);
+      },
+    );
 
     function expectAlignedRows(): void {
       const rows = output()

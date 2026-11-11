@@ -58,6 +58,10 @@ export const ja: typeof en = {
     skippedBadge: "(スキップ)",
   },
   pipeline: {
+    translationSaved: (lang: string, saved: number, total: number) =>
+      `ℹ️ ${lang} の翻訳は ${total} チャンクのうち ${saved} を保存しました。同じコマンドをもう一度実行すると、続きから翻訳します。`,
+    translationResuming: (lang: string, saved: number, total: number) =>
+      `  ↻ ${lang}: 途中から再開します（${total} チャンクのうち ${saved} は保存済み）`,
     startProcessing: (name: string) => `vsub-cli - 処理開始: ${name}`,
     mediaNotFound: (path: string) => `メディアファイルが見つかりません: ${path}`,
     conflictAbort:

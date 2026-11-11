@@ -11,7 +11,12 @@ import { ensureWritableTargets } from "./safety.js";
 import { mergeBilingualEntries, parseSrt, reflowSrtEntries } from "./srt.js";
 import { LLM_PROVIDER_LABELS } from "./text/providers.js";
 import { createTextModel, resolveLlmSettings } from "./text/select.js";
-import { resolveConcurrency, resolveContextWindowSize, translateToTargets } from "./translation.js";
+import {
+  getTranslationResumeHint,
+  resolveConcurrency,
+  resolveContextWindowSize,
+  translateToTargets,
+} from "./translation.js";
 import { createSpinner, formatSummaryBox } from "./ui.js";
 import { notifyUpdateIfAvailable } from "./updater.js";
 
@@ -330,6 +335,8 @@ export async function runTranslateCommand(
     spinner.fail(
       i18n.pipeline.errorOccurred(error instanceof Error ? error.message : String(error)),
     );
+    const hint = getTranslationResumeHint(error, lang);
+    if (hint) console.error(hint);
     if (verbose && error instanceof Error && error.stack) {
       console.error(error.stack);
     }
