@@ -2,7 +2,7 @@
   "name": "vsub-cli",
   "version": "1.6.0",
   "packageManager": "pnpm@12.18.0",
-  "description": "CLI tool to extract audio, transcribe speech with Groq Whisper, and translate subtitles using Google Gemini API",
+  "description": "CLI tool to extract audio, transcribe speech (ElevenLabs Scribe v2 via OpenRouter, or Groq Whisper), and generate translated subtitles, chapters and summaries with Gemini",
   "type": "module",
   "bin": {
     "vsub": "./dist/index.js"
@@ -45,7 +45,10 @@
     "groq",
     "gemini",
     "translation",
-    "transcription"
+    "transcription",
+    "speech-to-text",
+    "openrouter",
+    "elevenlabs"
   ],
   "author": "koohq",
   "license": "MIT",
