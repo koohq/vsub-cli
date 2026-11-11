@@ -1,6 +1,6 @@
 {
   "name": "vsub-cli",
-  "version": "1.8.0",
+  "version": "1.8.1",
   "packageManager": "pnpm@12.18.0",
   "description": "CLI tool to extract audio, transcribe speech (ElevenLabs Scribe v2 via OpenRouter, or Groq Whisper), and generate translated subtitles, chapters and summaries with Gemini",
   "type": "module",
