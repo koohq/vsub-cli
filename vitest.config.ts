@@ -5,6 +5,7 @@ export default defineConfig({
     globals: true,
     environment: "node",
     include: ["src/**/*.test.ts", "scripts/**/*.test.ts"],
+    setupFiles: ["src/test-support/color-env.ts"],
     coverage: {
       provider: "v8",
       reporter: ["text", "html", "json-summary"],
