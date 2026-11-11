@@ -208,6 +208,60 @@ describe("openai-compatible.ts", () => {
   });
 
   describe("response parsing", () => {
+    function transcribeResponse(body: unknown) {
+      mockFetch.mockResolvedValueOnce(jsonResponse(200, body));
+      const transcriber = createOpenAICompatibleTranscriber(TEST_PROFILE, "test-api-key", {
+        fetch: mockFetch,
+        sleep: mockSleep,
+      });
+      return transcriber.transcribe(testAudioPath, { model: "test-model-text-only" });
+    }
+
+    it.each([
+      { name: "no segments or words", body: { text: "Hello" } },
+      {
+        name: "only malformed segments and no words",
+        body: {
+          text: "Hello",
+          segments: [{ start: "bad", end: 1, text: "Hello" }],
+        },
+      },
+      { name: "empty words and no segments", body: { text: "Hello", words: [] } },
+    ])("should reject a transcript with $name without retrying", async ({ body }) => {
+      await expect(transcribeResponse(body)).rejects.toThrow(
+        new Error(
+          'Test STT returned a transcript without timestamps for model "test-model-text-only". Subtitles need segment or word timestamps (response_format=verbose_json). Choose a model that returns them, such as test-model-default.',
+        ),
+      );
+      expect(mockFetch).toHaveBeenCalledTimes(1);
+      expect(mockSleep).not.toHaveBeenCalled();
+    });
+
+    it.each([
+      { name: "missing", body: {} },
+      { name: "empty", body: { text: "" } },
+      { name: "whitespace-only", body: { text: " \t\n " } },
+    ])("should accept silence with $name text and no timestamps", async ({ body }) => {
+      const result = await transcribeResponse(body);
+
+      expect(result.segments).toEqual([]);
+      expect("words" in result).toBe(false);
+    });
+
+    it("should accept text when all words are audio_event", async () => {
+      const result = await transcribeResponse({
+        text: "[outro music] [silence]",
+        words: [
+          { word: "[outro music]", start: 0, end: 10, type: "audio_event" },
+          { word: "[silence]", start: 10, end: 20, type: "audio_event" },
+        ],
+      });
+
+      expect(result.segments).toEqual([]);
+      expect(result.words).toEqual([]);
+      expect("words" in result).toBe(true);
+    });
+
     it("should parse words, segments, and preserve language as returned", async () => {
       mockFetch.mockResolvedValueOnce(
         jsonResponse(200, {

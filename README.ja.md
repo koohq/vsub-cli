@@ -166,6 +166,7 @@ vsub は、次の順で文字起こしの提供元を決めます。
   - `VSUB_OPENROUTER_STT_MODEL`（設定ファイルでは `openrouterSttModel`）で、OpenRouter の既定のモデルを変えられます（既定は `elevenlabs/scribe-v2`）。
   - `VSUB_GROQ_MODEL`（設定ファイルでは `groqModel`）で、Groq の既定のモデルを変えられます（既定は `whisper-large-v3-turbo`）。
   - **OpenRouter で動作を確かめたモデルは `elevenlabs/scribe-v2` だけです**。ほかのモデルも `--stt-model` で指定できますが、確かめていないため、動かないことがあります。
+  - モデルは、区切りごと（または単語ごと）の開始・終了時刻を含む結果（`verbose_json`）を返せる必要があります。時刻を返さないモデルでは字幕を作れないため、エラーで止まります。
 * **認識のヒント**:
   - 認識のヒント（`--whisper-prompt` と、`--glossary` から取り出した用語）は、Groq の Whisper にだけ送ります。OpenRouter には送りません。
 

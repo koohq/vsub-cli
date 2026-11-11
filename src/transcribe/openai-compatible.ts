@@ -67,6 +67,7 @@ interface RawTimedItem {
 }
 
 interface RawResponsePayload {
+  text?: unknown;
   language?: unknown;
   segments?: unknown;
   words?: unknown;
@@ -219,6 +220,16 @@ export function createOpenAICompatibleTranscriber(
             language,
             ...(words !== undefined ? { words } : {}),
           };
+          if (
+            segments.length === 0 &&
+            words === undefined &&
+            typeof data.text === "string" &&
+            data.text.trim().length > 0
+          ) {
+            throw new Error(
+              `${profile.logLabel} returned a transcript without timestamps for model "${model}". Subtitles need segment or word timestamps (response_format=verbose_json). Choose a model that returns them, such as ${profile.defaultModel}.`,
+            );
+          }
           return result;
         }
 

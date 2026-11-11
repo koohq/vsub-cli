@@ -166,6 +166,7 @@ Existing Groq users can update `vsub-cli` and continue using Groq seamlessly; yo
   - `VSUB_OPENROUTER_STT_MODEL` (config: `openrouterSttModel`) sets the default OpenRouter model (default: `elevenlabs/scribe-v2`).
   - `VSUB_GROQ_MODEL` (config: `groqModel`) sets the default Groq model (default: `whisper-large-v3-turbo`).
   - **The only tested OpenRouter model is `elevenlabs/scribe-v2`**. While other models can be specified with `--stt-model`, they are untested and may not work.
+  - The model must return timestamped segments or words (`verbose_json`). Models that return plain text only cannot produce subtitles, and vsub stops with an error.
 * **Recognition Hints**:
   - Recognition prompt hints (`--whisper-prompt` and terms extracted from `--glossary`) are sent only to Groq Whisper. They are not sent to OpenRouter.
 
