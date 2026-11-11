@@ -1,7 +1,8 @@
+import crypto from "node:crypto";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   type CachedChapters,
   type CachedRefinement,
@@ -53,6 +54,7 @@ describe("cache module", () => {
   });
 
   afterEach(() => {
+    vi.restoreAllMocks();
     try {
       fs.rmSync(tempDir, { recursive: true, force: true });
     } catch {
@@ -166,13 +168,86 @@ describe("cache module", () => {
       expect(key1).toBe(key2);
     });
 
-    it("should change hash when file size or modification time changes", async () => {
+    it("should change hash when file size changes", () => {
       const key1 = getFileCacheKey(testMediaFile);
-      // Change content and ensure mtime updates
-      await new Promise((resolve) => setTimeout(resolve, 50));
       fs.appendFileSync(testMediaFile, " additional bytes");
       const key2 = getFileCacheKey(testMediaFile);
       expect(key1).not.toBe(key2);
+    });
+
+    const sampleBytes = 1024 * 1024;
+
+    async function expectContentChange(content: Buffer, offset: number) {
+      fs.writeFileSync(testMediaFile, content);
+      fs.utimesSync(testMediaFile, 1000, 1000);
+      const key = getFileCacheKey(testMediaFile);
+      content[offset] = 1;
+      fs.writeFileSync(testMediaFile, content);
+      fs.utimesSync(testMediaFile, 1000, 1000);
+      vi.resetModules();
+      const nextRun = await import("./cache.js");
+      expect(nextRun.getFileCacheKey(testMediaFile)).not.toBe(key);
+    }
+
+    it("uses the same key for identical content under another name and directory", () => {
+      const copy = path.join(tempDir, "archive", "renamed.mp4");
+      fs.mkdirSync(path.dirname(copy));
+      fs.copyFileSync(testMediaFile, copy);
+      expect(getFileCacheKey(copy)).toBe(getFileCacheKey(testMediaFile));
+    });
+
+    it("keeps the key when only the modification time changes", () => {
+      const key = getFileCacheKey(testMediaFile);
+      fs.utimesSync(testMediaFile, 1000, 1000);
+      expect(getFileCacheKey(testMediaFile)).toBe(key);
+    });
+
+    it.each([0, 2 * sampleBytes, 5 * sampleBytes - 1])(
+      "detects a changed sampled byte at offset %i in a large file",
+      (offset) => expectContentChange(Buffer.alloc(5 * sampleBytes), offset),
+    );
+
+    it.each([0, sampleBytes, 2 * sampleBytes, 3 * sampleBytes - 1])(
+      "detects a changed byte anywhere in a file of at most 3 MiB at offset %i",
+      (offset) => expectContentChange(Buffer.alloc(3 * sampleBytes), offset),
+    );
+
+    it.each([0, 3 * sampleBytes, 5 * sampleBytes + 1])(
+      "hashes the v2 size prefix and sampled bytes in order for size %i",
+      (size) => {
+        const content = Buffer.alloc(size);
+        for (let index = 0; index < size; index++) content[index] = index % 251;
+        fs.writeFileSync(testMediaFile, content);
+        const hash = crypto.createHash("sha256").update(`v2:${size}:`);
+        if (size <= 3 * sampleBytes) {
+          hash.update(content);
+        } else {
+          for (const offset of [0, Math.floor((size - sampleBytes) / 2), size - sampleBytes]) {
+            hash.update(content.subarray(offset, offset + sampleBytes));
+          }
+        }
+        expect(getFileCacheKey(testMediaFile)).toBe(hash.digest("hex"));
+      },
+    );
+
+    it.each(["mtime", "size"])("memoizes reads until the file %s changes", (change) => {
+      const read = vi.spyOn(fs, "readSync");
+      const key = getFileCacheKey(testMediaFile);
+      const reads = read.mock.calls.length;
+      expect(reads).toBeGreaterThan(0);
+      expect(getFileCacheKey(testMediaFile)).toBe(key);
+      expect(read).toHaveBeenCalledTimes(reads);
+      if (change === "mtime") {
+        const content = fs.readFileSync(testMediaFile);
+        content[0] = 1;
+        fs.writeFileSync(testMediaFile, content);
+        fs.utimesSync(testMediaFile, 1000, 1000);
+      } else {
+        fs.appendFileSync(testMediaFile, "extra");
+      }
+      const readsBeforeRehash = read.mock.calls.length;
+      expect(getFileCacheKey(testMediaFile)).not.toBe(key);
+      expect(read.mock.calls.length).toBeGreaterThan(readsBeforeRehash);
     });
   });
 
@@ -259,11 +334,48 @@ describe("cache module", () => {
 
       const cache = loadMediaCache(testMediaFile, customCacheDir);
       expect(cache).not.toBeNull();
-      expect(cache?.version).toBe(1);
+      expect(cache?.version).toBe(2);
       expect(cache?.transcription?.detectedLanguage).toBe("en");
       expect(cache?.transcription?.entries).toHaveLength(2);
       expect(cache?.transcription?.entries[0]?.text).toBe("Hello world");
       expect(cache?.transcription?.model).toBe("whisper-large-v3-turbo");
+    });
+
+    it("loads after moving the file and records the current path on the next save", () => {
+      const transcription = createCachedTranscription({}, sampleEntries, "en");
+      saveTranscriptionCache(testMediaFile, transcription, customCacheDir);
+      const cacheFile = path.join(customCacheDir, `${getFileCacheKey(testMediaFile)}.json`);
+      const saved = JSON.parse(fs.readFileSync(cacheFile, "utf-8"));
+      expect(saved.version).toBe(2);
+      expect(saved.mediaPath).toBe(testMediaFile);
+      expect(saved).not.toHaveProperty("mediaMtimeMs");
+      const moved = path.join(tempDir, "renamed.mp4");
+      fs.renameSync(testMediaFile, moved);
+      expect(loadMediaCache(moved, customCacheDir)?.transcription).toEqual(transcription);
+      saveTranscriptionCache(moved, transcription, customCacheDir);
+      expect(loadMediaCache(moved, customCacheDir)?.mediaPath).toBe(moved);
+    });
+
+    it("rejects changed content with the same path, size, and mtime on the next run", async () => {
+      fs.utimesSync(testMediaFile, 1000, 1000);
+      saveTranscriptionCache(
+        testMediaFile,
+        createCachedTranscription({}, sampleEntries),
+        customCacheDir,
+      );
+      const stat = fs.statSync(testMediaFile);
+      fs.writeFileSync(testMediaFile, Buffer.alloc(stat.size, 1));
+      fs.utimesSync(testMediaFile, stat.atime, stat.mtime);
+      vi.resetModules();
+      const nextRun = await import("./cache.js");
+      expect(nextRun.loadMediaCache(testMediaFile, customCacheDir)).toBeNull();
+    });
+
+    it("rejects a v2 cache with a different media size", () => {
+      const cacheFile = path.join(customCacheDir, `${getFileCacheKey(testMediaFile)}.json`);
+      fs.mkdirSync(customCacheDir);
+      fs.writeFileSync(cacheFile, JSON.stringify({ version: 2, mediaSize: 0 }));
+      expect(loadMediaCache(testMediaFile, customCacheDir)).toBeNull();
     });
 
     it("should store wordChunks in createCachedTranscription only when given", () => {
@@ -312,6 +424,108 @@ describe("cache module", () => {
       // Now it should return null because size and mtime changed
       expect(loadMediaCache(testMediaFile, customCacheDir)).toBeNull();
     });
+  });
+
+  describe("legacy cache migration", () => {
+    function writeLegacyCache() {
+      const stat = fs.statSync(testMediaFile);
+      const key = crypto
+        .createHash("sha256")
+        .update(`v1:${path.resolve(testMediaFile)}:${stat.size}:${stat.mtimeMs}`)
+        .digest("hex");
+      const legacyFile = path.join(customCacheDir, `${key}.json`);
+      const cacheFile = path.join(customCacheDir, `${getFileCacheKey(testMediaFile)}.json`);
+      const entries: SrtEntry[] = [
+        { id: 1, startTime: "00:00:00,000", endTime: "00:00:01,000", text: "Test" },
+      ];
+      const context = { sourceEntries: entries, contextWindowSize: 5 };
+      const legacy = {
+        version: 1,
+        mediaPath: path.resolve(testMediaFile),
+        mediaSize: stat.size,
+        mediaMtimeMs: stat.mtimeMs,
+        transcription: createCachedTranscription({}, entries, "en"),
+        refinement: createCachedRefinement(context, entries),
+        translations: { ja: createCachedTranslation("ja", context, entries) },
+        chapters: { ja: createCachedChapters("ja", context, []) },
+        summaries: {
+          ja: createCachedSummary("ja", context, {
+            title: "Test",
+            summary: "Test summary",
+            keyPoints: [],
+            topics: [],
+          }),
+        },
+        createdAt: 1000,
+        updatedAt: 2000,
+      };
+      fs.mkdirSync(customCacheDir);
+      fs.writeFileSync(legacyFile, JSON.stringify(legacy));
+      const { mediaMtimeMs: _mtime, ...rest } = legacy;
+      return { legacyFile, cacheFile, legacy, migrated: { ...rest, version: 2 } };
+    }
+
+    it("migrates all fields and timestamps and reads v2 on subsequent loads", () => {
+      const { legacyFile, cacheFile, migrated } = writeLegacyCache();
+      expect(loadMediaCache(testMediaFile, customCacheDir)).toEqual(migrated);
+      expect(JSON.parse(fs.readFileSync(cacheFile, "utf-8"))).toEqual(migrated);
+      expect(fs.existsSync(legacyFile)).toBe(false);
+      expect(loadMediaCache(testMediaFile, customCacheDir)).toEqual(migrated);
+    });
+
+    it.each(["version", "mediaPath", "mediaSize", "mediaMtimeMs", "corrupt"])(
+      "leaves legacy cache untouched when %s is invalid",
+      (field) => {
+        const { legacyFile, cacheFile, legacy } = writeLegacyCache();
+        fs.writeFileSync(
+          legacyFile,
+          field === "corrupt" ? "{" : JSON.stringify({ ...legacy, [field]: "invalid" }),
+        );
+        expect(loadMediaCache(testMediaFile, customCacheDir)).toBeNull();
+        expect(fs.existsSync(legacyFile)).toBe(true);
+        expect(fs.existsSync(cacheFile)).toBe(false);
+      },
+    );
+
+    it.each(["valid", "wrong size", "wrong version", "corrupt"])(
+      "does not fall back to legacy when the v2 file is %s",
+      (state) => {
+        const { legacyFile, cacheFile, migrated } = writeLegacyCache();
+        const data = { ...migrated };
+        if (state === "wrong size") data.mediaSize++;
+        if (state === "wrong version") data.version = 1;
+        fs.writeFileSync(cacheFile, state === "corrupt" ? "{" : JSON.stringify(data));
+        expect(loadMediaCache(testMediaFile, customCacheDir)).toEqual(
+          state === "valid" ? migrated : null,
+        );
+        expect(fs.existsSync(legacyFile)).toBe(true);
+      },
+    );
+
+    it("preserves other legacy fields when saving a transcription", () => {
+      const { legacyFile, migrated } = writeLegacyCache();
+      const transcription = createCachedTranscription({}, [], "ja");
+      saveTranscriptionCache(testMediaFile, transcription, customCacheDir);
+      expect(loadMediaCache(testMediaFile, customCacheDir)).toEqual({
+        ...migrated,
+        transcription,
+        updatedAt: expect.any(Number),
+      });
+      expect(fs.existsSync(legacyFile)).toBe(false);
+    });
+
+    it.each(["writeFileSync", "unlinkSync"] as const)(
+      "returns migrated data even if %s fails",
+      (operation) => {
+        const { legacyFile, cacheFile, migrated } = writeLegacyCache();
+        vi.spyOn(fs, operation).mockImplementation(() => {
+          throw new Error("Test failure");
+        });
+        expect(loadMediaCache(testMediaFile, customCacheDir)).toEqual(migrated);
+        expect(fs.existsSync(legacyFile)).toBe(true);
+        expect(fs.existsSync(cacheFile)).toBe(operation === "unlinkSync");
+      },
+    );
   });
 
   describe("saveTranslationCache", () => {

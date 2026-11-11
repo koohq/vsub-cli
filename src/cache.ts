@@ -391,10 +391,10 @@ export function createCachedSummary(
 }
 
 export interface MediaCacheData {
-  version: 1;
+  version: 2;
+  /** Absolute path where the media was last seen (informational; not part of the key). */
   mediaPath: string;
   mediaSize: number;
-  mediaMtimeMs: number;
   transcription?: CachedTranscription | undefined;
   refinement?: CachedRefinement | undefined;
   translations?: Record<string, CachedTranslation> | undefined;
@@ -428,15 +428,55 @@ export function getCacheDir(customDir?: string): string {
   return path.join(cacheHome, "vsub");
 }
 
-/**
- * Generates a unique cache key based on file path, file size, and modification timestamp.
- */
+const SAMPLE_BYTES = 1024 * 1024;
+const fileCacheKeys = new Map<string, { size: number; mtimeMs: number; key: string }>();
+
+/** Generates a cache key from the file size and sampled content. */
 export function getFileCacheKey(filePath: string): string {
   const resolved = path.resolve(filePath);
   const stat = fs.statSync(resolved);
-  const hash = crypto.createHash("sha256");
-  hash.update(`v1:${resolved}:${stat.size}:${stat.mtimeMs}`);
-  return hash.digest("hex");
+  const cached = fileCacheKeys.get(resolved);
+  if (cached && cached.size === stat.size && cached.mtimeMs === stat.mtimeMs) {
+    return cached.key;
+  }
+
+  const hash = crypto.createHash("sha256").update(`v2:${stat.size}:`);
+  const readSize = Math.min(stat.size, 3 * SAMPLE_BYTES);
+  const offsets =
+    stat.size <= 3 * SAMPLE_BYTES
+      ? [0]
+      : [0, Math.floor((stat.size - SAMPLE_BYTES) / 2), stat.size - SAMPLE_BYTES];
+  const buffer = Buffer.alloc(stat.size <= 3 * SAMPLE_BYTES ? readSize : SAMPLE_BYTES);
+  const fd = fs.openSync(resolved, "r");
+  try {
+    for (const position of offsets) {
+      let offset = 0;
+      while (offset < buffer.length) {
+        const bytesRead = fs.readSync(
+          fd,
+          buffer,
+          offset,
+          buffer.length - offset,
+          position + offset,
+        );
+        if (bytesRead === 0) throw new Error("Unexpected end of file while computing cache key");
+        offset += bytesRead;
+      }
+      hash.update(buffer);
+    }
+  } finally {
+    fs.closeSync(fd);
+  }
+  const key = hash.digest("hex");
+  fileCacheKeys.set(resolved, { size: stat.size, mtimeMs: stat.mtimeMs, key });
+  return key;
+}
+
+function getLegacyFileCacheKey(resolved: string, stat: fs.Stats): string {
+  return crypto
+    .createHash("sha256")
+    .update(`v1:${resolved}:${stat.size}:${stat.mtimeMs}`)
+    .digest("hex");
 }
 
 function getCacheFilePath(filePath: string, customCacheDir?: string): string {
@@ -446,7 +486,7 @@ function getCacheFilePath(filePath: string, customCacheDir?: string): string {
 }
 
 /**
- * Loads cached media data if the cache file exists and matches current file stat.
+ * Loads content-keyed media data, migrating a matching legacy cache when needed.
  */
 export function loadMediaCache(filePath: string, customCacheDir?: string): MediaCacheData | null {
   try {
@@ -458,18 +498,43 @@ export function loadMediaCache(filePath: string, customCacheDir?: string): Media
     const cacheFile = getCacheFilePath(filePath, customCacheDir);
 
     if (!fs.existsSync(cacheFile)) {
-      return null;
+      const legacyFile = path.join(
+        getCacheDir(customCacheDir),
+        `${getLegacyFileCacheKey(resolved, stat)}.json`,
+      );
+      if (!fs.existsSync(legacyFile)) return null;
+      const legacy = JSON.parse(fs.readFileSync(legacyFile, "utf-8")) as Omit<
+        MediaCacheData,
+        "version"
+      > & { version: 1; mediaMtimeMs: number };
+      if (
+        legacy.version !== 1 ||
+        legacy.mediaSize !== stat.size ||
+        legacy.mediaMtimeMs !== stat.mtimeMs ||
+        legacy.mediaPath !== resolved
+      ) {
+        return null;
+      }
+      const { mediaMtimeMs: _mtime, ...rest } = legacy;
+      const migrated: MediaCacheData = {
+        ...rest,
+        version: 2,
+        mediaPath: resolved,
+        mediaSize: stat.size,
+      };
+      try {
+        fs.writeFileSync(cacheFile, JSON.stringify(migrated, null, 2), "utf-8");
+        fs.unlinkSync(legacyFile);
+      } catch {
+        // Non-fatal if cache migration cannot be persisted.
+      }
+      return migrated;
     }
 
     const raw = fs.readFileSync(cacheFile, "utf-8");
     const data = JSON.parse(raw) as MediaCacheData;
 
-    if (
-      data.version === 1 &&
-      data.mediaSize === stat.size &&
-      data.mediaMtimeMs === stat.mtimeMs &&
-      data.mediaPath === resolved
-    ) {
+    if (data.version === 2 && data.mediaSize === stat.size) {
       return data;
     }
 
@@ -500,10 +565,9 @@ function updateMediaCache(
 
     const now = Date.now();
     const data: MediaCacheData = {
-      version: 1,
+      version: 2,
       mediaPath: resolved,
       mediaSize: stat.size,
-      mediaMtimeMs: stat.mtimeMs,
       transcription: existing?.transcription,
       refinement: existing?.refinement,
       translations: existing?.translations,

@@ -324,10 +324,9 @@ describe("src/translation.ts", () => {
       const params = createParams({
         targetLanguages: ["ja"],
         mediaCache: {
-          version: 1,
+          version: 2,
           mediaPath: "dummy.mp4",
           mediaSize: 1000,
-          mediaMtimeMs: 12345,
           createdAt: 1000,
           updatedAt: 1000,
           translations: {
@@ -362,10 +361,9 @@ describe("src/translation.ts", () => {
       const params = createParams({
         targetLanguages: ["ja", "es"],
         mediaCache: {
-          version: 1,
+          version: 2,
           mediaPath: "dummy.mp4",
           mediaSize: 1000,
-          mediaMtimeMs: 12345,
           createdAt: 1000,
           updatedAt: 1000,
           translations: {

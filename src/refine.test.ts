@@ -51,10 +51,9 @@ describe("src/refine.ts", () => {
       glossaryHash: undefined,
     };
     return {
-      version: 1,
+      version: 2,
       mediaPath: "dummy.mp4",
       mediaSize: 1000,
-      mediaMtimeMs: 12345,
       createdAt: 1000,
       updatedAt: 1000,
       refinement: cacheModule.createCachedRefinement(cacheContext, entries),

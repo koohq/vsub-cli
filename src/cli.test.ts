@@ -677,10 +677,9 @@ describe("CLI integration harness", () => {
 
       function mockCacheWithTranslation(cached: ReturnType<typeof createCachedTranslation>): void {
         vi.mocked(loadMediaCache).mockReturnValue({
-          version: 1,
+          version: 2,
           mediaPath: path.resolve(dummySrtPath),
           mediaSize: 100,
-          mediaMtimeMs: 1000,
           translations: {
             [cached.targetLang.toLowerCase()]: cached,
           },
