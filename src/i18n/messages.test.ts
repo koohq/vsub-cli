@@ -2,6 +2,23 @@ import { describe, expect, it } from "vitest";
 import { en } from "./en.js";
 import { ja } from "./ja.js";
 
+describe("refinement fallback warnings", () => {
+  it.each([
+    {
+      messages: en,
+      expected:
+        "⚠️ [2/4] Refinement kept the original text for 1/3 chunks (the model's answer did not match the input lines)",
+    },
+    {
+      messages: ja,
+      expected:
+        "⚠️ [2/4] 1/3 チャンクはモデルの答えが元の行と対応しなかったため、元の文字をそのまま使いました",
+    },
+  ])("describes unmatched input lines", ({ messages, expected }) => {
+    expect(messages.pipeline.step2RefineFallbackWarn(1, 3)).toBe(expected);
+  });
+});
+
 describe("chapter count warnings", () => {
   it.each([
     {

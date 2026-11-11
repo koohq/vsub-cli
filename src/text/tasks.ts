@@ -7,10 +7,92 @@ import {
 import { type FlatGlossary, formatGlossaryPrompt } from "../glossary.js";
 import type { SupportedLanguage } from "../i18n/index.js";
 import type { SrtEntry } from "../srt.js";
-import { generateJsonWithRetry, type TextModel } from "./model.js";
+import { generateJsonWithRetry, type JsonSchema, type TextModel } from "./model.js";
 
 export const DEFAULT_CHUNK_SIZE = 50;
 export const DEFAULT_CONTEXT_WINDOW_SIZE = 5;
+
+interface TextItem {
+  id: number;
+  text: string;
+}
+
+type TextMatch =
+  | { kind: "matched"; texts: string[] }
+  | { kind: "format" }
+  | {
+      kind: "mismatch";
+      missing: number[];
+      unexpected: number[];
+      duplicated: number[];
+      invalid: number;
+    };
+
+function buildTextItemsSchema(textDescription: string, description: string): JsonSchema {
+  return {
+    type: "array",
+    items: {
+      type: "object",
+      properties: {
+        id: { type: "integer", description: "The id of the input item, copied unchanged" },
+        text: { type: "string", description: textDescription },
+      },
+      required: ["id", "text"],
+    },
+    description,
+  };
+}
+
+function matchTextItems(parsed: unknown, ids: number[]): TextMatch {
+  if (!Array.isArray(parsed)) return { kind: "format" };
+  const expected = new Set(ids);
+  const texts = new Map<number, string>();
+  const duplicated = new Set<number>();
+  let invalid = 0;
+
+  for (const item of parsed) {
+    if (typeof item !== "object" || item === null) {
+      invalid++;
+      continue;
+    }
+    const id = typeof item.id === "string" && /^\d+$/.test(item.id) ? Number(item.id) : item.id;
+    if (
+      typeof id !== "number" ||
+      !Number.isInteger(id) ||
+      id < 0 ||
+      typeof item.text !== "string"
+    ) {
+      invalid++;
+      continue;
+    }
+    if (texts.has(id)) duplicated.add(id);
+    texts.set(id, item.text);
+  }
+
+  const missing = ids.filter((id) => !texts.has(id));
+  const unexpected = [...texts.keys()].filter((id) => !expected.has(id));
+  if (missing.length || unexpected.length || duplicated.size || invalid) {
+    return { kind: "mismatch", missing, unexpected, duplicated: [...duplicated], invalid };
+  }
+  return { kind: "matched", texts: ids.map((id) => texts.get(id) ?? "") };
+}
+
+function formatTextMatchError(
+  logLabel: string,
+  result: Exclude<TextMatch, { kind: "matched" }>,
+): string {
+  if (result.kind === "format") return `${logLabel} returned invalid format (expected array)`;
+  const details: string[] = [];
+  for (const key of ["missing", "unexpected", "duplicated"] as const) {
+    const ids = result[key].toSorted((a, b) => a - b);
+    if (ids.length) {
+      const rest = ids.length > 5 ? `, …(+${ids.length - 5})` : "";
+      details.push(`${key}: ${ids.slice(0, 5).join(", ")}${rest}`);
+    }
+  }
+  if (result.invalid) details.push(`invalid items: ${result.invalid}`);
+  return `${logLabel} returned items that do not match the input ids (${details.join("; ")})`;
+}
 
 export interface TranslateOptions {
   prompt?: string | undefined;
@@ -32,7 +114,7 @@ export interface RefineOptions {
 
 export interface RefineResult {
   entries: SrtEntry[];
-  /** Chunks whose answer had a different number of lines; their original text was kept. */
+  /** Chunks whose answer did not match the input ids; their original text was kept. */
   fallbackChunks: number;
   totalChunks: number;
 }
@@ -84,7 +166,7 @@ export async function asyncPool<T, R>(
  * and preceding context for continuity across chunks.
  */
 export function buildTranslationPrompt(
-  texts: string[],
+  texts: TextItem[],
   targetLang: string,
   options?: TranslateOptions,
   contextTexts?: string[],
@@ -97,8 +179,8 @@ export function buildTranslationPrompt(
 Translate the following array of subtitle texts into target language code "${targetLang}".
 
 STRICT RULES:
-1. Return ONLY a valid JSON array of strings corresponding 1-to-1 with the input array.
-2. The output array MUST contain exactly ${texts.length} items in the same order as input.
+1. Return ONLY a valid JSON array of objects. Each object has "id" (copied unchanged from the input item) and "text" (the translation of that item's text).
+2. Return exactly one object for each of the ${texts.length} input items, using the same "id" values. Do NOT merge, split, skip, or add items.
 3. Translate into natural, clear conversational style suited for video subtitles.
 4. Do NOT include markdown code blocks (such as \`\`\`json), explanations, or any extra text outside the JSON array.`;
 
@@ -170,7 +252,7 @@ async function runChunkedTextTransform(
     transformChunk: (params: {
       chunkIndex: number;
       totalChunks: number;
-      originalTexts: string[];
+      items: TextItem[];
       contextTexts: string[] | undefined;
     }) => Promise<string[]>;
   },
@@ -185,7 +267,10 @@ async function runChunkedTextTransform(
 
   const chunkResults = await asyncPool(concurrency, chunks, async (chunk, chunkIdx) => {
     const chunkIndex = chunkIdx + 1;
-    const originalTexts = chunk.map((e) => e.text);
+    const items = chunk.map((entry, index) => ({
+      id: chunkIdx * DEFAULT_CHUNK_SIZE + index + 1,
+      text: entry.text,
+    }));
     const contextTexts = getPrecedingContextTexts(
       entries,
       chunkIdx,
@@ -207,7 +292,7 @@ async function runChunkedTextTransform(
     const nextTexts = await options.transformChunk({
       chunkIndex,
       totalChunks,
-      originalTexts,
+      items,
       contextTexts,
     });
 
@@ -249,30 +334,26 @@ export async function translateSrtEntries(
     verbose,
     verboseAction: "Translating chunk",
     onProgress,
-    transformChunk: async ({ chunkIndex, totalChunks, originalTexts, contextTexts }) => {
-      const prompt = buildTranslationPrompt(originalTexts, targetLang, options, contextTexts);
+    transformChunk: async ({ chunkIndex, totalChunks, items, contextTexts }) => {
+      const prompt = buildTranslationPrompt(items, targetLang, options, contextTexts);
 
       return generateJsonWithRetry<string[]>(
         model,
         {
           prompt,
           schemaName: "translation",
-          schema: {
-            type: "array",
-            items: {
-              type: "string",
-            },
-            description: `Array of translated subtitle texts matching 1-to-1 with the input array (${originalTexts.length} items).`,
-          },
+          schema: buildTextItemsSchema(
+            "The translation of the input item's text",
+            `Array of translated subtitle texts matched by id to the input items (${items.length} items).`,
+          ),
         },
         (parsed) => {
-          if (Array.isArray(parsed) && parsed.length === originalTexts.length) {
-            return parsed.map((item) => String(item));
-          }
-          const translatedLength = (parsed as { length?: number } | null)?.length ?? 0;
-          throw new Error(
-            `${model.logLabel} returned invalid format or incomplete count (${translatedLength}/${originalTexts.length})`,
+          const result = matchTextItems(
+            parsed,
+            items.map((item) => item.id),
           );
+          if (result.kind === "matched") return result.texts;
+          throw new Error(formatTextMatchError(model.logLabel, result));
         },
         {
           task: "translation",
@@ -291,7 +372,7 @@ export async function translateSrtEntries(
  * Builds the transcript refinement prompt to fix clear ASR recognition errors without rephrasing or translating.
  */
 export function buildRefinePrompt(
-  texts: string[],
+  texts: TextItem[],
   options?: RefineOptions,
   contextTexts?: string[],
 ): string {
@@ -309,8 +390,8 @@ export function buildRefinePrompt(
 Fix ONLY clear recognition errors: wrong homophones or wrong kanji, misheard names and terms, broken or merged words.
 
 STRICT RULES:
-1. Return ONLY a valid JSON array of strings corresponding 1-to-1 with the input array.
-2. The output array MUST contain exactly ${texts.length} items in the same order as input.
+1. Return ONLY a valid JSON array of objects. Each object has "id" (copied unchanged from the input item) and "text" (the proofread text of that item).
+2. Return exactly one object for each of the ${texts.length} input items, using the same "id" values. Do NOT merge, split, skip, or add items.
 3. Do NOT rephrase, summarize, translate, reorder, or add or remove content. Do not change the speaking style.
 4. If an item has no clear error, return it unchanged. Do not move words between items.
 5. Do NOT include markdown code blocks or any text outside the JSON array.`;
@@ -357,37 +438,31 @@ export async function refineSrtEntries(
     verbose,
     verboseAction: "Refining chunk",
     onProgress,
-    transformChunk: async ({
-      chunkIndex,
-      totalChunks: chunkTotal,
-      originalTexts,
-      contextTexts,
-    }) => {
-      const prompt = buildRefinePrompt(originalTexts, options, contextTexts);
+    transformChunk: async ({ chunkIndex, totalChunks: chunkTotal, items, contextTexts }) => {
+      const prompt = buildRefinePrompt(items, options, contextTexts);
+      const originalTexts = items.map((item) => item.text);
 
       const refinedTexts = await generateJsonWithRetry<string[] | null>(
         model,
         {
           prompt,
           schemaName: "refinement",
-          schema: {
-            type: "array",
-            items: {
-              type: "string",
-            },
-            description: `Array of proofread subtitle texts matching 1-to-1 with the input array (${originalTexts.length} items).`,
-          },
+          schema: buildTextItemsSchema(
+            "The proofread text of the input item",
+            `Array of proofread subtitle texts matched by id to the input items (${items.length} items).`,
+          ),
         },
         (parsed) => {
-          if (!Array.isArray(parsed)) {
-            throw new Error(`${model.logLabel} returned invalid format (expected array)`);
+          const result = matchTextItems(
+            parsed,
+            items.map((item) => item.id),
+          );
+          if (result.kind === "format") {
+            throw new Error(formatTextMatchError(model.logLabel, result));
           }
-          if (parsed.length !== originalTexts.length) {
-            return null;
-          }
-          return parsed.map((item, idx) => {
+          if (result.kind === "mismatch") return null;
+          return result.texts.map((next, idx) => {
             const orig = originalTexts[idx] ?? "";
-            const next = String(item);
             return orig.trim() !== "" && next.trim() === "" ? orig : next;
           });
         },

@@ -14,6 +14,23 @@ import {
 } from "./tasks.js";
 
 const mockGenerateContent = vi.fn();
+
+function textItems(texts: string[], startId = 1) {
+  return texts.map((text, index) => ({ id: startId + index, text }));
+}
+
+function readInput(prompt: string): Array<{ id: number; text: string }> {
+  return JSON.parse(prompt.split("Input Array:\n")[1] ?? "[]");
+}
+
+function makeEntries(count: number): SrtEntry[] {
+  return Array.from({ length: count }, (_, idx) => ({
+    id: idx + 1,
+    startTime: `00:00:${String(idx).padStart(2, "0")},000`,
+    endTime: `00:00:${String(idx).padStart(2, "0")},900`,
+    text: `Original line ${idx + 1}`,
+  }));
+}
 vi.mock("@google/genai", () => {
   return {
     GoogleGenAI: class MockGoogleGenAI {
@@ -38,6 +55,7 @@ vi.mock("@google/genai", () => {
 describe("src/text/tasks.ts", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    mockGenerateContent.mockReset();
   });
 
   afterEach(() => {
@@ -45,6 +63,187 @@ describe("src/text/tasks.ts", () => {
   });
 
   const defaultModel = createGeminiTextModel("fake-key", "gemini-3.8-flash");
+
+  describe("subtitle id matching", () => {
+    const entries = makeEntries(4).map((entry) => ({ ...entry, id: 9 }));
+    const answer = textItems(["One", "Two", "Three", "Four"]);
+
+    afterEach(() => vi.useRealTimers());
+
+    it.each(["translation", "refinement"])(
+      "builds %s prompts with ids and plain context",
+      (task) => {
+        const items = textItems(["First", "Second"], 51);
+        const context = ["Previous"];
+        const prompt =
+          task === "translation"
+            ? buildTranslationPrompt(items, "ja", undefined, context)
+            : buildRefinePrompt(items, undefined, context);
+        const textDescription =
+          task === "translation"
+            ? "the translation of that item's text"
+            : "the proofread text of that item";
+        expect(prompt).toContain(
+          `1. Return ONLY a valid JSON array of objects. Each object has "id" (copied unchanged from the input item) and "text" (${textDescription}).`,
+        );
+        expect(prompt).toContain(
+          '2. Return exactly one object for each of the 2 input items, using the same "id" values. Do NOT merge, split, skip, or add items.',
+        );
+        expect(readInput(prompt)).toEqual(items);
+        expect(prompt.split("Input Array:\n")[0]).toContain(JSON.stringify(context, null, 2));
+        expect(prompt.split("Input Array:\n")[0]).not.toContain('"id":');
+      },
+    );
+
+    it("uses global positional ids across 120 entries and sends the object schema", async () => {
+      const manyEntries = makeEntries(120).map((entry, index) => ({
+        ...entry,
+        id: 9,
+        text: `Line ${index + 1}`,
+      }));
+      mockGenerateContent.mockImplementation(async ({ contents }: { contents: string }) => ({
+        text: JSON.stringify(readInput(contents)),
+      }));
+      const result = await translateSrtEntries(manyEntries, "ja", defaultModel, false, undefined, {
+        concurrency: 1,
+      });
+      expect(mockGenerateContent).toHaveBeenCalledTimes(3);
+      for (const [index, call] of mockGenerateContent.mock.calls.entries()) {
+        const request = call[0];
+        expect(readInput(request.contents).map((item) => item.id)).toEqual(
+          Array.from({ length: index === 2 ? 20 : 50 }, (_, offset) => index * 50 + offset + 1),
+        );
+        expect(request.config.responseSchema).toMatchObject({
+          type: "ARRAY",
+          items: {
+            type: "OBJECT",
+            properties: { id: { type: "INTEGER" }, text: { type: "STRING" } },
+            required: ["id", "text"],
+          },
+        });
+      }
+      expect(result).toEqual(manyEntries);
+    });
+
+    it.each(["translation", "refinement"])(
+      "restores %s order and accepts digit-string ids",
+      async (task) => {
+        mockGenerateContent.mockResolvedValueOnce({
+          text: JSON.stringify([answer[3], { id: "2", text: "Two" }, answer[0], answer[2]]),
+        });
+        const result =
+          task === "translation"
+            ? await translateSrtEntries(entries, "ja", defaultModel)
+            : (await refineSrtEntries(entries, defaultModel)).entries;
+        expect(result).toEqual(
+          entries.map((entry, index) => ({ ...entry, text: answer[index]?.text })),
+        );
+        expect(mockGenerateContent).toHaveBeenCalledTimes(1);
+      },
+    );
+
+    const badAnswers = [
+      { name: "missing", value: answer.slice(0, 3) },
+      { name: "unexpected", value: [...answer.slice(0, 3), { id: 51, text: "Extra" }] },
+      { name: "duplicated", value: [answer[0], answer[2], answer[3], answer[3]] },
+      { name: "absent id", value: [...answer.slice(0, 3), { text: "No id" }] },
+      { name: "non-string text", value: [...answer.slice(0, 3), { id: 4, text: null }] },
+      { name: "old string array", value: ["One", "Two", "Three", "Four"] },
+      ...[1.5, -1, "-1", "1.5", " 4", "4x", null].map((id) => ({
+        name: `invalid id ${JSON.stringify(id)}`,
+        value: [...answer.slice(0, 3), { id, text: "Bad" }],
+      })),
+      { name: "non-array", value: { wrong: "shape" } },
+    ];
+
+    it.each(badAnswers)(
+      "retries translation for $name and accepts the next valid answer",
+      async ({ value }) => {
+        vi.useFakeTimers();
+        mockGenerateContent
+          .mockResolvedValueOnce({ text: JSON.stringify(value) })
+          .mockResolvedValueOnce({ text: JSON.stringify(answer) });
+        const promise = translateSrtEntries(entries, "ja", defaultModel);
+        await vi.runAllTimersAsync();
+        expect((await promise).map((entry) => entry.text)).toEqual(answer.map((item) => item.text));
+        expect(mockGenerateContent).toHaveBeenCalledTimes(2);
+      },
+    );
+
+    it.each(badAnswers.filter(({ name }) => name !== "non-array"))(
+      "keeps only the mismatched refinement chunk for $name without retrying",
+      async ({ value }) => {
+        const manyEntries = makeEntries(54);
+        mockGenerateContent.mockImplementation(async ({ contents }: { contents: string }) => {
+          const input = readInput(contents);
+          return {
+            text: JSON.stringify(
+              input[0]?.id === 1
+                ? input.map((item) => ({ ...item, text: "Fixed" }))
+                : Array.isArray(value)
+                  ? value.map((item: unknown) => {
+                      if (
+                        typeof item !== "object" ||
+                        item === null ||
+                        !("id" in item) ||
+                        typeof item.id !== "number"
+                      )
+                        return item;
+                      return { ...item, id: item.id + 50 };
+                    })
+                  : value,
+            ),
+          };
+        });
+        const result = await refineSrtEntries(manyEntries, defaultModel, false, undefined, {
+          concurrency: 1,
+        });
+        expect(result.fallbackChunks).toBe(1);
+        expect(result.totalChunks).toBe(2);
+        expect(result.entries.slice(0, 50).every((entry) => entry.text === "Fixed")).toBe(true);
+        expect(result.entries.slice(50)).toEqual(manyEntries.slice(50));
+        expect(mockGenerateContent).toHaveBeenCalledTimes(2);
+      },
+    );
+
+    it.each([
+      {
+        value: [answer[0], answer[2], answer[3], answer[3]],
+        count: 4,
+        detail: "missing: 2; duplicated: 4",
+      },
+      {
+        value: [
+          { id: 51, text: "Extra" },
+          { id: 51, text: "Again" },
+          { id: 1, text: null },
+        ],
+        count: 4,
+        detail: "missing: 1, 2, 3, 4; unexpected: 51; duplicated: 51; invalid items: 1",
+      },
+      {
+        value: Array.from({ length: 7 }, (_, index) => ({ id: 20 - index, text: "Extra" })).flatMap(
+          (item) => [item, item],
+        ),
+        count: 8,
+        detail:
+          "missing: 1, 2, 3, 4, 5, …(+3); unexpected: 14, 15, 16, 17, 18, …(+2); duplicated: 14, 15, 16, 17, 18, …(+2)",
+      },
+      { value: null, count: 4, detail: null },
+    ])(
+      "fails after four attempts with bounded id diagnostics: $detail",
+      async ({ value, count, detail }) => {
+        vi.useFakeTimers();
+        mockGenerateContent.mockResolvedValue({ text: JSON.stringify(value) });
+        const input = makeEntries(count);
+        const assertion = expect(translateSrtEntries(input, "ja", defaultModel)).rejects.toThrow(
+          `Gemini API translation failed after 4 attempts on chunk 1/1: Gemini API ${detail === null ? "returned invalid format (expected array)" : `returned items that do not match the input ids (${detail})`}`,
+        );
+        await Promise.all([vi.runAllTimersAsync(), assertion]);
+        expect(mockGenerateContent).toHaveBeenCalledTimes(4);
+      },
+    );
+  });
 
   describe("asyncPool", () => {
     it("should return empty array for empty items", async () => {
@@ -83,7 +282,7 @@ describe("src/text/tasks.ts", () => {
 
   describe("buildTranslationPrompt", () => {
     it("should build standard prompt without preceding context", () => {
-      const texts = ["Hello world", "How are you?"];
+      const texts = textItems(["Hello world", "How are you?"]);
       const prompt = buildTranslationPrompt(texts, "ja");
 
       expect(prompt).toContain(
@@ -91,10 +290,10 @@ describe("src/text/tasks.ts", () => {
       );
       expect(prompt).toContain("STRICT RULES:");
       expect(prompt).toContain(
-        "1. Return ONLY a valid JSON array of strings corresponding 1-to-1 with the input array.",
+        '1. Return ONLY a valid JSON array of objects. Each object has "id" (copied unchanged from the input item) and "text" (the translation of that item\'s text).',
       );
       expect(prompt).toContain(
-        "2. The output array MUST contain exactly 2 items in the same order as input.",
+        '2. Return exactly one object for each of the 2 input items, using the same "id" values. Do NOT merge, split, skip, or add items.',
       );
       expect(prompt).toContain(
         "3. Translate into natural, clear conversational style suited for video subtitles.",
@@ -102,11 +301,11 @@ describe("src/text/tasks.ts", () => {
       expect(prompt).toContain("4. Do NOT include markdown code blocks");
       expect(prompt).not.toContain('5. Translate ONLY the items in "Input Array"');
       expect(prompt).not.toContain("PRECEDING CONTEXT");
-      expect(prompt).toContain('Input Array:\n[\n  "Hello world",\n  "How are you?"\n]');
+      expect(readInput(prompt)).toEqual(texts);
     });
 
     it("should inject preceding context and rule 5 when contextTexts is provided", () => {
-      const texts = ["Current line 1", "Current line 2"];
+      const texts = textItems(["Current line 1", "Current line 2"]);
       const contextTexts = ["Preceding dialogue 1", "Preceding dialogue 2"];
       const prompt = buildTranslationPrompt(texts, "ja", undefined, contextTexts);
 
@@ -119,11 +318,11 @@ describe("src/text/tasks.ts", () => {
       );
       expect(prompt).toContain('"Preceding dialogue 1"');
       expect(prompt).toContain('"Preceding dialogue 2"');
-      expect(prompt).toContain('Input Array:\n[\n  "Current line 1",\n  "Current line 2"\n]');
+      expect(readInput(prompt)).toEqual(texts);
     });
 
     it("should not inject preceding context if contextTexts is empty", () => {
-      const texts = ["Line 1"];
+      const texts = textItems(["Line 1"]);
       const prompt = buildTranslationPrompt(texts, "es", undefined, []);
 
       expect(prompt).not.toContain('5. Translate ONLY the items in "Input Array"');
@@ -155,7 +354,7 @@ describe("src/text/tasks.ts", () => {
       ];
 
       mockGenerateContent.mockResolvedValueOnce({
-        text: JSON.stringify(["こんにちは", "元気ですか？"]),
+        text: JSON.stringify(textItems(["こんにちは", "元気ですか？"])),
       });
 
       const result = await translateSrtEntries(entries, "ja", defaultModel);
@@ -188,14 +387,14 @@ describe("src/text/tasks.ts", () => {
       ];
 
       mockGenerateContent.mockResolvedValueOnce({
-        text: '```json\n["テスト"]\n```',
+        text: `\`\`\`json\n${JSON.stringify(textItems(["テスト"]))}\n\`\`\``,
       });
 
       const result = await translateSrtEntries(entries, "ja", defaultModel);
       expect(result[0]?.text).toBe("テスト");
     });
 
-    it("should send responseSchema with Type.ARRAY of Type.STRING in generateContent config", async () => {
+    it("should send responseSchema with an array of id and text objects in generateContent config", async () => {
       const entries: SrtEntry[] = [
         {
           id: 1,
@@ -206,7 +405,7 @@ describe("src/text/tasks.ts", () => {
       ];
 
       mockGenerateContent.mockResolvedValueOnce({
-        text: JSON.stringify(["構造化出力テスト"]),
+        text: JSON.stringify(textItems(["構造化出力テスト"])),
       });
 
       await translateSrtEntries(entries, "ja", defaultModel);
@@ -218,10 +417,15 @@ describe("src/text/tasks.ts", () => {
         responseSchema: {
           type: "ARRAY",
           items: {
-            type: "STRING",
+            type: "OBJECT",
+            properties: {
+              id: { type: "INTEGER", description: "The id of the input item, copied unchanged" },
+              text: { type: "STRING", description: "The translation of the input item's text" },
+            },
+            required: ["id", "text"],
           },
           description:
-            "Array of translated subtitle texts matching 1-to-1 with the input array (1 items).",
+            "Array of translated subtitle texts matched by id to the input items (1 items).",
         },
         thinkingConfig: {
           thinkingLevel: "LOW",
@@ -243,13 +447,34 @@ describe("src/text/tasks.ts", () => {
       mockGenerateContent.mockImplementation(async (req: { contents: string }) => {
         if (req.contents.includes('"English 1"')) {
           await new Promise((resolve) => setTimeout(resolve, 40));
-          return { text: JSON.stringify(Array.from({ length: 50 }, (_, i) => `日本語 ${i + 1}`)) };
+          return {
+            text: JSON.stringify(
+              textItems(
+                Array.from({ length: 50 }, (_, i) => `日本語 ${i + 1}`),
+                1,
+              ),
+            ),
+          };
         }
         if (req.contents.includes('"English 51"')) {
           await new Promise((resolve) => setTimeout(resolve, 10));
-          return { text: JSON.stringify(Array.from({ length: 50 }, (_, i) => `日本語 ${i + 51}`)) };
+          return {
+            text: JSON.stringify(
+              textItems(
+                Array.from({ length: 50 }, (_, i) => `日本語 ${i + 51}`),
+                51,
+              ),
+            ),
+          };
         }
-        return { text: JSON.stringify(Array.from({ length: 10 }, (_, i) => `日本語 ${i + 101}`)) };
+        return {
+          text: JSON.stringify(
+            textItems(
+              Array.from({ length: 10 }, (_, i) => `日本語 ${i + 101}`),
+              101,
+            ),
+          ),
+        };
       });
 
       const result = await translateSrtEntries(entries, "ja", defaultModel, false, undefined, {
@@ -284,12 +509,14 @@ describe("src/text/tasks.ts", () => {
         logLabel: "TestModel",
         model: "fake-test-model",
         limits: { defaultConcurrency: 1 },
-        generateJson: async () => {
+        generateJson: async (request) => {
           activeWorkers++;
           maxActiveWorkers = Math.max(maxActiveWorkers, activeWorkers);
           await new Promise((resolve) => setTimeout(resolve, 20));
           activeWorkers--;
-          return JSON.stringify(Array.from({ length: 50 }, () => "translated"));
+          return JSON.stringify(
+            readInput(request.prompt).map((item) => ({ ...item, text: "translated" })),
+          );
         },
         classifyError: () => "retry",
         formatModelNotFound: () => "not found",
@@ -312,10 +539,20 @@ describe("src/text/tasks.ts", () => {
 
       mockGenerateContent
         .mockResolvedValueOnce({
-          text: JSON.stringify(Array.from({ length: 50 }, (_, i) => `Translated ${i + 1}`)),
+          text: JSON.stringify(
+            textItems(
+              Array.from({ length: 50 }, (_, i) => `Translated ${i + 1}`),
+              1,
+            ),
+          ),
         })
         .mockResolvedValueOnce({
-          text: JSON.stringify(Array.from({ length: 10 }, (_, i) => `Translated ${i + 51}`)),
+          text: JSON.stringify(
+            textItems(
+              Array.from({ length: 10 }, (_, i) => `Translated ${i + 51}`),
+              51,
+            ),
+          ),
         });
 
       const onProgress = vi.fn();
@@ -337,9 +574,9 @@ describe("src/text/tasks.ts", () => {
       ];
 
       mockGenerateContent.mockResolvedValueOnce({
-        text: JSON.stringify([
-          "私たちはエージェンティックAIのためにアンチグラビティを使用します。",
-        ]),
+        text: JSON.stringify(
+          textItems(["私たちはエージェンティックAIのためにアンチグラビティを使用します。"]),
+        ),
       });
 
       const customModel = createGeminiTextModel("fake-key", "gemini-3.7-flash");
@@ -423,10 +660,20 @@ describe("src/text/tasks.ts", () => {
 
       mockGenerateContent
         .mockResolvedValueOnce({
-          text: JSON.stringify(Array.from({ length: 50 }, (_, i) => `文 ${i + 1}`)),
+          text: JSON.stringify(
+            textItems(
+              Array.from({ length: 50 }, (_, i) => `文 ${i + 1}`),
+              1,
+            ),
+          ),
         })
         .mockResolvedValueOnce({
-          text: JSON.stringify(Array.from({ length: 10 }, (_, i) => `文 ${i + 51}`)),
+          text: JSON.stringify(
+            textItems(
+              Array.from({ length: 10 }, (_, i) => `文 ${i + 51}`),
+              51,
+            ),
+          ),
         });
 
       await translateSrtEntries(entries, "ja", defaultModel, false, undefined, { concurrency: 1 });
@@ -467,10 +714,20 @@ describe("src/text/tasks.ts", () => {
 
       mockGenerateContent
         .mockResolvedValueOnce({
-          text: JSON.stringify(Array.from({ length: 50 }, (_, i) => `訳 ${i + 1}`)),
+          text: JSON.stringify(
+            textItems(
+              Array.from({ length: 50 }, (_, i) => `訳 ${i + 1}`),
+              1,
+            ),
+          ),
         })
         .mockResolvedValueOnce({
-          text: JSON.stringify(Array.from({ length: 10 }, (_, i) => `訳 ${i + 51}`)),
+          text: JSON.stringify(
+            textItems(
+              Array.from({ length: 10 }, (_, i) => `訳 ${i + 51}`),
+              51,
+            ),
+          ),
         });
 
       await translateSrtEntries(entries, "ja", defaultModel, false, undefined, {
@@ -498,10 +755,20 @@ describe("src/text/tasks.ts", () => {
 
       mockGenerateContent
         .mockResolvedValueOnce({
-          text: JSON.stringify(Array.from({ length: 50 }, (_, i) => `訳 ${i + 1}`)),
+          text: JSON.stringify(
+            textItems(
+              Array.from({ length: 50 }, (_, i) => `訳 ${i + 1}`),
+              1,
+            ),
+          ),
         })
         .mockResolvedValueOnce({
-          text: JSON.stringify(Array.from({ length: 10 }, (_, i) => `訳 ${i + 51}`)),
+          text: JSON.stringify(
+            textItems(
+              Array.from({ length: 10 }, (_, i) => `訳 ${i + 51}`),
+              51,
+            ),
+          ),
         });
 
       await translateSrtEntries(entries, "ja", defaultModel, false, undefined, {
@@ -750,7 +1017,7 @@ describe("src/text/tasks.ts", () => {
   });
 
   describe("buildRefinePrompt", () => {
-    const baseTexts = ["line one", "line two"];
+    const baseTexts = textItems(["line one", "line two"]);
 
     it.each([
       {
@@ -759,9 +1026,9 @@ describe("src/text/tasks.ts", () => {
         contextTexts: undefined,
         contains: [
           "You are proofreading automatic speech recognition (ASR) output for video subtitles.\nFix ONLY clear recognition errors",
-          "2. The output array MUST contain exactly 2 items in the same order as input.",
+          '2. Return exactly one object for each of the 2 input items, using the same "id" values. Do NOT merge, split, skip, or add items.',
           "4. If an item has no clear error, return it unchanged. Do not move words between items.",
-          'Input Array:\n[\n  "line one",\n  "line two"\n]',
+          `Input Array:\n${JSON.stringify(baseTexts, null, 2)}`,
         ],
         notContains: [
           "The language is",
@@ -834,15 +1101,6 @@ describe("src/text/tasks.ts", () => {
   });
 
   describe("refineSrtEntries", () => {
-    function makeEntries(count: number): SrtEntry[] {
-      return Array.from({ length: count }, (_, idx) => ({
-        id: idx + 1,
-        startTime: `00:00:${String(idx).padStart(2, "0")},000`,
-        endTime: `00:00:${String(idx).padStart(2, "0")},900`,
-        text: `Original line ${idx + 1}`,
-      }));
-    }
-
     function createFakeModel(
       generateJsonFn: TextModel["generateJson"],
       defaultConcurrency = 3,
@@ -878,15 +1136,16 @@ describe("src/text/tasks.ts", () => {
       const onProgress = vi.fn();
 
       const model = createFakeModel(async (req) => {
-        const inputMatch = req.prompt.match(/Input Array:\n([\s\S]+)$/);
-        const inputArray = JSON.parse(inputMatch?.[1] ?? "[]") as string[];
+        const inputArray = readInput(req.prompt);
         requests.push({
           prompt: req.prompt,
           schemaName: req.schemaName,
           schemaType: req.schema.type,
           itemCount: inputArray.length,
         });
-        return JSON.stringify(inputArray.map((t) => t.replace("Original", "Refined")));
+        return JSON.stringify(
+          inputArray.map((item) => ({ ...item, text: item.text.replace("Original", "Refined") })),
+        );
       });
 
       const result = await refineSrtEntries(entries, model, false, onProgress, {
@@ -937,13 +1196,28 @@ describe("src/text/tasks.ts", () => {
 
       const generateJson = vi.fn(async (req: { prompt: string }) => {
         if (req.prompt.includes('"Original line 1"')) {
-          return JSON.stringify(Array.from({ length: 50 }, (_, i) => `Refined ${i + 1}`));
+          return JSON.stringify(
+            textItems(
+              Array.from({ length: 50 }, (_, i) => `Refined ${i + 1}`),
+              1,
+            ),
+          );
         }
         if (req.prompt.includes('"Original line 51"')) {
           chunk2Calls++;
-          return JSON.stringify(Array.from({ length: 49 }, (_, i) => `Short ${i + 51}`));
+          return JSON.stringify(
+            textItems(
+              Array.from({ length: 49 }, (_, i) => `Short ${i + 51}`),
+              51,
+            ),
+          );
         }
-        return JSON.stringify(Array.from({ length: 20 }, (_, i) => `Refined ${i + 101}`));
+        return JSON.stringify(
+          textItems(
+            Array.from({ length: 20 }, (_, i) => `Refined ${i + 101}`),
+            101,
+          ),
+        );
       });
 
       const model = createFakeModel(generateJson);
@@ -965,7 +1239,7 @@ describe("src/text/tasks.ts", () => {
         { id: 1, startTime: "00:00:00,000", endTime: "00:00:01,000", text: "Keep me" },
         { id: 2, startTime: "00:00:01,000", endTime: "00:00:02,000", text: "Fix typo" },
       ];
-      const model = createFakeModel(async () => JSON.stringify(["   ", "Fixed typo"]));
+      const model = createFakeModel(async () => JSON.stringify(textItems(["   ", "Fixed typo"])));
 
       const result = await refineSrtEntries(entries, model);
 
@@ -981,7 +1255,7 @@ describe("src/text/tasks.ts", () => {
           .fn()
           .mockResolvedValueOnce("not json at all")
           .mockResolvedValueOnce(JSON.stringify({ wrong: "shape" }))
-          .mockResolvedValueOnce(JSON.stringify(["Fixed 1", "Fixed 2"]));
+          .mockResolvedValueOnce(JSON.stringify(textItems(["Fixed 1", "Fixed 2"])));
 
         const model = createFakeModel(generateJson);
         const promise = refineSrtEntries(entries, model);
@@ -1001,12 +1275,14 @@ describe("src/text/tasks.ts", () => {
       let active = 0;
       let maxActive = 0;
 
-      const model = createFakeModel(async () => {
+      const model = createFakeModel(async (request) => {
         active++;
         maxActive = Math.max(maxActive, active);
         await new Promise((resolve) => setTimeout(resolve, 20));
         active--;
-        return JSON.stringify(Array.from({ length: 50 }, () => "refined"));
+        return JSON.stringify(
+          readInput(request.prompt).map((item) => ({ ...item, text: "refined" })),
+        );
       }, 1);
 
       await refineSrtEntries(entries, model);

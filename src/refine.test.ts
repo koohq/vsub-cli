@@ -161,7 +161,7 @@ describe("src/refine.ts", () => {
     expect(result.changedLines).toBe(0);
     expect(mockSpinner.warn).toHaveBeenCalledTimes(1);
     expect(mockSpinner.warn).toHaveBeenCalledWith(
-      "⚠️ [2/4] Refinement kept the original text for 1/2 chunks (the model returned a different number of lines)",
+      "⚠️ [2/4] Refinement kept the original text for 1/2 chunks (the model's answer did not match the input lines)",
     );
   });
 

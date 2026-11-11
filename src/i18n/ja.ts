@@ -100,7 +100,7 @@ export const ja: typeof en = {
     step2Refined: (changed: number, total: number, cached = false) =>
       `✍️ [2/4] 文字起こしの修正完了 - ${changed}/${total} 行を変更${cached ? " [⚡ キャッシュ利用]" : ""}`,
     step2RefineFallbackWarn: (fallbackChunks: number, totalChunks: number) =>
-      `⚠️ [2/4] ${fallbackChunks}/${totalChunks} チャンクはモデルが返した行数が一致しなかったため、元の文字をそのまま使いました`,
+      `⚠️ [2/4] ${fallbackChunks}/${totalChunks} チャンクはモデルの答えが元の行と対応しなかったため、元の文字をそのまま使いました`,
     step3Cached: (lang: string, count: number) => `  ✔ ${lang} 翻訳 (キャッシュ利用: ${count} 行)`,
     step3TranslatingMulti: (
       provider: string,

@@ -97,7 +97,7 @@ export const en = {
     step2Refined: (changed: number, total: number, cached = false) =>
       `✍️ [2/4] Transcript refined - ${changed}/${total} lines changed${cached ? " [⚡ Cached]" : ""}`,
     step2RefineFallbackWarn: (fallbackChunks: number, totalChunks: number) =>
-      `⚠️ [2/4] Refinement kept the original text for ${fallbackChunks}/${totalChunks} chunks (the model returned a different number of lines)`,
+      `⚠️ [2/4] Refinement kept the original text for ${fallbackChunks}/${totalChunks} chunks (the model's answer did not match the input lines)`,
     step3Cached: (lang: string, count: number) =>
       `  ✔ ${lang} translation (cached: ${count} lines)`,
     step3TranslatingMulti: (
