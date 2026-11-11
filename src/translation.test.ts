@@ -1,6 +1,7 @@
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
+import { stripVTControlCharacters } from "node:util";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import * as cacheModule from "./cache.js";
 import type { SrtEntry } from "./srt.js";
@@ -182,6 +183,33 @@ describe("src/translation.ts", () => {
         expect(readCache()?.translations?.["ja"]?.partialChunks).toBeUndefined();
         expect(readCache()?.translations?.["ja"]?.chunkSize).toBeUndefined();
       });
+
+      it.each(["en", "ja"] as const)(
+        "prints a verbose resume notice to stderr in %s",
+        async (lang) => {
+          cacheModule.saveTranslationCache(
+            params.cacheFilePath,
+            "ja",
+            partial({ "0": Array<string>(50).fill("Saved") }),
+            params.cacheDir,
+          );
+          params.mediaCache = readCache();
+          params.verbose = true;
+          params.lang = lang;
+          params.prefix = "[1/3] ";
+          const error = vi.spyOn(console, "error").mockImplementation(() => {});
+          vi.mocked(mockSpinner.info).mockClear();
+          await translateToTargets(params);
+          const notice =
+            lang === "en"
+              ? "[1/3]   ↻ JA: resuming from the cache (1 of 3 chunks already saved)"
+              : "[1/3]   ↻ JA: 途中から再開します（3 チャンクのうち 1 は保存済み）";
+          expect(error.mock.calls.map(([text]) => stripVTControlCharacters(String(text)))).toEqual([
+            notice,
+          ]);
+          expect(mockSpinner.info).not.toHaveBeenCalled();
+        },
+      );
 
       it.each([true, false])(
         "keeps the original failure when no checkpoint can be saved (noCache: %s)",

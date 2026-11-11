@@ -1,5 +1,5 @@
 import { stripVTControlCharacters } from "node:util";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import {
   createSpinner,
   displayWidth,
@@ -8,6 +8,7 @@ import {
   formatFileSize,
   formatSummaryBox,
   padEndToWidth,
+  showSpinnerNotice,
 } from "./ui.js";
 
 describe("ui module", () => {
@@ -590,6 +591,29 @@ describe("ui module", () => {
       expect(summary).toContain("FFmpeg codec error");
       expect(summary).toContain("video3.mp4");
       expect(summary).toContain("スキップ");
+    });
+  });
+
+  describe("showSpinnerNotice", () => {
+    it.each(["info", "warn"] as const)("routes %s notices according to verbosity", (kind) => {
+      const spinner = createSpinner("", { isSilent: true });
+      const info = vi.spyOn(spinner, "info");
+      const warn = vi.spyOn(spinner, "warn");
+      const error = vi.spyOn(console, "error").mockImplementation(() => {});
+      try {
+        showSpinnerNotice(spinner, true, kind, "Test notice");
+        expect(error.mock.calls.map(([text]) => stripVTControlCharacters(String(text)))).toEqual([
+          "Test notice",
+        ]);
+        expect(info).not.toHaveBeenCalled();
+        expect(warn).not.toHaveBeenCalled();
+        error.mockClear();
+        showSpinnerNotice(spinner, false, kind, "Test notice");
+        expect(spinner[kind]).toHaveBeenCalledExactlyOnceWith("Test notice");
+        expect(error).not.toHaveBeenCalled();
+      } finally {
+        vi.restoreAllMocks();
+      }
     });
   });
 

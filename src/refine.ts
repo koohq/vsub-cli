@@ -11,7 +11,7 @@ import type { SrtEntry } from "./srt.js";
 import type { TextModel } from "./text/model.js";
 import { LLM_PROVIDER_LABELS, type LlmProvider } from "./text/providers.js";
 import { DEFAULT_CHUNK_SIZE, refineSrtEntries } from "./text/tasks.js";
-import type { ProgressSpinner } from "./ui.js";
+import { type ProgressSpinner, showSpinnerNotice } from "./ui.js";
 
 export interface RefineSourceEntriesParams {
   sourceEntries: SrtEntry[];
@@ -147,7 +147,10 @@ export async function refineSourceEntries(
   );
 
   if (refined.fallbackChunks > 0) {
-    params.spinner.warn(
+    showSpinnerNotice(
+      params.spinner,
+      params.verbose,
+      "warn",
       `${params.prefix}${i18n.pipeline.step2RefineFallbackWarn(refined.fallbackChunks, refined.totalChunks)}`,
     );
   }

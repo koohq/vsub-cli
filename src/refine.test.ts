@@ -1,4 +1,5 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { stripVTControlCharacters } from "node:util";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import * as cacheModule from "./cache.js";
 import { type RefineSourceEntriesParams, refineSourceEntries } from "./refine.js";
 import type { SrtEntry } from "./srt.js";
@@ -7,6 +8,7 @@ import * as tasksModule from "./text/tasks.js";
 import type { ProgressSpinner } from "./ui.js";
 
 describe("src/refine.ts", () => {
+  afterEach(() => vi.restoreAllMocks());
   const sampleEntries: SrtEntry[] = [
     { id: 1, startTime: "00:00:01,000", endTime: "00:00:02,000", text: "誤認識のテスト" },
     { id: 2, startTime: "00:00:02,500", endTime: "00:00:04,000", text: "変更なしの行" },
@@ -146,23 +148,34 @@ describe("src/refine.ts", () => {
     expect(mockSpinner.warn).not.toHaveBeenCalled();
   });
 
-  it("warns once and skips saving cache when fallbackChunks > 0", async () => {
-    refineSpy.mockResolvedValueOnce({
-      entries: sampleEntries,
-      fallbackChunks: 1,
-      totalChunks: 2,
-    });
+  it.each([false, true])(
+    "warns once and skips saving cache on fallback (verbose: %s)",
+    async (verbose) => {
+      refineSpy.mockResolvedValueOnce({
+        entries: sampleEntries,
+        fallbackChunks: 1,
+        totalChunks: 2,
+      });
 
-    const result = await refineSourceEntries(createParams());
+      const error = vi.spyOn(console, "error").mockImplementation(() => {});
+      const result = await refineSourceEntries(createParams({ verbose }));
 
-    expect(saveCacheSpy).not.toHaveBeenCalled();
-    expect(result.fallbackChunks).toBe(1);
-    expect(result.changedLines).toBe(0);
-    expect(mockSpinner.warn).toHaveBeenCalledTimes(1);
-    expect(mockSpinner.warn).toHaveBeenCalledWith(
-      "⚠️ [2/4] Refinement kept the original text for 1/2 chunks (the model's answer did not match the input lines)",
-    );
-  });
+      expect(saveCacheSpy).not.toHaveBeenCalled();
+      expect(result.fallbackChunks).toBe(1);
+      expect(result.changedLines).toBe(0);
+      const notice =
+        "⚠️ [2/4] Refinement kept the original text for 1/2 chunks (the model's answer did not match the input lines)";
+      if (verbose) {
+        expect(error.mock.calls.map(([text]) => stripVTControlCharacters(String(text)))).toEqual([
+          notice,
+        ]);
+        expect(mockSpinner.warn).not.toHaveBeenCalled();
+      } else {
+        expect(mockSpinner.warn).toHaveBeenCalledExactlyOnceWith(notice);
+        expect(error).not.toHaveBeenCalled();
+      }
+    },
+  );
 
   it("ignores cached refinement when useCache is false (--fresh) and saves new cache when noCache is false", async () => {
     const mediaCache = createMediaCacheWithRefinement([

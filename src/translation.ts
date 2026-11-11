@@ -18,7 +18,7 @@ import {
   DEFAULT_CONTEXT_WINDOW_SIZE,
   translateSrtEntries,
 } from "./text/tasks.js";
-import type { ProgressSpinner } from "./ui.js";
+import { type ProgressSpinner, showSpinnerNotice } from "./ui.js";
 
 export interface TranslateToTargetsParams {
   sourceEntries: SrtEntry[];
@@ -190,7 +190,10 @@ export async function translateToTargets(
         : {};
     const savedCount = Object.keys(completedChunks).length;
     if (savedCount > 0) {
-      params.spinner.info(
+      showSpinnerNotice(
+        params.spinner,
+        params.verbose,
+        "info",
         `${params.prefix}${i18n.pipeline.translationResuming(targetL.toUpperCase(), savedCount, totalChunks)}`,
       );
     }

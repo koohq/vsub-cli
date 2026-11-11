@@ -358,6 +358,17 @@ export interface CreateSpinnerOptions {
   stream?: NodeJS.WritableStream | undefined;
 }
 
+/** Shows a one-off notice that must stay visible when --verbose silences the spinner. */
+export function showSpinnerNotice(
+  spinner: ProgressSpinner,
+  verbose: boolean,
+  kind: "info" | "warn",
+  text: string,
+): void {
+  if (verbose) console.error(text);
+  else spinner[kind](text);
+}
+
 /**
  * Creates a configured spinner instance.
  * Automatically handles silent / non-TTY modes.
