@@ -149,6 +149,69 @@ export function isSupportedMediaFile(filePath: string): boolean {
   return isAudioFile(filePath) || isVideoFile(filePath);
 }
 
+const SILENCE_NOISE_DB = -35;
+const SILENCE_MIN_SECONDS = 0.3;
+const SILENCE_LOOKBACK_SECONDS = 30;
+
+export interface SilenceInterval {
+  start: number;
+  end: number;
+}
+
+export interface AudioSplitPoint {
+  seconds: number;
+  noSilence: boolean;
+}
+
+/** Parses silencedetect events, including an unfinished silence at the end. */
+export function parseSilenceIntervals(stderr: string, totalSeconds: number): SilenceInterval[] {
+  const intervals: SilenceInterval[] = [];
+  let start: number | undefined;
+  const events = stderr.matchAll(/silence_(start|end):\s*(-?\d+(?:\.\d+)?(?:e[+-]?\d+)?)/gi);
+  for (const event of events) {
+    const seconds = Number(event[2]);
+    if (event[1] === "start") {
+      start = Math.max(0, seconds);
+    } else if (start !== undefined) {
+      intervals.push({ start, end: seconds });
+      start = undefined;
+    }
+  }
+  if (start !== undefined) intervals.push({ start, end: totalSeconds });
+  return intervals;
+}
+
+/** Chooses the latest silence midpoint in the window before each successive target. */
+export function planAudioSplitPoints(
+  totalSeconds: number,
+  silences: readonly SilenceInterval[],
+  segmentSeconds: number,
+): AudioSplitPoint[] {
+  const points: AudioSplitPoint[] = [];
+  if (!Number.isFinite(totalSeconds) || !Number.isFinite(segmentSeconds) || segmentSeconds <= 0) {
+    return points;
+  }
+  let start = 0;
+  while (totalSeconds - start > segmentSeconds) {
+    const target = start + segmentSeconds;
+    let latestMidpoint: number | undefined;
+    for (const silence of silences) {
+      const midpoint = (silence.start + silence.end) / 2;
+      if (
+        midpoint > target - SILENCE_LOOKBACK_SECONDS &&
+        midpoint <= target &&
+        midpoint > start &&
+        (latestMidpoint === undefined || midpoint > latestMidpoint)
+      ) {
+        latestMidpoint = midpoint;
+      }
+    }
+    start = latestMidpoint ?? target;
+    points.push({ seconds: start, noSilence: latestMidpoint === undefined });
+  }
+  return points;
+}
+
 /**
  * Extracts and optimizes lightweight 16kHz mono audio from a video or audio file.
  * Handles audio splitting if the file size exceeds the given limit.
@@ -164,131 +227,192 @@ export async function extractAudio(
   }
 
   const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "vsub-"));
-  const tempAudioFile = path.join(tempDir, "extracted.m4a");
+  try {
+    const tempAudioFile = path.join(tempDir, "extracted.m4a");
 
-  // Extract lightweight 16kHz mono audio at 48kbps
-  const ffmpegArgs = [
-    "-i",
-    mediaPath,
-    "-vn",
-    "-ar",
-    "16000",
-    "-ac",
-    "1",
-    "-b:a",
-    "48k",
-    "-y",
-    tempAudioFile,
-  ];
-
-  if (verbose) {
-    console.log(`[ffmpeg] Executing command: ${ffmpegPath} ${ffmpegArgs.join(" ")}`);
-  }
-
-  await execa(ffmpegPath, ffmpegArgs);
-
-  if (!fs.existsSync(tempAudioFile)) {
-    throw new Error("Failed to extract audio. Temporary file was not created.");
-  }
-
-  const stats = fs.statSync(tempAudioFile);
-  const maxSizeBytes = splitLimits.maxFileBytes;
-
-  const createdTempFiles: string[] = [tempAudioFile];
-
-  let finalAudioPaths: string[] = [];
-  let finalDurations: number[] | undefined;
-
-  const shouldSplitBySize = stats.size > maxSizeBytes;
-  let shouldSplitByDuration = false;
-
-  if (!shouldSplitBySize && splitLimits.maxChunkSeconds !== undefined) {
-    try {
-      const dur = await getMediaDurationInSeconds(tempAudioFile, ffmpegPath);
-      shouldSplitByDuration = dur <= 0 || dur > splitLimits.maxChunkSeconds;
-    } catch {
-      shouldSplitByDuration = true;
-    }
-  }
-
-  if (!shouldSplitBySize && !shouldSplitByDuration) {
-    finalAudioPaths = [tempAudioFile];
-  } else {
-    if (verbose) {
-      if (shouldSplitBySize) {
-        console.log(
-          `[ffmpeg] Extracted audio exceeds 25MB threshold. Starting audio split process (${(stats.size / 1024 / 1024).toFixed(1)}MB)`,
-        );
-      } else {
-        console.log(
-          `[ffmpeg] Extracted audio is longer than ${splitLimits.maxChunkSeconds}s. Splitting into ${splitLimits.segmentSeconds}s segments`,
-        );
-      }
-    }
-
-    // Split audio into segments of the provider's chunk length
-    const segmentPattern = path.join(tempDir, "segment_%03d.m4a");
-    const splitArgs = [
+    // Extract lightweight 16kHz mono audio at 48kbps
+    const ffmpegArgs = [
       "-i",
-      tempAudioFile,
-      "-f",
-      "segment",
-      "-segment_time",
-      String(splitLimits.segmentSeconds),
-      "-c",
-      "copy",
+      mediaPath,
+      "-vn",
+      "-ar",
+      "16000",
+      "-ac",
+      "1",
+      "-b:a",
+      "48k",
       "-y",
-      segmentPattern,
+      tempAudioFile,
     ];
 
-    await execa(ffmpegPath, splitArgs);
+    if (verbose) {
+      console.log(`[ffmpeg] Executing command: ${ffmpegPath} ${ffmpegArgs.join(" ")}`);
+    }
 
-    const segments = fs
-      .readdirSync(tempDir)
-      .filter((f) => f.startsWith("segment_") && f.endsWith(".m4a"))
-      .sort()
-      .map((f) => path.join(tempDir, f));
+    await execa(ffmpegPath, ffmpegArgs);
 
-    if (segments.length > 0) {
-      finalAudioPaths = segments;
-      createdTempFiles.push(...segments);
+    if (!fs.existsSync(tempAudioFile)) {
+      throw new Error("Failed to extract audio. Temporary file was not created.");
+    }
 
-      // Accurately measure each segment's playback duration
-      const segmentDurations: number[] = [];
-      for (const segmentPath of segments) {
-        try {
-          const dur = await getMediaDurationInSeconds(segmentPath, ffmpegPath);
-          segmentDurations.push(dur > 0 ? dur : splitLimits.segmentSeconds);
-        } catch {
-          segmentDurations.push(splitLimits.segmentSeconds);
-        }
+    const stats = fs.statSync(tempAudioFile);
+    const maxSizeBytes = splitLimits.maxFileBytes;
+
+    const createdTempFiles: string[] = [tempAudioFile];
+
+    let finalAudioPaths: string[] = [];
+    let finalDurations: number[] | undefined;
+
+    const shouldSplitBySize = stats.size > maxSizeBytes;
+    let shouldSplitByDuration = false;
+    let audioDuration: number | undefined;
+
+    if (!shouldSplitBySize && splitLimits.maxChunkSeconds !== undefined) {
+      try {
+        audioDuration = await getMediaDurationInSeconds(tempAudioFile, ffmpegPath);
+        shouldSplitByDuration = audioDuration <= 0 || audioDuration > splitLimits.maxChunkSeconds;
+      } catch {
+        audioDuration = 0;
+        shouldSplitByDuration = true;
       }
-      finalDurations = segmentDurations;
-    } else {
+    }
+
+    if (!shouldSplitBySize && !shouldSplitByDuration) {
       finalAudioPaths = [tempAudioFile];
-    }
-  }
-
-  const cleanup = async () => {
-    try {
-      for (const file of createdTempFiles) {
-        if (fs.existsSync(file)) {
-          fs.unlinkSync(file);
+    } else {
+      if (verbose) {
+        if (shouldSplitBySize) {
+          console.log(
+            `[ffmpeg] Extracted audio exceeds 25MB threshold (${(stats.size / 1024 / 1024).toFixed(1)}MB). Splitting into segments of up to ${splitLimits.segmentSeconds}s at silences`,
+          );
+        } else {
+          console.log(
+            `[ffmpeg] Extracted audio is longer than ${splitLimits.maxChunkSeconds}s. Splitting into segments of up to ${splitLimits.segmentSeconds}s at silences`,
+          );
         }
       }
-      if (fs.existsSync(tempDir)) {
-        fs.rmdirSync(tempDir);
-      }
-    } catch (_err) {
-      // Ignore cleanup errors
-    }
-  };
 
-  return {
-    audioPaths: finalAudioPaths,
-    durations: finalDurations,
-    cleanup,
-  };
+      if (audioDuration === undefined) {
+        audioDuration = await getMediaDurationInSeconds(tempAudioFile, ffmpegPath).catch(() => 0);
+      }
+      let splitPoints: AudioSplitPoint[] | undefined;
+      if (audioDuration > 0) {
+        try {
+          const { stderr } = await execa(ffmpegPath, [
+            "-hide_banner",
+            "-nostats",
+            "-i",
+            tempAudioFile,
+            "-af",
+            `silencedetect=noise=${SILENCE_NOISE_DB}dB:d=${SILENCE_MIN_SECONDS}`,
+            "-f",
+            "null",
+            "-",
+          ]);
+          splitPoints = planAudioSplitPoints(
+            audioDuration,
+            parseSilenceIntervals(stderr, audioDuration),
+            splitLimits.segmentSeconds,
+          );
+        } catch {
+          if (verbose) {
+            console.log(
+              "[ffmpeg] Falling back to fixed-length segments: silence detection failed.",
+            );
+          }
+        }
+      } else if (verbose) {
+        console.log(
+          "[ffmpeg] Falling back to fixed-length segments: audio duration is unavailable.",
+        );
+      }
+      if (verbose && splitPoints !== undefined) {
+        console.log(
+          `[ffmpeg] Split points: ${splitPoints.map((point) => `${Number(point.seconds.toFixed(3))}s${point.noSilence ? " (no silence)" : ""}`).join(", ")}`,
+        );
+      }
+
+      // Stream-copy segments using planned boundaries, or fixed lengths if planning failed.
+      const segmentPattern = path.join(tempDir, "segment_%03d.m4a");
+      const splitArgs = [
+        "-i",
+        tempAudioFile,
+        "-f",
+        "segment",
+        ...(splitPoints === undefined
+          ? ["-segment_time", String(splitLimits.segmentSeconds)]
+          : ["-segment_times", splitPoints.map((point) => point.seconds.toFixed(3)).join(",")]),
+        "-c",
+        "copy",
+        "-y",
+        segmentPattern,
+      ];
+
+      // A short file split by size may have no internal boundaries.
+      if (splitPoints?.length !== 0) await execa(ffmpegPath, splitArgs);
+
+      const segments = fs
+        .readdirSync(tempDir)
+        .filter((f) => f.startsWith("segment_") && f.endsWith(".m4a"))
+        .sort()
+        .map((f) => path.join(tempDir, f));
+
+      if (segments.length > 0) {
+        finalAudioPaths = segments;
+        createdTempFiles.push(...segments);
+
+        // Accurately measure each segment's playback duration
+        const segmentDurations: number[] = [];
+        const boundaries =
+          splitPoints === undefined
+            ? undefined
+            : [0, ...splitPoints.map((point) => point.seconds), audioDuration];
+        for (const [index, segmentPath] of segments.entries()) {
+          const start = boundaries?.[index];
+          const end = boundaries?.[index + 1];
+          const fallbackDuration =
+            start !== undefined && end !== undefined ? end - start : splitLimits.segmentSeconds;
+          try {
+            const dur = await getMediaDurationInSeconds(segmentPath, ffmpegPath);
+            segmentDurations.push(dur > 0 ? dur : fallbackDuration);
+          } catch {
+            segmentDurations.push(fallbackDuration);
+          }
+        }
+        finalDurations = segmentDurations;
+      } else {
+        finalAudioPaths = [tempAudioFile];
+      }
+    }
+
+    const cleanup = async () => {
+      try {
+        for (const file of createdTempFiles) {
+          if (fs.existsSync(file)) {
+            fs.unlinkSync(file);
+          }
+        }
+        if (fs.existsSync(tempDir)) {
+          fs.rmdirSync(tempDir);
+        }
+      } catch (_err) {
+        // Ignore cleanup errors
+      }
+    };
+
+    return {
+      audioPaths: finalAudioPaths,
+      durations: finalDurations,
+      cleanup,
+    };
+  } catch (error) {
+    try {
+      fs.rmSync(tempDir, { recursive: true, force: true });
+    } catch {
+      // Preserve the original failure even when cleanup fails.
+    }
+    throw error;
+  }
 }
 
 export const prepareAudio = extractAudio;

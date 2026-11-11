@@ -15,6 +15,8 @@ import {
   isVideoFile,
   parseBurnFontSize,
   parseBurnPosition,
+  parseSilenceIntervals,
+  planAudioSplitPoints,
   prepareAudio,
   resolveFfprobePath,
   resolveSubtitleCodec,
@@ -166,29 +168,55 @@ describe("ffmpeg.ts", () => {
       fs.rmSync(workDir, { recursive: true, force: true });
     });
 
-    /** Fakes ffmpeg: writes the extracted file, then segment files on split. Everything else (ffprobe) fails unless durationSeconds is given. */
+    /** Fakes extraction, silence detection, splitting and optional duration measurements. */
     function mockFfmpegWithExtractedSize(
       sizeBytes: number,
       segmentCount = 2,
       durationSeconds?: number | undefined,
+      options: {
+        silenceStderr?: string;
+        detectionError?: Error;
+        extractionError?: Error;
+        splitError?: Error;
+        segmentDurationSeconds?: number | null;
+        missingExtractedFile?: boolean;
+      } = {},
     ) {
       mockExeca.mockImplementation(async (_cmd: string, args: string[]) => {
         const outPath = args[args.length - 1] as string;
-        if (args.includes("-segment_time")) {
+        if (args.includes("-segment_time") || args.includes("-segment_times")) {
           for (let i = 0; i < segmentCount; i++) {
             fs.writeFileSync(outPath.replace("%03d", String(i).padStart(3, "0")), "x");
           }
+          if (options.splitError) throw options.splitError;
           return { stdout: "", stderr: "" };
         }
         if (args.includes("-vn")) {
+          if (options.missingExtractedFile) return { stdout: "", stderr: "" };
           fs.writeFileSync(outPath, Buffer.alloc(sizeBytes));
+          if (options.extractionError) throw options.extractionError;
           return { stdout: "", stderr: "" };
         }
+        if (args.includes("-af")) {
+          if (options.detectionError) throw options.detectionError;
+          return { stdout: "", stderr: options.silenceStderr ?? "" };
+        }
         if (durationSeconds !== undefined && args.includes("format=duration")) {
-          return { stdout: `${durationSeconds}\n`, stderr: "" };
+          const duration = outPath.includes("segment_")
+            ? options.segmentDurationSeconds === undefined
+              ? durationSeconds
+              : options.segmentDurationSeconds
+            : durationSeconds;
+          if (duration !== null) return { stdout: `${duration}\n`, stderr: "" };
         }
         throw new Error("probe unavailable");
       });
+    }
+
+    function getSplitArgs(): string[] {
+      const splitCall = mockExeca.mock.calls.find((c) => (c[1] as string[]).includes("segment"));
+      expect(splitCall).toBeDefined();
+      return splitCall?.[1] as string[];
     }
 
     it("should throw error if input media file does not exist", async () => {
@@ -243,16 +271,13 @@ describe("ffmpeg.ts", () => {
       );
       cleanups.push(result.cleanup);
 
-      const splitCall = mockExeca.mock.calls.find((c) =>
-        (c[1] as string[]).includes("-segment_time"),
-      );
-      expect(splitCall).toBeDefined();
-      const splitArgs = splitCall?.[1] as string[];
-      expect(splitArgs[splitArgs.indexOf("-segment_time") + 1]).toBe("300");
+      const splitArgs = getSplitArgs();
+      expect(splitArgs[splitArgs.indexOf("-segment_times") + 1]).toBe("300.000");
       expect(result.audioPaths).toHaveLength(2);
       expect(log).toHaveBeenCalledWith(
-        "[ffmpeg] Extracted audio is longer than 300s. Splitting into 300s segments",
+        "[ffmpeg] Extracted audio is longer than 300s. Splitting into segments of up to 300s at silences",
       );
+      log.mockRestore();
     });
 
     it("should not split when duration is exactly maxChunkSeconds and under maxFileBytes", async () => {
@@ -299,8 +324,216 @@ describe("ffmpeg.ts", () => {
       expect(result.audioPaths).toHaveLength(1);
     });
 
+    it.each([false, true])("should plan silence splits with size limit: %s", async (bySize) => {
+      const log = vi.spyOn(console, "log").mockImplementation(() => {});
+      try {
+        mockFfmpegWithExtractedSize(bySize ? 1001 : 100, 3, 720, {
+          silenceStderr: "silence_start: 295.85\nsilence_end: 296.35 | silence_duration: 0.5",
+          segmentDurationSeconds: null,
+        });
+        const result = await extractAudio(
+          inputPath,
+          "custom-ffmpeg",
+          bySize ? TEST_LIMITS : { ...TEST_LIMITS, maxChunkSeconds: 300 },
+          true,
+        );
+        cleanups.push(result.cleanup);
+
+        const detectionCalls = mockExeca.mock.calls.filter((c) =>
+          (c[1] as string[]).includes("-af"),
+        );
+        expect(detectionCalls).toHaveLength(1);
+        expect(detectionCalls[0]).toEqual([
+          "custom-ffmpeg",
+          [
+            "-hide_banner",
+            "-nostats",
+            "-i",
+            expect.stringContaining("extracted.m4a"),
+            "-af",
+            "silencedetect=noise=-35dB:d=0.3",
+            "-f",
+            "null",
+            "-",
+          ],
+        ]);
+        const splitArgs = getSplitArgs();
+        expect(splitArgs).not.toContain("-segment_time");
+        expect(splitArgs[splitArgs.indexOf("-segment_times") + 1]).toBe("296.100,596.100");
+        expect(splitArgs.slice(splitArgs.indexOf("-c"), splitArgs.indexOf("-c") + 2)).toEqual([
+          "-c",
+          "copy",
+        ]);
+        expect(result.audioPaths).toHaveLength(3);
+        expect(result.durations?.[0]).toBeCloseTo(296.1);
+        expect(result.durations?.[1]).toBeCloseTo(300);
+        expect(result.durations?.[2]).toBeCloseTo(123.9);
+        expect(log).toHaveBeenCalledWith("[ffmpeg] Split points: 296.1s, 596.1s (no silence)");
+        if (bySize) {
+          expect(
+            log.mock.calls.some(([line]) =>
+              String(line).includes("Splitting into segments of up to 300s at silences"),
+            ),
+          ).toBe(true);
+        }
+      } finally {
+        log.mockRestore();
+      }
+    });
+
+    it("should use measured segment durations instead of planned lengths", async () => {
+      mockFfmpegWithExtractedSize(1001, 2, 350, { segmentDurationSeconds: 175.064 });
+      const result = await extractAudio(inputPath, "ffmpeg", TEST_LIMITS);
+      cleanups.push(result.cleanup);
+      expect(result.durations).toEqual([175.064, 175.064]);
+      expect(getSplitArgs()).toContain("-segment_times");
+    });
+
+    it.each(["duration", "detection"])(
+      "should explain the fixed split fallback for unavailable %s",
+      async (failure) => {
+        const log = vi.spyOn(console, "log").mockImplementation(() => {});
+        try {
+          mockFfmpegWithExtractedSize(1001, 2, failure === "duration" ? undefined : 720, {
+            detectionError: new Error("silencedetect failed"),
+          });
+          const result = await extractAudio(inputPath, "ffmpeg", TEST_LIMITS, true);
+          cleanups.push(result.cleanup);
+          const splitArgs = getSplitArgs();
+          expect(splitArgs).not.toContain("-segment_times");
+          expect(splitArgs[splitArgs.indexOf("-segment_time") + 1]).toBe("300");
+          expect(
+            log.mock.calls.some(([line]) =>
+              /\[ffmpeg\].*falling back.*(?:duration|silence)/i.test(String(line)),
+            ),
+          ).toBe(true);
+        } finally {
+          log.mockRestore();
+        }
+      },
+    );
+
+    it("should stay quiet without verbose output when splitting", async () => {
+      const log = vi.spyOn(console, "log").mockImplementation(() => {});
+      try {
+        mockFfmpegWithExtractedSize(1001, 2, 350);
+        const result = await extractAudio(inputPath, "ffmpeg", TEST_LIMITS);
+        cleanups.push(result.cleanup);
+        expect(log).not.toHaveBeenCalled();
+      } finally {
+        log.mockRestore();
+      }
+    });
+
+    it.each(["extraction", "split", "missing file"])(
+      "should remove temporary files on %s failure",
+      async (stage) => {
+        const error = new Error(`${stage} failed`);
+        mockFfmpegWithExtractedSize(1001, 2, 720, {
+          ...(stage === "extraction" ? { extractionError: error } : {}),
+          ...(stage === "split" ? { splitError: error } : {}),
+          missingExtractedFile: stage === "missing file",
+        });
+        const extraction = extractAudio(inputPath, "ffmpeg", TEST_LIMITS);
+        if (stage === "missing file") {
+          await expect(extraction).rejects.toThrow(
+            "Failed to extract audio. Temporary file was not created.",
+          );
+        } else {
+          await expect(extraction).rejects.toBe(error);
+        }
+        const args = mockExeca.mock.calls[0]?.[1] as string[];
+        const tempDir = path.dirname(args[args.length - 1] as string);
+        try {
+          expect(fs.existsSync(tempDir)).toBe(false);
+        } finally {
+          fs.rmSync(tempDir, { recursive: true, force: true });
+        }
+      },
+    );
+
+    it("should preserve the original error even if removing the temporary directory fails", async () => {
+      const error = new Error("extraction failed");
+      mockFfmpegWithExtractedSize(1001, 2, undefined, { extractionError: error });
+      const remove = vi.spyOn(fs, "rmSync").mockImplementation(() => {
+        throw new Error("cleanup failed");
+      });
+      try {
+        await expect(extractAudio(inputPath, "ffmpeg", TEST_LIMITS)).rejects.toBe(error);
+        expect(remove).toHaveBeenCalledWith(expect.any(String), { recursive: true, force: true });
+      } finally {
+        remove.mockRestore();
+        const args = mockExeca.mock.calls[0]?.[1] as string[];
+        fs.rmSync(path.dirname(args[args.length - 1] as string), { recursive: true, force: true });
+      }
+    });
+
     it("prepareAudio should be an alias of extractAudio", () => {
       expect(prepareAudio).toBe(extractAudio);
+    });
+  });
+
+  describe("parseSilenceIntervals", () => {
+    it("should parse pairs, clamp negative starts and close trailing silence at the total duration", () => {
+      const stderr = [
+        "ffmpeg version test",
+        "[silencedetect] silence_end: 0.1 | silence_duration: 0.1",
+        "[silencedetect] silence_start: -0.05",
+        "[silencedetect] silence_end: 0.5 | silence_duration: 0.55",
+        "unrelated progress line",
+        "[silencedetect] silence_start: 295.85",
+        "[silencedetect] silence_end: 296.35 | silence_duration: 0.5",
+        "[silencedetect] silence_start: 719",
+      ].join("\r\n");
+      expect(parseSilenceIntervals(stderr, 720)).toEqual([
+        { start: 0, end: 0.5 },
+        { start: 295.85, end: 296.35 },
+        { start: 719, end: 720 },
+      ]);
+      expect(parseSilenceIntervals("no silence\n", 720)).toEqual([]);
+    });
+  });
+
+  describe("planAudioSplitPoints", () => {
+    it("should choose the latest silence midpoint and move the next target from that point", () => {
+      expect(
+        planAudioSplitPoints(
+          720,
+          [
+            { start: 295.85, end: 296.35 },
+            { start: 279, end: 281 },
+          ],
+          300,
+        ),
+      ).toEqual([
+        { seconds: 296.1, noSilence: false },
+        { seconds: 596.1, noSilence: true },
+      ]);
+    });
+
+    it.each([
+      { midpoint: 270, seconds: 300, noSilence: true },
+      { midpoint: 269, seconds: 300, noSilence: true },
+      { midpoint: 301, seconds: 300, noSilence: true },
+      { midpoint: 300, seconds: 300, noSilence: false },
+      { midpoint: 270.001, seconds: 270.001, noSilence: false },
+    ])(
+      "should enforce the search boundaries for midpoint $midpoint",
+      ({ midpoint, seconds, noSilence }) => {
+        expect(
+          planAudioSplitPoints(350, [{ start: midpoint - 0.25, end: midpoint + 0.25 }], 300),
+        ).toEqual([{ seconds, noSilence }]);
+      },
+    );
+
+    it("should reject silence midpoints at or before the current segment start", () => {
+      expect(planAudioSplitPoints(12, [{ start: -0.5, end: 0.5 }], 10)).toEqual([
+        { seconds: 10, noSilence: true },
+      ]);
+    });
+
+    it.each([0, 100, 300])("should not split a duration of %s seconds", (duration) => {
+      expect(planAudioSplitPoints(duration, [], 300)).toEqual([]);
     });
   });
 
