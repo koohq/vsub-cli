@@ -1140,6 +1140,18 @@ interface TextTaskOptions {
   lang?: SupportedLanguage | undefined;
 }
 
+function warnTextTask(
+  spinner: ReturnType<typeof createSpinner>,
+  quiet: boolean,
+  message: string,
+): void {
+  if (quiet) {
+    console.error(`⚠ ${message}`);
+  } else {
+    spinner.warn(message);
+  }
+}
+
 async function prepareTextTask<Format extends string>(
   options: TextTaskOptions & { format?: Format | undefined },
   presentation: {
@@ -1148,6 +1160,7 @@ async function prepareTextTask<Format extends string>(
     extension: (format: Format) => string;
     icon: string;
     started: (file: string) => string;
+    singleTargetLang: (used: string, requested: string) => string;
   },
 ) {
   const verbose = Boolean(options.verbose);
@@ -1179,7 +1192,11 @@ async function prepareTextTask<Format extends string>(
     },
     lang,
   );
-  const targetLang = resolveTargetLang(options.targetLang, resolvedLlmConfig.targetLang);
+  const targetLanguages = parseTargetLanguages(
+    resolveTargetLang(options.targetLang, resolvedLlmConfig.targetLang),
+    lang,
+  );
+  const targetLang = targetLanguages[0] ?? "ja";
   const transcriptionContext = resolveTranscriptionContext(resolvedConfig, stt, {
     whisperPrompt: options.whisperPrompt,
   });
@@ -1211,6 +1228,14 @@ async function prepareTextTask<Format extends string>(
   }
 
   const spinner = createSpinner("", { isSilent: verbose || isStdout });
+
+  if (options.targetLang?.trim() && targetLanguages.length > 1) {
+    warnTextTask(
+      spinner,
+      isStdout || verbose,
+      presentation.singleTargetLang(targetLang, targetLanguages.join(",")),
+    );
+  }
 
   // Resolve reusable transcript context before checking the generated result.
   const useCache = !options.noCache && !options.fresh;
@@ -1327,6 +1352,7 @@ export async function processChaptersPipeline(
     extension: (format) => (format === "json" ? "json" : format === "vtt" ? "vtt" : "txt"),
     icon: "📑",
     started: cm.started,
+    singleTargetLang: cm.singleTargetLang,
   });
   const {
     verbose,
@@ -1363,12 +1389,7 @@ export async function processChaptersPipeline(
     const chapters = normalizeChapters(rawChapters, { targetLang, endSeconds });
     spinner.succeed(fromCache ? cm.step2Cached(chapters.length) : cm.step2Done(chapters.length));
     if (chapters.length < MIN_YOUTUBE_CHAPTERS) {
-      const message = cm.tooFewChapters(chapters.length);
-      if (isStdout || verbose) {
-        console.error(`⚠ ${message}`);
-      } else {
-        spinner.warn(message);
-      }
+      warnTextTask(spinner, isStdout || verbose, cm.tooFewChapters(chapters.length));
     }
 
     // Preserve raw boundaries so future normalization rules can reuse the cache.
@@ -1441,6 +1462,7 @@ export async function processSummaryPipeline(
     extension: (format) => (format === "json" ? "json" : format === "txt" ? "txt" : "md"),
     icon: "📝",
     started: sm.started,
+    singleTargetLang: sm.singleTargetLang,
   });
   const {
     verbose,

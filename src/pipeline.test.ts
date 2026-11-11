@@ -19,6 +19,7 @@ import { burnSubtitlesToVideo, embedSubtitlesToVideo, extractAudio } from "./ffm
 import type { ChaptersFormat, SummaryFormat } from "./formatter.js";
 import { type ChapterItem, secondsToTimestamp } from "./formatter.js";
 import { getI18n } from "./i18n/index.js";
+import { parseTargetLanguages } from "./languages.js";
 import {
   findOutputPathConflict,
   parseBilingualOrder,
@@ -595,6 +596,130 @@ describe("pipeline.ts", () => {
         getGenerator: () => generateSummary,
       },
     ] as const)("$task", ({ task, suffix, formats, run, getGenerator }) => {
+      describe("single target language", () => {
+        let spinner: ReturnType<typeof ui.createSpinner>;
+
+        function targetWarnings() {
+          return [...vi.mocked(spinner.warn).mock.calls, ...vi.mocked(console.error).mock.calls]
+            .map(([message]) => String(message))
+            .filter((message) => /one language only|1 つの言語でだけ/.test(message));
+        }
+
+        function englishWarning(used: string, requested: string) {
+          const subject = task === "chapters" ? "Chapters" : "Summaries";
+          return `${subject} are generated in one language only. Using "${used}", the first of "${requested}".`;
+        }
+
+        beforeEach(() => {
+          spinner = ui.createSpinner("", { isSilent: true });
+          vi.spyOn(spinner, "warn");
+          vi.spyOn(spinner, "start");
+          vi.spyOn(ui, "createSpinner").mockReturnValue(spinner);
+        });
+
+        it.each([
+          { targetLang: undefined, expected: "ja" },
+          { targetLang: "   ", expected: "ja" },
+          { targetLang: "en", expected: "en" },
+          { targetLang: "ja, JA", expected: "ja" },
+          { targetLang: " EN ", expected: "en" },
+        ])("uses $expected without warning for $targetLang", async ({ targetLang, expected }) => {
+          saveGlobalConfig({ targetLang: "ja,en" });
+          await run({ inputFile, cacheDir, targetLang });
+          expect(getGenerator()).toHaveBeenCalledWith(
+            expect.anything(),
+            expect.anything(),
+            expect.objectContaining({ targetLang: expected }),
+          );
+          expect(targetWarnings()).toEqual([]);
+        });
+
+        it.each([
+          { targetLang: "ja,en", expected: "ja", requested: "ja,en" },
+          { targetLang: " EN , ja, en", expected: "en", requested: "en,ja" },
+        ])("warns once using normalized languages for $targetLang", async (options) => {
+          await run({ inputFile, cacheDir, targetLang: options.targetLang });
+          expect(getGenerator()).toHaveBeenCalledWith(
+            expect.anything(),
+            expect.anything(),
+            expect.objectContaining({ targetLang: options.expected }),
+          );
+          const message = englishWarning(options.expected, options.requested);
+          expect(targetWarnings()).toEqual([message]);
+          expect(spinner.warn).toHaveBeenCalledWith(message);
+          expect(console.error).not.toHaveBeenCalledWith(`⚠ ${message}`);
+          const warningIndex = vi.mocked(spinner.warn).mock.calls.findIndex(([m]) => m === message);
+          const warningOrder = vi.mocked(spinner.warn).mock.invocationCallOrder[warningIndex] ?? 0;
+          expect(vi.mocked(console.log).mock.invocationCallOrder[0]).toBeLessThan(warningOrder);
+          expect(vi.mocked(spinner.start).mock.invocationCallOrder[0]).toBeGreaterThan(
+            warningOrder,
+          );
+        });
+
+        it("localizes the explicit multiple-language warning in Japanese", async () => {
+          await run({ inputFile, cacheDir, targetLang: "ja,en", lang: "ja" });
+          const subject = task === "chapters" ? "章立て" : "要約";
+          expect(targetWarnings()).toEqual([
+            `${subject}は 1 つの言語でだけ作ります。"ja,en" の先頭の "ja" を使います。`,
+          ]);
+        });
+
+        it.each(["cli", "config"])(
+          "rejects invalid languages from %s before side effects",
+          async (source) => {
+            if (source === "config") saveGlobalConfig({ targetLang: "japanese" });
+            const loader = vi.spyOn(cacheModule, "loadMediaCache");
+            const safety = vi.spyOn(safetyModule, "ensureWritableTargets");
+            let expectedError: unknown;
+            try {
+              parseTargetLanguages("japanese", "en");
+            } catch (error) {
+              expectedError = error;
+            }
+            await expect(
+              run({ inputFile, cacheDir, targetLang: source === "cli" ? "japanese" : undefined }),
+            ).rejects.toThrow(expectedError as Error);
+            expect(getGenerator()).not.toHaveBeenCalled();
+            expect(loader).not.toHaveBeenCalled();
+            expect(safety).not.toHaveBeenCalled();
+            expect(console.log).not.toHaveBeenCalled();
+            expect(fs.existsSync(path.join(tempDir, `sample.${suffix}.${formats[0]}`))).toBe(false);
+          },
+        );
+
+        it("saves and reuses the first configured language cache", async () => {
+          saveGlobalConfig({ targetLang: "ja,en" });
+          await run({ inputFile, cacheDir });
+          const mediaCache = loadMediaCache(inputFile, cacheDir);
+          const generated = task === "chapters" ? mediaCache?.chapters : mediaCache?.summaries;
+          expect(Object.keys(generated ?? {})).toEqual(["ja"]);
+          expect(generated?.["ja"]?.targetLang).toBe("ja");
+          vi.mocked(getGenerator()).mockClear();
+          const result = await run({ inputFile, cacheDir, targetLang: "ja", overwrite: true });
+          expect(result.fromCache).toBe(true);
+          expect(getGenerator()).not.toHaveBeenCalled();
+          expect(targetWarnings()).toEqual([]);
+        });
+
+        it.each([{ stdout: true }, { output: "-" }, { verbose: true }])(
+          "sends the warning only to stderr for %j",
+          async (options) => {
+            const stdout = vi.spyOn(process.stdout, "write").mockReturnValue(true);
+            const result = await run({ inputFile, cacheDir, targetLang: "ja,en", ...options });
+            const message = englishWarning("ja", "ja,en");
+            expect(targetWarnings()).toEqual([`⚠ ${message}`]);
+            expect(console.error).toHaveBeenCalledWith(`⚠ ${message}`);
+            expect(spinner.warn).not.toHaveBeenCalledWith(message);
+            if ("verbose" in options) {
+              expect(stdout).not.toHaveBeenCalled();
+            } else {
+              expect(stdout).toHaveBeenCalledExactlyOnceWith(result.formattedOutput);
+              expect(console.log).not.toHaveBeenCalled();
+            }
+          },
+        );
+      });
+
       it.each([undefined, "default", "relative"])("pins output path mode %s", async (mode) => {
         for (const format of mode === "default" ? formats : [undefined]) {
           const output =

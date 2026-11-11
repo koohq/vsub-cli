@@ -1636,6 +1636,7 @@ describe("CLI integration harness", () => {
         expectedPhrases: [
           "Generate video chapters (table of contents) from media or subtitle files via Gemini or OpenRouter",
           "Additional instruction prompt for chapter generation",
+          "Target language for chapter titles; only the first is used if several are given (default: config or ja)",
           "Gemini model to use for chapters generation (Gemini provider only)",
         ],
       },
@@ -1648,6 +1649,7 @@ describe("CLI integration harness", () => {
         expectedPhrases: [
           "Generate structured summary and key topic highlights from media or subtitle files via Gemini or OpenRouter",
           "Additional instruction prompt for summary generation",
+          "Target language for summary; only the first is used if several are given (default: config or ja)",
           "Gemini model to use for summary generation (Gemini provider only)",
         ],
       },

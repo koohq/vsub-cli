@@ -897,7 +897,8 @@ export function createProgram(): Command {
     .argument("<file>", "Media file (.mp4, .mp3, etc.) or subtitle file (.srt)");
 
   addTextTaskOptions(chaptersCmd, {
-    targetLang: "Target language for chapter titles (default: config or ja)",
+    targetLang:
+      "Target language for chapter titles; only the first is used if several are given (default: config or ja)",
     format: "Output format: txt (YouTube format), json, vtt (default: txt)",
     defaultFormat: "txt",
     stdout: "Output chapters directly to stdout",
@@ -915,7 +916,8 @@ export function createProgram(): Command {
     .argument("<file>", "Media file (.mp4, .mp3, etc.) or subtitle file (.srt)");
 
   addTextTaskOptions(summarizeCmd, {
-    targetLang: "Target language for summary (default: config or ja)",
+    targetLang:
+      "Target language for summary; only the first is used if several are given (default: config or ja)",
     format: "Output format: md (Markdown), txt, json (default: md)",
     defaultFormat: "md",
     stdout: "Output summary directly to stdout",

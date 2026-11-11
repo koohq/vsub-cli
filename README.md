@@ -391,7 +391,7 @@ vsub video.mp4 -t ja --prompt "Translate in a polite and professional tone suite
 ```
 
 ### 9. AI Chapters & Video Summary (`vsub chapters` & `vsub summarize`)
-Generate YouTube chapters or structured Markdown summaries from any video, audio, or existing `.srt` file. When the media has already been processed by `vsub`, it automatically reuses the transcription cache and finishes in seconds:
+Generate YouTube chapters or structured Markdown summaries from any video, audio, or existing `.srt` file. Chapters and summaries are written in one language: if several target languages are given (for example, with `vsub config set --target-lang ja,en`), only the first one is used. When the media has already been processed by `vsub`, it automatically reuses the transcription cache and finishes in seconds:
 ```bash
 # Generate YouTube-compatible chapters (00:00 Title format, saved to [name].chapters.txt)
 vsub chapters video.mp4 -t ja

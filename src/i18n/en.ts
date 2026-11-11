@@ -189,6 +189,8 @@ export const en = {
     unsupportedFormat: (input: string, supported: string) =>
       `Unsupported chapters format: "${input}". Supported formats: ${supported}`,
     started: (file: string) => `vsub-cli chapters - Generating chapters: ${file}`,
+    singleTargetLang: (used: string, requested: string) =>
+      `Chapters are generated in one language only. Using "${used}", the first of "${requested}".`,
     step1Resolve: "Resolving transcript entries...",
     step1Parsed: (count: number) => `Parsed ${count} subtitle entries`,
     step2Generating: (provider: string, model: string, lang: string) =>
@@ -205,6 +207,8 @@ export const en = {
     unsupportedFormat: (input: string, supported: string) =>
       `Unsupported summary format: "${input}". Supported formats: ${supported}`,
     started: (file: string) => `vsub-cli summarize - Generating summary: ${file}`,
+    singleTargetLang: (used: string, requested: string) =>
+      `Summaries are generated in one language only. Using "${used}", the first of "${requested}".`,
     step1Resolve: "Resolving transcript entries...",
     step1Parsed: (count: number) => `Parsed ${count} subtitle entries`,
     step2Generating: (provider: string, model: string, lang: string) =>

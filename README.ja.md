@@ -393,7 +393,7 @@ vsub video.mp4 -t ja --prompt "ITエンジニア向けに、丁寧なです・�
 ```
 
 ### 9. AI によるチャプターと要約（`vsub chapters` と `vsub summarize`）
-動画・音声・既存の `.srt` ファイルから、YouTube 用のチャプターや、構造化した Markdown の要約を作ります。すでに `vsub` で処理したメディアなら、文字起こしのキャッシュを使うので数秒で終わります。
+動画・音声・既存の `.srt` ファイルから、YouTube 用のチャプターや、構造化した Markdown の要約を作ります。チャプターと要約は 1 つの言語で作ります。翻訳先が複数あるとき（たとえば `vsub config set --target-lang ja,en`）は、先頭の言語だけを使います。すでに `vsub` で処理したメディアなら、文字起こしのキャッシュを使うので数秒で終わります。
 ```bash
 # YouTube にそのまま使えるチャプターを作る (00:00 タイトルの形式。[名前].chapters.txt に保存)
 vsub chapters video.mp4 -t ja

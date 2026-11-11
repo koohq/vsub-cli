@@ -192,6 +192,8 @@ export const ja: typeof en = {
     unsupportedFormat: (input: string, supported: string) =>
       `サポートされていないチャプターの形式です: "${input}". 利用可能な形式: ${supported}`,
     started: (file: string) => `vsub-cli chapters - チャプター生成開始: ${file}`,
+    singleTargetLang: (used: string, requested: string) =>
+      `章立ては 1 つの言語でだけ作ります。"${requested}" の先頭の "${used}" を使います。`,
     step1Resolve: "文字起こしデータを取得中...",
     step1Parsed: (count: number) => `字幕データ ${count} 行を解析完了`,
     step2Generating: (provider: string, model: string, lang: string) =>
@@ -209,6 +211,8 @@ export const ja: typeof en = {
     unsupportedFormat: (input: string, supported: string) =>
       `サポートされていない要約の形式です: "${input}". 利用可能な形式: ${supported}`,
     started: (file: string) => `vsub-cli summarize - 要約生成開始: ${file}`,
+    singleTargetLang: (used: string, requested: string) =>
+      `要約は 1 つの言語でだけ作ります。"${requested}" の先頭の "${used}" を使います。`,
     step1Resolve: "文字起こしデータを取得中...",
     step1Parsed: (count: number) => `字幕データ ${count} 行を解析完了`,
     step2Generating: (provider: string, model: string, lang: string) =>
