@@ -1,7 +1,7 @@
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, type MockInstance, vi } from "vitest";
 import {
   createCachedChapters,
   createCachedSummary,
@@ -15,6 +15,8 @@ import {
 import * as configModule from "./config.js";
 import { DEFAULT_GEMINI_MODEL, DEFAULT_GROQ_MODEL, saveGlobalConfig } from "./config.js";
 import { burnSubtitlesToVideo, embedSubtitlesToVideo, extractAudio } from "./ffmpeg.js";
+import { type ChapterItem, secondsToTimestamp } from "./formatter.js";
+import { getI18n } from "./i18n/index.js";
 import {
   findOutputPathConflict,
   parseBilingualOrder,
@@ -550,11 +552,203 @@ describe("pipeline.ts", () => {
   });
 
   describe("processChaptersPipeline", () => {
+    describe("chapter normalization", () => {
+      let mediaPath: string;
+      let cacheDir: string;
+      let sourceEntries: SrtEntry[];
+      let spinner: ReturnType<typeof ui.createSpinner>;
+      let stdoutSpy: MockInstance<typeof process.stdout.write>;
+
+      function chapters(seconds: number[]): ChapterItem[] {
+        return seconds.map((seconds, index) => ({
+          timestamp: secondsToTimestamp(seconds),
+          seconds,
+          title: `Chapter ${String.fromCharCode(65 + index)}`,
+        }));
+      }
+
+      function saveSource(endTime = "00:01:59,840") {
+        sourceEntries = [{ id: 1, startTime: "00:00:00,000", endTime, text: "Sample transcript" }];
+        saveTranscriptionCache(
+          mediaPath,
+          { entries: sourceEntries, detectedLanguage: "en", createdAt: Date.now() },
+          cacheDir,
+        );
+      }
+
+      function prepareChapters(raw: ChapterItem[], cached: boolean) {
+        if (cached) {
+          saveChaptersCache(
+            mediaPath,
+            "en",
+            createCachedChapters("en", { sourceEntries, model: DEFAULT_GEMINI_MODEL }, raw),
+            cacheDir,
+          );
+        } else {
+          vi.mocked(generateChapters).mockResolvedValueOnce(raw);
+        }
+      }
+
+      function run(options: Partial<Parameters<typeof processChaptersPipeline>[0]> = {}) {
+        return processChaptersPipeline({
+          inputFile: mediaPath,
+          cacheDir,
+          targetLang: "en",
+          ...options,
+        });
+      }
+
+      beforeEach(() => {
+        mediaPath = path.join(tempDir, "chapters.mp4");
+        cacheDir = path.join(tempDir, "cache");
+        fs.writeFileSync(mediaPath, "dummy media");
+        saveSource();
+        vi.mocked(generateChapters).mockClear();
+        spinner = ui.createSpinner("", { isSilent: true });
+        vi.spyOn(spinner, "start");
+        vi.spyOn(spinner, "succeed");
+        vi.spyOn(spinner, "warn");
+        vi.spyOn(ui, "createSpinner").mockReturnValue(spinner);
+        stdoutSpy = vi.spyOn(process.stdout, "write").mockReturnValue(true);
+        vi.spyOn(console, "log").mockImplementation(() => {});
+        vi.spyOn(console, "error").mockImplementation(() => {});
+      });
+
+      it.each([false, true])(
+        "normalizes txt output and preserves raw cache (cached: %s)",
+        async (cached) => {
+          const raw = chapters([0, 31, 62, 88, 117]);
+          prepareChapters(raw, cached);
+          const result = await run();
+          const expected = raw.slice(0, 4);
+          expect(result.chapters).toEqual(expected);
+          expect(result.formattedOutput).toBe(
+            "00:00 Chapter A\n00:31 Chapter B\n01:02 Chapter C\n01:28 Chapter D\n",
+          );
+          expect(fs.readFileSync(result.outputFile ?? "", "utf8")).toBe(result.formattedOutput);
+          expect(loadMediaCache(mediaPath, cacheDir)?.chapters?.["en"]?.chapters).toEqual(raw);
+          expect(generateChapters).toHaveBeenCalledTimes(cached ? 0 : 1);
+          expect(result.fromCache).toBe(cached);
+          expect(spinner.succeed).toHaveBeenCalledWith(
+            cached ? "Loaded 4 chapters [⚡ Cached]" : "Generated 4 chapters",
+          );
+          expect(spinner.warn).not.toHaveBeenCalled();
+          expect(console.error).not.toHaveBeenCalled();
+        },
+      );
+
+      it.each([false, true])("ends VTT at the final subtitle end (cached: %s)", async (cached) => {
+        prepareChapters(chapters([0, 31, 62, 88, 117]), cached);
+        const result = await run({ format: "vtt", stdout: true });
+        expect(result.formattedOutput).toContain("00:01:28.000 --> 00:01:59.840\nChapter D");
+        expect(result.formattedOutput).not.toContain("Chapter E");
+        expect(stdoutSpy).toHaveBeenCalledExactlyOnceWith(result.formattedOutput);
+      });
+
+      it.each([false, true])(
+        "warns once after the normalized count and before saving (cached: %s)",
+        async (cached) => {
+          saveSource("00:00:58,000");
+          prepareChapters(chapters([0, 20, 52]), cached);
+          const result = await run();
+          expect(result.chapters).toEqual(chapters([0, 20]));
+          expect(fs.readFileSync(result.outputFile ?? "", "utf8")).toBe(
+            "00:00 Chapter A\n00:20 Chapter B\n",
+          );
+          expect(spinner.succeed).toHaveBeenCalledWith(
+            cached ? "Loaded 2 chapters [⚡ Cached]" : "Generated 2 chapters",
+          );
+          expect(spinner.warn).toHaveBeenCalledExactlyOnceWith(
+            getI18n("en").chapters.tooFewChapters(2),
+          );
+          const succeed = vi.mocked(spinner.succeed);
+          const countIndex = succeed.mock.calls.findIndex(([message]) =>
+            String(message).includes("2 chapters"),
+          );
+          const warnOrder = vi.mocked(spinner.warn).mock.invocationCallOrder[0] ?? 0;
+          expect(succeed.mock.invocationCallOrder[countIndex]).toBeLessThan(warnOrder);
+          expect(succeed.mock.invocationCallOrder.at(-1)).toBeGreaterThan(warnOrder);
+          expect(console.error).not.toHaveBeenCalled();
+        },
+      );
+
+      it.each<{ stdout?: boolean; output?: string; verbose?: boolean; lang: "en" | "ja" }>([
+        { stdout: true, lang: "en" },
+        { output: "-", lang: "ja" },
+        { verbose: true, lang: "en" },
+      ])("sends a single warning to stderr with $stdout/$output/$verbose", async (options) => {
+        prepareChapters(chapters([0, 20]), false);
+        const result = await run(options);
+        expect(console.error).toHaveBeenCalledExactlyOnceWith(
+          `⚠ ${getI18n(options.lang).chapters.tooFewChapters(2)}`,
+        );
+        expect(spinner.warn).not.toHaveBeenCalled();
+        if (options.verbose) {
+          expect(fs.readFileSync(result.outputFile ?? "", "utf8")).toBe(result.formattedOutput);
+          expect(stdoutSpy).not.toHaveBeenCalled();
+        } else {
+          expect(stdoutSpy).toHaveBeenCalledExactlyOnceWith("00:00 Chapter A\n00:20 Chapter B\n");
+          expect(console.log).not.toHaveBeenCalled();
+        }
+      });
+
+      it("warns on stderr when normalization of cached chapters leaves fewer than three", async () => {
+        saveSource("00:00:58,000");
+        prepareChapters(chapters([0, 20, 52]), true);
+        const result = await run({ stdout: true });
+        expect(console.error).toHaveBeenCalledExactlyOnceWith(
+          `⚠ ${getI18n("en").chapters.tooFewChapters(2)}`,
+        );
+        expect(stdoutSpy).toHaveBeenCalledExactlyOnceWith("00:00 Chapter A\n00:20 Chapter B\n");
+        expect(result.chapters).toEqual(chapters([0, 20]));
+        expect(spinner.warn).not.toHaveBeenCalled();
+        expect(generateChapters).not.toHaveBeenCalled();
+      });
+
+      it.each([false, true])(
+        "does not warn for exactly three chapters (cached: %s)",
+        async (cached) => {
+          prepareChapters(chapters([0, 31, 62]), cached);
+          await run({ stdout: true });
+          expect(spinner.warn).not.toHaveBeenCalled();
+          expect(console.error).not.toHaveBeenCalled();
+        },
+      );
+
+      it.each(["invalid", "00:00:00,000"])(
+        "keeps the final chapter and VTT fallback for unknown end %s",
+        async (endTime) => {
+          saveSource(endTime);
+          prepareChapters(chapters([0, 31, 62, 117]), true);
+          const result = await run({ format: "vtt", stdout: true });
+          expect(result.chapters).toHaveLength(4);
+          expect(result.formattedOutput).toContain("00:01:57.000 --> 00:02:57.000\nChapter D");
+        },
+      );
+
+      it("uses the last subtitle array element rather than the largest end", async () => {
+        sourceEntries.push({
+          id: 2,
+          startTime: "00:00:20,000",
+          endTime: "00:00:58,000",
+          text: "Last entry",
+        });
+        saveTranscriptionCache(
+          mediaPath,
+          { entries: sourceEntries, detectedLanguage: "en", createdAt: Date.now() },
+          cacheDir,
+        );
+        prepareChapters(chapters([0, 20, 52]), true);
+        const result = await run({ stdout: true });
+        expect(result.chapters).toEqual(chapters([0, 20]));
+      });
+    });
+
     it("should generate chapters from .srt and write to output file", async () => {
       const srtPath = path.join(tempDir, "demo.srt");
       fs.writeFileSync(
         srtPath,
-        "1\n00:00:00,000 --> 00:00:05,000\nIntro\n\n2\n00:01:23,000 --> 00:01:30,000\nTopic\n",
+        "1\n00:00:00,000 --> 00:00:05,000\nIntro\n\n2\n00:01:23,000 --> 00:01:40,000\nTopic\n",
       );
 
       const result = await processChaptersPipeline({
@@ -573,7 +767,7 @@ describe("pipeline.ts", () => {
 
     it("should output to stdout when stdout: true", async () => {
       const srtPath = path.join(tempDir, "stdout_demo.srt");
-      fs.writeFileSync(srtPath, "1\n00:00:00,000 --> 00:00:05,000\nIntro\n");
+      fs.writeFileSync(srtPath, "1\n00:00:00,000 --> 00:01:40,000\nIntro\n");
 
       const stdoutSpy = vi.spyOn(process.stdout, "write").mockReturnValue(true);
       const result = await processChaptersPipeline({

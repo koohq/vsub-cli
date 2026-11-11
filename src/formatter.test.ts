@@ -1,8 +1,12 @@
 import { describe, expect, it } from "vitest";
 import {
+  type ChapterItem,
   formatChapters,
   formatEntries,
   formatSummary,
+  MIN_CHAPTER_SECONDS,
+  MIN_YOUTUBE_CHAPTERS,
+  normalizeChapters,
   parseChaptersFormat,
   parseOutputFormats,
   parseSummaryFormat,
@@ -16,6 +20,267 @@ import {
 import type { SrtEntry } from "./srt.js";
 
 describe("formatter.ts", () => {
+  describe("normalizeChapters", () => {
+    function chapters(items: [number, string][]): ChapterItem[] {
+      return items.map(([seconds, title]) => ({
+        timestamp: secondsToTimestamp(seconds),
+        seconds,
+        title,
+      }));
+    }
+
+    it("exports the YouTube chapter limits", () => {
+      expect(MIN_CHAPTER_SECONDS).toBe(10);
+      expect(MIN_YOUTUBE_CHAPTERS).toBe(3);
+    });
+
+    it.each<{
+      name: string;
+      input: [number, string][];
+      expected: [number, string][];
+      targetLang?: string;
+      endSeconds?: number;
+    }>([
+      {
+        name: "sorts before adjusting the first chapter",
+        input: [
+          [60, "B"],
+          [20, "A"],
+        ],
+        expected: [
+          [0, "A"],
+          [60, "B"],
+        ],
+      },
+      {
+        name: "keeps the first duplicate in stable input order",
+        input: [
+          [60, "B"],
+          [0, "A"],
+          [60, "B2"],
+        ],
+        expected: [
+          [0, "A"],
+          [60, "B"],
+        ],
+      },
+      {
+        name: "shifts a chapter starting at exactly 30 seconds",
+        input: [
+          [30, "A"],
+          [120, "B"],
+        ],
+        expected: [
+          [0, "A"],
+          [120, "B"],
+        ],
+      },
+      {
+        name: "adds a Japanese introduction after 30 seconds",
+        targetLang: "ja-JP",
+        input: [[31, "A"]],
+        expected: [
+          [0, "イントロダクション"],
+          [31, "A"],
+        ],
+      },
+      {
+        name: "adds an English introduction after 30 seconds",
+        input: [[31, "A"]],
+        expected: [
+          [0, "Introduction"],
+          [31, "A"],
+        ],
+      },
+      {
+        name: "keeps exactly ten seconds and merges nine seconds",
+        input: [
+          [0, "A"],
+          [20, "B"],
+          [30, "C"],
+          [39, "D"],
+        ],
+        expected: [
+          [0, "A"],
+          [20, "B"],
+          [39, "D"],
+        ],
+      },
+      {
+        name: "keeps a final chapter of exactly ten seconds",
+        endSeconds: 30,
+        input: [
+          [0, "A"],
+          [20, "B"],
+        ],
+        expected: [
+          [0, "A"],
+          [20, "B"],
+        ],
+      },
+      {
+        name: "drops a final chapter shorter than ten seconds",
+        endSeconds: 29.999,
+        input: [
+          [0, "A"],
+          [20, "B"],
+        ],
+        expected: [[0, "A"]],
+      },
+      {
+        name: "drops multiple chapters at and beyond the end",
+        endSeconds: 40,
+        input: [
+          [0, "A"],
+          [20, "B"],
+          [40, "C"],
+          [60, "D"],
+          [80, "E"],
+        ],
+        expected: [
+          [0, "A"],
+          [20, "B"],
+        ],
+      },
+      {
+        name: "keeps the final chapter when the end is unknown",
+        input: [
+          [0, "A"],
+          [20, "B"],
+        ],
+        expected: [
+          [0, "A"],
+          [20, "B"],
+        ],
+      },
+      {
+        name: "retains the first title while absorbing short opening chapters",
+        input: [
+          [0, "A"],
+          [5, "B"],
+          [9, "C"],
+          [60, "D"],
+        ],
+        expected: [
+          [0, "A"],
+          [60, "D"],
+        ],
+      },
+      {
+        name: "merges consecutive short chapters from left to right",
+        input: [
+          [0, "A"],
+          [20, "B"],
+          [25, "C"],
+          [28, "D"],
+          [60, "E"],
+        ],
+        expected: [
+          [0, "A"],
+          [28, "D"],
+          [60, "E"],
+        ],
+      },
+      {
+        name: "filters empty titles before sorting and deduplication",
+        input: [
+          [0, ""],
+          [20, " \t "],
+          [40, ""],
+          [40, " A "],
+          [80, "B"],
+        ],
+        expected: [
+          [0, "Introduction"],
+          [40, " A "],
+          [80, "B"],
+        ],
+      },
+      {
+        name: "matches ticket example one",
+        endSeconds: 119.84,
+        input: [
+          [0, "A"],
+          [31, "B"],
+          [62, "C"],
+          [88, "D"],
+          [117, "E"],
+        ],
+        expected: [
+          [0, "A"],
+          [31, "B"],
+          [62, "C"],
+          [88, "D"],
+        ],
+      },
+      {
+        name: "matches ticket example two",
+        endSeconds: 185,
+        input: [
+          [0, "A"],
+          [130, "D"],
+          [40, "B"],
+          [40, "B2"],
+          [46, "C"],
+          [210, "E"],
+        ],
+        expected: [
+          [0, "A"],
+          [46, "C"],
+          [130, "D"],
+        ],
+      },
+      {
+        name: "matches ticket example three",
+        endSeconds: 58,
+        input: [
+          [0, "A"],
+          [20, "B"],
+          [52, "C"],
+        ],
+        expected: [
+          [0, "A"],
+          [20, "B"],
+        ],
+      },
+      {
+        name: "retains a single chapter in a short source",
+        endSeconds: 5,
+        input: [[0, "A"]],
+        expected: [[0, "A"]],
+      },
+      { name: "returns an empty array for empty input", input: [], expected: [] },
+      {
+        name: "returns an empty array when all titles are blank",
+        input: [
+          [0, ""],
+          [20, "  "],
+        ],
+        expected: [],
+      },
+    ])(
+      "$name without mutating input and is idempotent",
+      ({ input, expected, targetLang = "en", endSeconds }) => {
+        const source = chapters(input);
+        const original = structuredClone(source);
+        for (const item of source) Object.freeze(item);
+        Object.freeze(source);
+        const options = { targetLang, endSeconds };
+        const result = normalizeChapters(source, options);
+        expect(result).toEqual(chapters(expected));
+        expect(normalizeChapters(result, options)).toEqual(result);
+        expect(source).toEqual(original);
+        expect(result).not.toBe(source);
+      },
+    );
+
+    it("rebuilds timestamps from seconds", () => {
+      expect(
+        normalizeChapters([{ timestamp: "wrong", seconds: 0, title: "A" }], { targetLang: "en" }),
+      ).toEqual(chapters([[0, "A"]]));
+    });
+  });
+
   it.each([
     {
       parse: parseChaptersFormat,

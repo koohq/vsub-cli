@@ -195,6 +195,8 @@ export const ja: typeof en = {
     step2Done: (count: number) => `チャプター ${count} 件を生成完了`,
     step2Cached: (count: number) =>
       `キャッシュ済みチャプター ${count} 件を適用 [⚡ キャッシュ利用]`,
+    tooFewChapters: (count: number) =>
+      `チャプターが ${count} 件しかありません。YouTube で章として表示されるのは、10 秒以上の章が 3 件以上あるときだけです。`,
     step3Saving: "チャプターファイルを保存中...",
     step3Saved: (path: string) => `チャプターファイルを保存完了: ${path}`,
     noEntries: "チャプター生成対象の字幕データが見つかりませんでした。",

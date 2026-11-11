@@ -2,6 +2,24 @@ import { describe, expect, it } from "vitest";
 import { en } from "./en.js";
 import { ja } from "./ja.js";
 
+describe("chapter count warnings", () => {
+  it.each([
+    {
+      messages: en,
+      expected:
+        "Only 2 chapters remain. YouTube shows chapters only when there are at least 3, each 10 seconds or longer.",
+    },
+    {
+      messages: ja,
+      expected:
+        "チャプターが 2 件しかありません。YouTube で章として表示されるのは、10 秒以上の章が 3 件以上あるときだけです。",
+    },
+  ])("localizes the count without the warning symbol", ({ messages, expected }) => {
+    expect(messages.chapters.tooFewChapters(2)).toBe(expected);
+    expect(messages.chapters.tooFewChapters(1)).toContain("1");
+  });
+});
+
 describe("i18n messages backwards compatibility with Gemini", () => {
   const table = [
     ...[

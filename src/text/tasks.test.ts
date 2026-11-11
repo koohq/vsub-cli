@@ -607,33 +607,32 @@ describe("src/text/tasks.ts", () => {
       expect(mockGenerateContent).toHaveBeenCalledTimes(2);
     });
 
-    it("should ensure first chapter starts at 00:00 if Gemini returns non-zero start", async () => {
+    it("should preserve the LLM chapter order and non-zero starts", async () => {
+      const rawChapters = [
+        { timestamp: "01:00", seconds: 60, title: "Chapter B" },
+        { timestamp: "00:15", seconds: 15, title: "Chapter A" },
+      ];
       mockGenerateContent.mockResolvedValueOnce({
-        text: JSON.stringify([
-          { timestamp: "01:00", seconds: 60, title: "Main Topic" },
-          { timestamp: "05:00", seconds: 300, title: "Summary" },
-        ]),
+        text: JSON.stringify(rawChapters),
       });
 
       const chapters = await generateChapters(sampleEntries, defaultModel, { targetLang: "ja" });
-      expect(chapters[0]?.timestamp).toBe("00:00");
-      expect(chapters[0]?.seconds).toBe(0);
-      expect(chapters[0]?.title).toBe("イントロダクション");
-      expect(chapters[1]?.timestamp).toBe("01:00");
+      expect(chapters).toEqual(rawChapters);
     });
 
-    it("should adjust first chapter to 00:00 if it starts <= 30 seconds", async () => {
+    it("should derive missing seconds without shifting or sorting chapters", async () => {
       mockGenerateContent.mockResolvedValueOnce({
         text: JSON.stringify([
-          { timestamp: "00:15", seconds: 15, title: "Welcome & Intro" },
-          { timestamp: "02:00", seconds: 120, title: "Part 2" },
+          { timestamp: "00:15", title: "Welcome & Intro" },
+          { timestamp: "02:00", title: "Part 2" },
         ]),
       });
 
       const chapters = await generateChapters(sampleEntries, defaultModel, { targetLang: "en" });
-      expect(chapters[0]?.timestamp).toBe("00:00");
-      expect(chapters[0]?.seconds).toBe(0);
-      expect(chapters[0]?.title).toBe("Welcome & Intro");
+      expect(chapters).toEqual([
+        { timestamp: "00:15", seconds: 15, title: "Welcome & Intro" },
+        { timestamp: "02:00", seconds: 120, title: "Part 2" },
+      ]);
     });
   });
 

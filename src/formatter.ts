@@ -11,6 +11,66 @@ export interface ChapterItem {
   title: string;
 }
 
+export const MIN_CHAPTER_SECONDS = 10;
+export const MIN_YOUTUBE_CHAPTERS = 3;
+
+export interface NormalizeChaptersOptions {
+  targetLang: string;
+  endSeconds?: number | undefined;
+}
+
+/** Normalizes chapter boundaries without changing the raw LLM result. */
+export function normalizeChapters(
+  chapters: ChapterItem[],
+  options: NormalizeChaptersOptions,
+): ChapterItem[] {
+  const sorted = chapters
+    .filter((chapter) => chapter.title.trim() !== "")
+    .map((chapter) => ({ ...chapter }))
+    .sort((a, b) => a.seconds - b.seconds);
+  const unique = sorted.filter((chapter, index) => chapter.seconds !== sorted[index - 1]?.seconds);
+  const first = unique[0];
+  if (!first) return [];
+
+  if (first.seconds > 0) {
+    if (first.seconds <= 30) {
+      first.seconds = 0;
+    } else {
+      unique.unshift({
+        timestamp: "00:00",
+        seconds: 0,
+        title: options.targetLang.toLowerCase().startsWith("ja")
+          ? "イントロダクション"
+          : "Introduction",
+      });
+    }
+  }
+
+  const result: ChapterItem[] = [];
+  for (const chapter of unique) {
+    const previous = result.at(-1);
+    if (previous && chapter.seconds - previous.seconds < MIN_CHAPTER_SECONDS) {
+      // Keep the opening title; later short chapters merge into their predecessor.
+      if (result.length === 1) continue;
+      result.pop();
+    }
+    result.push(chapter);
+  }
+
+  if (options.endSeconds !== undefined) {
+    while (result.length > 1) {
+      const last = result.at(-1);
+      if (!last || options.endSeconds - last.seconds >= MIN_CHAPTER_SECONDS) break;
+      result.pop();
+    }
+  }
+
+  return result.map((chapter) => ({
+    ...chapter,
+    timestamp: secondsToTimestamp(chapter.seconds),
+  }));
+}
+
 export type ChaptersFormat = "txt" | "json" | "vtt";
 export const SUPPORTED_CHAPTERS_FORMATS: readonly ChaptersFormat[] = [
   "txt",

@@ -191,6 +191,8 @@ export const en = {
       `Generating chapters with ${provider} (${model}) [${lang}]...`,
     step2Done: (count: number) => `Generated ${count} chapters`,
     step2Cached: (count: number) => `Loaded ${count} chapters [⚡ Cached]`,
+    tooFewChapters: (count: number) =>
+      `Only ${count} chapters remain. YouTube shows chapters only when there are at least 3, each 10 seconds or longer.`,
     step3Saving: "Saving chapters file...",
     step3Saved: (path: string) => `Saved chapters to ${path}`,
     noEntries: "No subtitle entries found to generate chapters.",

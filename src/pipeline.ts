@@ -33,6 +33,8 @@ import {
   formatChapters,
   formatEntries,
   formatSummary,
+  MIN_YOUTUBE_CHAPTERS,
+  normalizeChapters,
   type OutputFormat,
   parseOutputFormats,
   type SummaryFormat,
@@ -47,6 +49,7 @@ import {
   type BilingualOrder,
   mergeBilingualEntries,
   parseSrt,
+  parseSrtTime,
   reflowSrtEntries,
   type SrtEntry,
 } from "./srt.js";
@@ -1243,14 +1246,50 @@ export async function processChaptersPipeline(
       model: llm.model,
     });
 
-  if (isChaptersValid && cachedChapters) {
-    const chapters = cachedChapters.chapters;
-    spinner.succeed(cm.step2Cached(chapters.length));
+  function finishChapters(
+    rawChapters: ChapterItem[],
+    entries: SrtEntry[],
+    fromCache: boolean,
+    transcriptionFromCache: boolean,
+  ): ProcessChaptersResult {
+    const lastEntry = entries.at(-1);
+    const endMilliseconds = lastEntry ? parseSrtTime(lastEntry.endTime) : 0;
+    const endSeconds = endMilliseconds > 0 ? endMilliseconds / 1000 : undefined;
+    const chapters = normalizeChapters(rawChapters, { targetLang, endSeconds });
+    spinner.succeed(fromCache ? cm.step2Cached(chapters.length) : cm.step2Done(chapters.length));
+    if (chapters.length < MIN_YOUTUBE_CHAPTERS) {
+      const message = cm.tooFewChapters(chapters.length);
+      if (isStdout || verbose) {
+        console.error(`⚠ ${message}`);
+      } else {
+        spinner.warn(message);
+      }
+    }
 
-    const formattedOutput = formatChapters(chapters, format);
+    // Preserve raw boundaries so future normalization rules can reuse the cache.
+    if (!fromCache && !options.noCache && !isSrt) {
+      saveChaptersCache(
+        resolvedInput,
+        targetLang,
+        createCachedChapters(
+          targetLang,
+          {
+            sourceEntries: entries,
+            provider: llm.provider,
+            prompt: options.prompt,
+            model: llm.model,
+          },
+          rawChapters,
+        ),
+        options.cacheDir,
+      );
+    }
+
+    const formattedOutput = formatChapters(chapters, format, endSeconds);
     if (isStdout) {
       process.stdout.write(formattedOutput);
     } else if (outputPath) {
+      spinner.start(cm.step3Saving);
       fs.writeFileSync(outputPath, formattedOutput, "utf-8");
       spinner.succeed(cm.step3Saved(pc.cyan(path.basename(outputPath))));
     }
@@ -1261,9 +1300,13 @@ export async function processChaptersPipeline(
       chapters,
       formattedOutput,
       durationMs: Date.now() - startTime,
-      fromCache: true,
-      transcriptionFromCache: true,
+      fromCache,
+      transcriptionFromCache,
     };
+  }
+
+  if (isChaptersValid && cachedChapters && mediaCache?.transcription) {
+    return finishChapters(cachedChapters.chapters, mediaCache.transcription.entries, true, true);
   }
 
   // Ensure Text Model API Key
@@ -1306,46 +1349,7 @@ export async function processChaptersPipeline(
     lang,
     verbose,
   });
-  spinner.succeed(cm.step2Done(chapters.length));
-
-  // Save chapters to cache if media file
-  if (!options.noCache && !isSrt) {
-    saveChaptersCache(
-      resolvedInput,
-      targetLang,
-      createCachedChapters(
-        targetLang,
-        {
-          sourceEntries: transcriptResult.entries,
-          provider: llm.provider,
-          prompt: options.prompt,
-          model: llm.model,
-        },
-        chapters,
-      ),
-      options.cacheDir,
-    );
-  }
-
-  // Step 3: Format and save or stdout
-  const formattedOutput = formatChapters(chapters, format);
-  if (isStdout) {
-    process.stdout.write(formattedOutput);
-  } else if (outputPath) {
-    spinner.start(cm.step3Saving);
-    fs.writeFileSync(outputPath, formattedOutput, "utf-8");
-    spinner.succeed(cm.step3Saved(pc.cyan(path.basename(outputPath))));
-  }
-
-  return {
-    inputFile: resolvedInput,
-    outputFile: outputPath,
-    chapters,
-    formattedOutput,
-    durationMs: Date.now() - startTime,
-    fromCache: false,
-    transcriptionFromCache: transcriptResult.fromCache,
-  };
+  return finishChapters(chapters, transcriptResult.entries, false, transcriptResult.fromCache);
 }
 
 export interface ProcessSummaryOptions {

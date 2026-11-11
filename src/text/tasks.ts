@@ -492,23 +492,6 @@ STRICT RULES:
         return { timestamp, seconds, title };
       });
 
-      const firstChapter = chapters[0];
-      if (firstChapter && firstChapter.seconds > 0) {
-        if (firstChapter.seconds <= 30) {
-          firstChapter.seconds = 0;
-          firstChapter.timestamp = "00:00";
-        } else {
-          chapters.unshift({
-            timestamp: "00:00",
-            seconds: 0,
-            title: targetLang.toLowerCase().startsWith("ja")
-              ? "イントロダクション"
-              : "Introduction",
-          });
-        }
-      }
-
-      chapters.sort((a, b) => a.seconds - b.seconds);
       return chapters;
     },
     {
