@@ -2,9 +2,10 @@ import fs from "node:fs";
 import path from "node:path";
 
 /**
- * Environment variables read by getConfig() and getCacheDir() that tests must not inherit
- * from a developer's shell or .env file. VSUB_GROQ_API_KEY / VSUB_GEMINI_API_KEY are
- * intentionally absent: callers set dummy values for them.
+ * Config-related environment variables read by src that tests must not inherit from a
+ * developer's shell or .env file. The few variables deliberately left out (with reasons) are
+ * listed in isolate-config-env.test.ts, whose coverage test fails when a variable is missing
+ * from both places.
  */
 export const ENV_VARS_TO_CLEAR = [
   "GROQ_API_KEY",
@@ -13,6 +14,8 @@ export const ENV_VARS_TO_CLEAR = [
   "OPENROUTER_API_KEY",
   "VSUB_STT_PROVIDER",
   "VSUB_OPENROUTER_STT_MODEL",
+  "VSUB_LLM_PROVIDER",
+  "VSUB_OPENROUTER_LLM_MODEL",
   "VSUB_FFMPEG_PATH",
   "FFMPEG_PATH",
   "VSUB_WHISPER_PROMPT",

@@ -2353,7 +2353,6 @@ describe("pipeline.ts", () => {
       delete process.env["VSUB_OPENROUTER_API_KEY"];
       delete process.env["OPENROUTER_API_KEY"];
       delete process.env["VSUB_LLM_PROVIDER"];
-      delete process.env["VSUB_LLM_MODEL"];
       delete process.env["VSUB_STT_PROVIDER"];
       process.env["VSUB_GROQ_API_KEY"] = "test-groq-key";
       process.env["VSUB_GEMINI_API_KEY"] = "test-gemini-key";
