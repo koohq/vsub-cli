@@ -142,7 +142,7 @@ export interface InitWizardOptions {
   openrouterVerifier?: (key: string) => Promise<{ success: boolean; error?: string }>;
   groqVerifier?: (
     key: string,
-  ) => Promise<{ success: boolean; modelCount?: number; error?: string }>;
+  ) => Promise<{ success: boolean; modelCount?: number | undefined; error?: string }>;
   geminiVerifier?: (key: string, model?: string) => Promise<{ success: boolean; error?: string }>;
   ffmpegVerifier?: (
     path?: string,
@@ -206,8 +206,8 @@ export async function runInitWizard(options: InitWizardOptions = {}): Promise<vo
     testingMessage: string;
     verify: (
       key: string,
-    ) => Promise<{ success: boolean; error?: string; modelCount?: number | string }>;
-    formatSuccess: (result: { modelCount?: number | string }) => string;
+    ) => Promise<{ success: boolean; error?: string; modelCount?: number | undefined }>;
+    formatSuccess: (result: { modelCount?: number | undefined }) => string;
     formatFailed: (error: string) => string;
     onSave: (key: string) => void;
   }
@@ -326,7 +326,7 @@ export async function runInitWizard(options: InitWizardOptions = {}): Promise<vo
         skippedMessage: m().skippedGroq,
         testingMessage: m().testingGroq,
         verify: (k) => groqVerifier(k),
-        formatSuccess: (res) => m().groqSuccess(res.modelCount ?? "multiple"),
+        formatSuccess: (res) => m().groqSuccess(res.modelCount),
         formatFailed: (err) => m().groqFailed(err),
         onSave: (k) => {
           updatedConfig.groqApiKey = k;
@@ -418,7 +418,7 @@ export async function runInitWizard(options: InitWizardOptions = {}): Promise<vo
     // ---------------------------------------------------------
     out(pc.bold(pc.green(m().step3Title)));
     const ffmpegPath = currentConfig.ffmpegPath || "ffmpeg";
-    output.write(`  ⏳ Checking FFmpeg (${ffmpegPath})...`);
+    output.write(m().testingFfmpeg(ffmpegPath));
     const ffmpegResult = await ffmpegVerifier(ffmpegPath);
 
     if (ffmpegResult.success) {
@@ -429,9 +429,12 @@ export async function runInitWizard(options: InitWizardOptions = {}): Promise<vo
     } else {
       output.write(`\r${" ".repeat(40)}\r`);
       out(pc.red(m().ffmpegFailed(`"${ffmpegPath}"`)));
-      out("  ※ FFmpeg installation commands:");
+      out(m().ffmpegInstallHeader);
       out(
-        `     Windows : ${pc.cyan("winget install Gyan.FFmpeg")} or ${pc.cyan("choco install ffmpeg")}`,
+        m().ffmpegInstallWindows(
+          pc.cyan("winget install Gyan.FFmpeg"),
+          pc.cyan("choco install ffmpeg"),
+        ),
       );
       out(`     macOS   : ${pc.cyan("brew install ffmpeg")}`);
       out(`     Linux   : ${pc.cyan("sudo apt install ffmpeg")}`);
@@ -470,9 +473,7 @@ export async function runInitWizard(options: InitWizardOptions = {}): Promise<vo
 
     if (chosenLlmProvider === "gemini") {
       const currentGeminiModel = currentConfig.geminiModel || DEFAULT_GEMINI_MODEL;
-      const geminiModelAnswer = (
-        await ask(`  Default Gemini Model [${currentGeminiModel}]: `)
-      ).trim();
+      const geminiModelAnswer = (await ask(m().promptGeminiModel(currentGeminiModel))).trim();
       updatedConfig.geminiModel = geminiModelAnswer || currentGeminiModel;
     } else {
       const currentOpenRouterLlmModel =
@@ -485,9 +486,7 @@ export async function runInitWizard(options: InitWizardOptions = {}): Promise<vo
 
     if (chosenProvider === "groq") {
       const currentGroqModel = currentConfig.groqModel || DEFAULT_GROQ_MODEL;
-      const groqModelAnswer = (
-        await ask(`  Default Groq Whisper Model [${currentGroqModel}]: `)
-      ).trim();
+      const groqModelAnswer = (await ask(m().promptGroqModel(currentGroqModel))).trim();
       updatedConfig.groqModel = groqModelAnswer || currentGroqModel;
     } else {
       const currentOpenRouterModel =
@@ -511,13 +510,13 @@ export async function runInitWizard(options: InitWizardOptions = {}): Promise<vo
     }
 
     out(pc.bold(pc.green(m().configSaved(configPath))));
-    out(pc.bold("🚀 Quick Start:"));
-    out(`   ${pc.cyan("vsub video.mp4")}                 # Transcribe & generate subtitles`);
-    out(`   ${pc.cyan("vsub video.mp4 -t en,ja")}          # Multi-language subtitle output`);
-    out(`   ${pc.cyan("vsub video.mp4 --bilingual")}       # Bilingual subtitles`);
-    out(`   ${pc.cyan("vsub video.mp4 --burn")}            # Burn subtitles into video (hardsub)`);
-    out(`   ${pc.cyan("vsub batch ./videos")}              # Batch process directory`);
-    out(`   ${pc.cyan("vsub --help")}                      # Display all options`);
+    out(pc.bold(m().quickStartTitle));
+    out(`   ${pc.cyan("vsub video.mp4")}                 # ${m().quickStartTranscribe}`);
+    out(`   ${pc.cyan("vsub video.mp4 -t en,ja")}          # ${m().quickStartMultiLanguage}`);
+    out(`   ${pc.cyan("vsub video.mp4 --bilingual")}       # ${m().quickStartBilingual}`);
+    out(`   ${pc.cyan("vsub video.mp4 --burn")}            # ${m().quickStartBurn}`);
+    out(`   ${pc.cyan("vsub batch ./videos")}              # ${m().quickStartBatch}`);
+    out(`   ${pc.cyan("vsub --help")}                      # ${m().quickStartHelp}`);
     out("");
   } finally {
     if (rl) {

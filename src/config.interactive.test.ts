@@ -94,4 +94,28 @@ describe("ensureApiKeys interactive mode", () => {
     const savedConfig = loadGlobalConfig();
     expect(savedConfig.openrouterApiKey).toBe("openrouter-prompted-key");
   });
+
+  it.each([false, true])(
+    "localizes interactive API key prompts with OpenRouter: %s",
+    async (openrouter) => {
+      const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+      questionMock.mockResolvedValue("test-api-key");
+      await ensureApiKeys(makeConfig(), {
+        lang: "ja",
+        requireGroq: !openrouter,
+        requireOpenRouter: openrouter,
+        requireGemini: true,
+      });
+      const logged = logSpy.mock.calls.flat().join("\n");
+      expect(logged).toContain("API キーがありません。対話形式で設定を始めます。");
+      expect(logged).toContain("入力したキーは、次回から使えるよう次の場所に保存します:");
+      expect(logged).toContain("✅ 設定を保存しました。");
+      expect(questionMock).toHaveBeenCalledWith(
+        expect.stringContaining(`${openrouter ? "OpenRouter" : "Groq"} の API キーを入力`),
+      );
+      expect(questionMock).toHaveBeenCalledWith(
+        expect.stringContaining("Gemini の API キーを入力"),
+      );
+    },
+  );
 });

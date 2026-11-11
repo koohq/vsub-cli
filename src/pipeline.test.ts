@@ -25,6 +25,7 @@ import {
   resolveEmbeddedVideoPath,
   resolveOutputFilePaths,
   resolveTranscriptEntries,
+  resolveTranscriptionContext,
 } from "./pipeline.js";
 import * as safetyModule from "./safety.js";
 import { reflowSrtEntries, type SrtEntry } from "./srt.js";
@@ -97,6 +98,32 @@ vi.mock("./transcribe/transcriber.js", async (importOriginal) => {
 });
 
 describe("pipeline.ts", () => {
+  describe("glossary transcription hints", () => {
+    const glossary = Array.from({ length: 100 }, (_, i) => `用語${i}=訳語${i}`).join(", ");
+    const stt = { provider: "groq", model: "test-whisper", source: "option" } as const;
+
+    it("limits generated Groq prompts to 224 UTF-8 bytes", () => {
+      const context = resolveTranscriptionContext({ glossary }, stt);
+      expect(context.prompt).toBeTruthy();
+      expect(Buffer.byteLength(context.prompt ?? "", "utf8")).toBeLessThanOrEqual(224);
+    });
+
+    it.each(["config", "cli"])("preserves explicit long prompts from %s", (source) => {
+      const whisperPrompt = "利用者のヒント".repeat(100);
+      const context = resolveTranscriptionContext(
+        { glossary, ...(source === "config" ? { whisperPrompt } : {}) },
+        stt,
+        source === "cli" ? { whisperPrompt } : undefined,
+      );
+      expect(context.prompt).toBe(whisperPrompt);
+    });
+
+    it("does not send glossary hints to OpenRouter", () => {
+      expect(
+        resolveTranscriptionContext({ glossary }, { ...stt, provider: "openrouter" }).prompt,
+      ).toBeUndefined();
+    });
+  });
   let tempDir: string;
   let configHome: string;
   const originalEnv = process.env;

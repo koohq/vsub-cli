@@ -165,6 +165,94 @@ describe("CLI integration harness", () => {
     await program.parseAsync(["node", "vsub", ...args]);
   }
 
+  describe("localized command output", () => {
+    let errorSpy: ReturnType<typeof vi.spyOn>;
+
+    beforeEach(() => {
+      errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+    });
+
+    afterEach(() => {
+      errorSpy.mockRestore();
+      vi.mocked(getConfig).mockReturnValue(mockConfig);
+    });
+
+    function output(): string {
+      return logSpy.mock.calls.map(([text]: unknown[]) => String(text)).join("\n");
+    }
+
+    function expectAlignedRows(): void {
+      const rows = output()
+        .split("\n")
+        .filter((line) => line.includes(" : "));
+      expect(rows.length).toBeGreaterThan(1);
+      expect(new Set(rows.map((line) => ui.displayWidth(line.split(" : ")[0] ?? ""))).size).toBe(1);
+    }
+
+    it.each([true, false])("localizes config show with explicit language: %s", async (explicit) => {
+      vi.mocked(getConfig).mockReturnValue({
+        ...mockConfig,
+        lang: explicit ? "en" : "ja",
+        groqApiKey: "",
+        geminiApiKey: "",
+        openrouterApiKey: "",
+      });
+      await runCli(...(explicit ? ["-l", "ja"] : []), "config", "show");
+      for (const text of ["📁 設定ファイル:", "表示言語", "(未設定)", "有効"]) {
+        expect(output()).toContain(text);
+      }
+      expect(output()).not.toMatch(/Display Language|Not configured/);
+      expectAlignedRows();
+    });
+
+    it.each([
+      { args: ["config", "path"], text: "設定ファイルのパス:" },
+      { args: ["cache", "path"], text: "キャッシュのフォルダ:" },
+      { args: ["cache", "stats"], text: "ファイル数 : 0 件" },
+      { args: ["cache", "clean"], text: "キャッシュのファイルを 0 件消しました" },
+    ])("localizes $args", async ({ args, text }) => {
+      await runCli("-l", "ja", ...args, ...(args[0] === "cache" ? ["--cache-dir", tmpDir] : []));
+      expect(output()).toContain(text);
+      if (args[1] === "stats") expectAlignedRows();
+    });
+
+    it.each(["en", "ja"] as const)("aligns cache stats in %s", async (lang) => {
+      await runCli("-l", lang, "cache", "stats", "--cache-dir", tmpDir);
+      expectAlignedRows();
+      expect(output()).toContain(
+        lang === "ja" ? "📁 キャッシュのフォルダ:" : "📁 Cache Directory:",
+      );
+    });
+
+    it("uses the saved language for config set guidance and invalid language errors", async () => {
+      vi.mocked(getConfig).mockReturnValue({ ...mockConfig, lang: "ja" });
+      await runCli("config", "set");
+      expect(output()).toContain("保存する設定を指定してください");
+      await runCli("config", "set", "--lang", "xx");
+      expect(errorSpy.mock.calls.flat().join("\n")).toContain("表示言語が正しくありません");
+      expect(saveGlobalConfig).not.toHaveBeenCalled();
+      expect(exitSpy).toHaveBeenCalledWith(1);
+    });
+
+    it("uses the newly selected language for the save confirmation", async () => {
+      await runCli("config", "set", "--lang", "ja", "--max-length", "40");
+      expect(output()).toContain("✅ 設定を保存しました:");
+      expect(saveGlobalConfig).toHaveBeenCalledWith(
+        expect.objectContaining({ lang: "ja", maxLength: 40 }),
+        expect.anything(),
+      );
+    });
+
+    it.each([
+      { command: "chapters", text: "サポートされていないチャプターの形式です" },
+      { command: "summarize", text: "サポートされていない要約の形式です" },
+    ])("localizes invalid $command formats", async ({ command, text }) => {
+      await runCli("-l", "ja", command, dummySrtPath, "-f", "xxx");
+      expect(errorSpy.mock.calls.flat().join("\n")).toContain(text);
+      expect(exitSpy).toHaveBeenCalledWith(1);
+    });
+  });
+
   it("passes mediaFile, targetLang, and format to processMediaPipeline", async () => {
     await runCli("video.mp4", "-t", "en", "-f", "srt,vtt");
 

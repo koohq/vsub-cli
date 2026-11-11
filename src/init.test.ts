@@ -284,6 +284,8 @@ describe("init.ts", () => {
       lang?: SupportedLanguage | undefined;
       displayLangAnswer?: string;
       targetLangAnswer?: string;
+      ffmpegSuccess?: boolean;
+      modelCount?: number | undefined;
     }
 
     async function runWizard(options: RunWizardOptions = {}) {
@@ -299,6 +301,7 @@ describe("init.ts", () => {
         "groq-key",
         "gemini",
         "gemini-key",
+        ...(options.ffmpegSuccess === false ? [""] : []),
         options.displayLangAnswer ?? "",
         options.targetLangAnswer ?? "",
         "", // Gemini model
@@ -314,10 +317,10 @@ describe("init.ts", () => {
         output,
         ask,
         lang: options.lang,
-        groqVerifier: async () => ({ success: true, modelCount: 5 }),
+        groqVerifier: async () => ({ success: true, modelCount: options.modelCount }),
         geminiVerifier: async () => ({ success: true }),
         ffmpegVerifier: async () => ({
-          success: true,
+          success: options.ffmpegSuccess ?? true,
           version: "ffmpeg version 7.0",
         }),
       });
@@ -326,6 +329,55 @@ describe("init.ts", () => {
         (saveSpy.mock.calls[0]?.[0] as Partial<AppConfig> | undefined) ?? {};
       return { output: outputData, prompts, savedConfig };
     }
+
+    it("localizes FFmpeg checks, installation instructions, model prompts and quick start", async () => {
+      const { output, prompts } = await runWizard({ lang: "ja", ffmpegSuccess: false });
+      expect(output).toContain("FFmpeg を確認中 (ffmpeg)...");
+      expect(output).toContain("FFmpeg のインストール方法:");
+      expect(stripVTControlCharacters(output)).toContain(
+        "winget install Gyan.FFmpeg または choco install ffmpeg",
+      );
+      expect(prompts).toContain("  Gemini のモデル [gemini-3.8-flash]: ");
+      expect(prompts).toContain("  Groq の文字起こしモデル [whisper-large-v3-turbo]: ");
+      for (const text of [
+        "使い方の例:",
+        "文字起こしして字幕を作る",
+        "複数の言語の字幕を出す",
+        "2 言語を併記した字幕",
+        "字幕を動画に焼き込む (ハードサブ)",
+        "フォルダ内をまとめて処理",
+        "すべてのオプションを表示",
+      ]) {
+        expect(output).toContain(text);
+      }
+      expect(`${output}\n${prompts.join("\n")}`).not.toMatch(
+        /Checking FFmpeg|Quick Start|Default Gemini Model|Default Groq Whisper Model|multiple/,
+      );
+    });
+
+    it.each(["en", "ja"] as const)(
+      "handles missing and numeric Groq model counts in %s",
+      async (lang) => {
+        const missing = await runWizard({ lang });
+        expect(missing.output).toContain(
+          lang === "en" ? "  ✔ Groq API connection successful" : "  ✔ Groq API 接続成功",
+        );
+        expect(missing.output).not.toMatch(
+          /multiple|undefined|models available|個のモデルを確認可能/,
+        );
+        const counted = await runWizard({ lang, modelCount: 5 });
+        expect(counted.output).toContain(
+          lang === "en" ? "(5 models available)" : "(5 個のモデルを確認可能)",
+        );
+      },
+    );
+
+    it("uses the newly selected language for model prompts and quick start", async () => {
+      const { output, prompts } = await runWizard({ lang: "en", displayLangAnswer: "ja" });
+      expect(output).toContain("Checking FFmpeg");
+      expect(output).toContain("使い方の例:");
+      expect(prompts).toContain("  Gemini のモデル [gemini-3.8-flash]: ");
+    });
 
     it.each(["en", "ja"] as const)("aligns all three banner lines in %s", async (lang) => {
       const result = await runWizard({ lang });

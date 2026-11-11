@@ -182,6 +182,8 @@ export const en = {
     subtitleNotFound: (path: string) => `Subtitle file not found: ${path}`,
   },
   chapters: {
+    unsupportedFormat: (input: string, supported: string) =>
+      `Unsupported chapters format: "${input}". Supported formats: ${supported}`,
     started: (file: string) => `vsub-cli chapters - Generating chapters: ${file}`,
     step1Resolve: "Resolving transcript entries...",
     step1Parsed: (count: number) => `Parsed ${count} subtitle entries`,
@@ -194,6 +196,8 @@ export const en = {
     noEntries: "No subtitle entries found to generate chapters.",
   },
   summarize: {
+    unsupportedFormat: (input: string, supported: string) =>
+      `Unsupported summary format: "${input}". Supported formats: ${supported}`,
     started: (file: string) => `vsub-cli summarize - Generating summary: ${file}`,
     step1Resolve: "Resolving transcript entries...",
     step1Parsed: (count: number) => `Parsed ${count} subtitle entries`,
@@ -261,8 +265,8 @@ export const en = {
     promptGroqNew: "  Enter Groq API Key (Enter to skip): ",
     skippedGroq: "  ⚠️  Groq API key skipped (can be configured later).\n",
     testingGroq: "  ⏳ Testing Groq API connection...",
-    groqSuccess: (count: string | number) =>
-      `  ✔ Groq API connection successful (${count} models available)`,
+    groqSuccess: (count?: number) =>
+      `  ✔ Groq API connection successful${count === undefined ? "" : ` (${count} models available)`}`,
     groqFailed: (err: string) => `  ✖ Groq API connection failed: ${err}`,
     promptOpenRouterCurrent: "  Enter OpenRouter API Key (Enter to keep current): ",
     promptOpenRouterNew: "  Enter OpenRouter API Key (Enter to skip): ",
@@ -289,13 +293,17 @@ export const en = {
     geminiSuccess: (model: string) => `  ✔ Gemini API connection successful (model: ${model})`,
     geminiFailed: (err: string) => `  ✖ Gemini API connection failed: ${err}`,
     step3Title: "▶ [3/4] FFmpeg Verification (for Audio Extraction & Burn-in)",
-    testingFfmpeg: "  ⏳ Checking FFmpeg executable...",
+    testingFfmpeg: (path: string) => `  ⏳ Checking FFmpeg (${path})...`,
+    ffmpegInstallHeader: "  ※ FFmpeg installation commands:",
+    ffmpegInstallWindows: (a: string, b: string) => `     Windows : ${a} or ${b}`,
     ffmpegSuccess: (version: string) => `  ✔ FFmpeg detected: ${version}`,
     ffmpegFailed: (err: string) => `  ✖ FFmpeg not found or failed: ${err}`,
     promptFfmpegPath: "  Enter FFmpeg path (or Enter to keep/skip): ",
     step4Title: "▶ [4/4] Default Preferences",
     promptDisplayLang: (current: string) => `  CLI Display Language [${current}] (en/ja): `,
     promptTargetLang: (current: string) => `  Default Target Subtitle Language [${current}]: `,
+    promptGeminiModel: (current: string) => `  Default Gemini Model [${current}]: `,
+    promptGroqModel: (current: string) => `  Default Groq Whisper Model [${current}]: `,
     promptOpenRouterModel: (current: string) =>
       `  Default OpenRouter transcription model [${current}]: `,
     promptOpenRouterLlmModel: (current: string) =>
@@ -304,12 +312,65 @@ export const en = {
       `\n🎉 Setup completed successfully!\nSettings saved to: ${path}\n`,
     configNotSaved: "The settings you entered in this wizard were not saved.",
     noApiKeyProvided: "API key not provided",
+    quickStartTitle: "🚀 Quick Start:",
+    quickStartTranscribe: "Transcribe & generate subtitles",
+    quickStartMultiLanguage: "Multi-language subtitle output",
+    quickStartBilingual: "Bilingual subtitles",
+    quickStartBurn: "Burn subtitles into video (hardsub)",
+    quickStartBatch: "Batch process directory",
+    quickStartHelp: "Display all options",
   },
   config: {
+    pathLine: (path: string) => `Configuration file path: ${path}`,
+    showHeader: (path: string) => `📁 Config File: ${path}`,
+    showLabels: {
+      lang: "Display Language",
+      groqApiKey: "Groq API Key",
+      geminiApiKey: "Gemini API Key",
+      openrouterApiKey: "OpenRouter API Key",
+      transcription: "Transcription",
+      textGeneration: "Text Generation",
+      ffmpegPath: "FFmpeg Path",
+      whisperPrompt: "Whisper Prompt",
+      prompt: "Translate Prompt",
+      glossary: "Glossary",
+      geminiModel: "Gemini Model",
+      groqModel: "Groq Model",
+      openrouterSttModel: "OpenRouter STT Model",
+      openrouterLlmModel: "OpenRouter LLM Model",
+      maxLength: "Max Length",
+      burnPosition: "Burn Position",
+      burnFontSize: "Burn Font Size",
+      updateCheck: "Update Check",
+    },
+    notConfigured: "(Not configured)",
+    enabled: "Enabled",
+    disabled: "Disabled",
+    chars: (n: number) => `${n} chars`,
+    invalidProvider: (provider: string) => `invalid provider "${provider}"`,
+    setNothing:
+      "⚠️ Please specify settings to save. (Example: vsub config set --gemini-model gemini-3.8-flash)",
+    invalidDisplayLang: (value: string) =>
+      `Invalid display language: "${value}". Supported languages: "en", "ja"`,
+    setSaved: (path: string) => `✅ Configuration updated and saved: ${path}`,
+    missingKeysHeader: "\n🔑 API keys missing. Starting interactive setup.",
+    missingKeysNote: "Note: Entered keys will be saved globally for future use at:",
+    promptOpenRouterKey: "1. Enter OpenRouter API Key (https://openrouter.ai/keys): ",
+    promptGroqKey: "1. Enter Groq API Key (https://console.groq.com/): ",
+    promptGeminiKey: "2. Enter Gemini API Key (https://aistudio.google.com/): ",
+    missingKeysSaved: "✅ Configuration saved successfully.\n",
     unreadableConfig: (path: string, reason: string) =>
       `The existing config file could not be read: ${path} (${reason}). Nothing was saved. Fix or delete the file, then run the command again.`,
     dirPermissionWarning: (dir: string, reason: string) =>
       `⚠️ Could not restrict the permissions of the config directory to 700: ${dir} (${reason}). The config file itself is still written with mode 600.`,
+  },
+  cache: {
+    pathLine: (dir: string) => `Cache directory: ${dir}`,
+    statsHeader: (dir: string) => `📁 Cache Directory: ${dir}`,
+    statsLabels: { count: "Cached Files", totalSize: "Total Size" },
+    files: (n: number) => `${n} files`,
+    cleaned: (n: number, size: string, dir: string) =>
+      `✅ Cleared ${n} cache files (${size} freed) from: ${dir}`,
   },
   gemini: {
     modelRetiredDefault: (model: string) =>
@@ -344,6 +405,8 @@ export const en = {
       "* Full license text is available via `vsub licenses --full` or in the bundled `THIRD_PARTY_LICENSES.txt`.",
   },
   update: {
+    checkAvailable: (latest: string, current: string) =>
+      `v${latest} available (current: v${current})`,
     available: (current: string, latest: string) => `Update available: v${current} ➔ v${latest}`,
     commandHint: (cmd: string) => `Run: ${cmd}`,
     releaseNotes: (url: string) => `Release notes: ${url}`,

@@ -100,7 +100,10 @@ export function secondsToVttTimestamp(totalSeconds: number): string {
 /**
  * Validates and parses chapter format.
  */
-export function parseChaptersFormat(input?: string): ChaptersFormat {
+export function parseChaptersFormat(
+  input?: string,
+  lang?: SupportedLanguage | string,
+): ChaptersFormat {
   if (!input?.trim()) {
     return "txt";
   }
@@ -109,14 +112,17 @@ export function parseChaptersFormat(input?: string): ChaptersFormat {
     return normalized as ChaptersFormat;
   }
   throw new Error(
-    `Unsupported chapters format: "${input}". Supported formats: ${SUPPORTED_CHAPTERS_FORMATS.join(", ")}`,
+    getI18n(lang).chapters.unsupportedFormat(input, SUPPORTED_CHAPTERS_FORMATS.join(", ")),
   );
 }
 
 /**
  * Validates and parses summary format.
  */
-export function parseSummaryFormat(input?: string): SummaryFormat {
+export function parseSummaryFormat(
+  input?: string,
+  lang?: SupportedLanguage | string,
+): SummaryFormat {
   if (!input?.trim()) {
     return "md";
   }
@@ -125,7 +131,7 @@ export function parseSummaryFormat(input?: string): SummaryFormat {
     return normalized as SummaryFormat;
   }
   throw new Error(
-    `Unsupported summary format: "${input}". Supported formats: ${SUPPORTED_SUMMARY_FORMATS.join(", ")}`,
+    getI18n(lang).summarize.unsupportedFormat(input, SUPPORTED_SUMMARY_FORMATS.join(", ")),
   );
 }
 

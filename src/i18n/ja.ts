@@ -185,6 +185,8 @@ export const ja: typeof en = {
     subtitleNotFound: (path: string) => `字幕ファイルが見つかりません: ${path}`,
   },
   chapters: {
+    unsupportedFormat: (input: string, supported: string) =>
+      `サポートされていないチャプターの形式です: "${input}". 利用可能な形式: ${supported}`,
     started: (file: string) => `vsub-cli chapters - チャプター生成開始: ${file}`,
     step1Resolve: "文字起こしデータを取得中...",
     step1Parsed: (count: number) => `字幕データ ${count} 行を解析完了`,
@@ -198,6 +200,8 @@ export const ja: typeof en = {
     noEntries: "チャプター生成対象の字幕データが見つかりませんでした。",
   },
   summarize: {
+    unsupportedFormat: (input: string, supported: string) =>
+      `サポートされていない要約の形式です: "${input}". 利用可能な形式: ${supported}`,
     started: (file: string) => `vsub-cli summarize - 要約生成開始: ${file}`,
     step1Resolve: "文字起こしデータを取得中...",
     step1Parsed: (count: number) => `字幕データ ${count} 行を解析完了`,
@@ -263,8 +267,8 @@ export const ja: typeof en = {
     promptGroqNew: "  Groq API Key を入力 (Enter でスキップ): ",
     skippedGroq: "  ⚠️  Groq API キーをスキップしました (後から設定可能です)。\n",
     testingGroq: "  ⏳ Groq API 接続テスト中...",
-    groqSuccess: (count: string | number) =>
-      `  ✔ Groq API 接続成功 (${count} 個のモデルを確認可能)`,
+    groqSuccess: (count?: number) =>
+      `  ✔ Groq API 接続成功${count === undefined ? "" : ` (${count} 個のモデルを確認可能)`}`,
     groqFailed: (err: string) => `  ✖ Groq API 接続失敗: ${err}`,
     promptOpenRouterCurrent: "  OpenRouter API Key を入力 (Enter で現在の設定を維持): ",
     promptOpenRouterNew: "  OpenRouter API Key を入力 (Enter でスキップ): ",
@@ -290,25 +294,82 @@ export const ja: typeof en = {
     geminiSuccess: (model: string) => `  ✔ Gemini API 接続成功 (モデル: ${model})`,
     geminiFailed: (err: string) => `  ✖ Gemini API 接続失敗: ${err}`,
     step3Title: "▶ [3/4] FFmpeg の確認 (音声抽出・動画焼き込み用)",
-    testingFfmpeg: "  ⏳ FFmpeg 実行可能状態を確認中...",
+    testingFfmpeg: (path: string) => `  ⏳ FFmpeg を確認中 (${path})...`,
+    ffmpegInstallHeader: "  ※ FFmpeg のインストール方法:",
+    ffmpegInstallWindows: (a: string, b: string) => `     Windows : ${a} または ${b}`,
     ffmpegSuccess: (version: string) => `  ✔ FFmpeg を検出しました: ${version}`,
     ffmpegFailed: (err: string) => `  ✖ FFmpeg が見つからないかエラーが発生しました: ${err}`,
     promptFfmpegPath: "  FFmpeg の実行パスを入力 (Enter でスキップ/現在の設定を維持): ",
     step4Title: "▶ [4/4] デフォルト設定の確認",
     promptDisplayLang: (current: string) => `  CLI 表示言語 [${current}] (en/ja): `,
     promptTargetLang: (current: string) => `  デフォルト出力言語 [${current}]: `,
+    promptGeminiModel: (current: string) => `  Gemini のモデル [${current}]: `,
+    promptGroqModel: (current: string) => `  Groq の文字起こしモデル [${current}]: `,
     promptOpenRouterModel: (current: string) => `  OpenRouter の文字起こしモデル [${current}]: `,
     promptOpenRouterLlmModel: (current: string) => `  OpenRouter の文章の生成モデル [${current}]: `,
     configSaved: (path: string) =>
       `\n🎉 初期セットアップが正常に完了しました！\n設定保存先: ${path}\n`,
     configNotSaved: "このウィザードで入力した内容は保存されていません。",
     noApiKeyProvided: "APIキーが指定されていません",
+    quickStartTitle: "🚀 使い方の例:",
+    quickStartTranscribe: "文字起こしして字幕を作る",
+    quickStartMultiLanguage: "複数の言語の字幕を出す",
+    quickStartBilingual: "2 言語を併記した字幕",
+    quickStartBurn: "字幕を動画に焼き込む (ハードサブ)",
+    quickStartBatch: "フォルダ内をまとめて処理",
+    quickStartHelp: "すべてのオプションを表示",
   },
   config: {
+    pathLine: (path: string) => `設定ファイルのパス: ${path}`,
+    showHeader: (path: string) => `📁 設定ファイル: ${path}`,
+    showLabels: {
+      lang: "表示言語",
+      groqApiKey: "Groq の API キー",
+      geminiApiKey: "Gemini の API キー",
+      openrouterApiKey: "OpenRouter の API キー",
+      transcription: "文字起こし",
+      textGeneration: "文章の生成",
+      ffmpegPath: "FFmpeg のパス",
+      whisperPrompt: "認識ヒント",
+      prompt: "翻訳指示",
+      glossary: "用語集",
+      geminiModel: "Gemini のモデル",
+      groqModel: "Groq のモデル",
+      openrouterSttModel: "OpenRouter の文字起こしモデル",
+      openrouterLlmModel: "OpenRouter の文章生成モデル",
+      maxLength: "字幕の最大文字数",
+      burnPosition: "焼き込みの位置",
+      burnFontSize: "焼き込みの文字サイズ",
+      updateCheck: "更新の確認",
+    },
+    notConfigured: "(未設定)",
+    enabled: "有効",
+    disabled: "無効",
+    chars: (n: number) => `${n} 文字`,
+    invalidProvider: (provider: string) => `不明な提供元 "${provider}"`,
+    setNothing:
+      "⚠️ 保存する設定を指定してください。(例: vsub config set --gemini-model gemini-3.8-flash)",
+    invalidDisplayLang: (value: string) =>
+      `表示言語が正しくありません: "${value}"。対応している言語: "en", "ja"`,
+    setSaved: (path: string) => `✅ 設定を保存しました: ${path}`,
+    missingKeysHeader: "\n🔑 API キーがありません。対話形式で設定を始めます。",
+    missingKeysNote: "入力したキーは、次回から使えるよう次の場所に保存します:",
+    promptOpenRouterKey: "1. OpenRouter の API キーを入力 (https://openrouter.ai/keys): ",
+    promptGroqKey: "1. Groq の API キーを入力 (https://console.groq.com/): ",
+    promptGeminiKey: "2. Gemini の API キーを入力 (https://aistudio.google.com/): ",
+    missingKeysSaved: "✅ 設定を保存しました。\n",
     unreadableConfig: (path: string, reason: string) =>
       `既存の設定ファイルを読み込めませんでした: ${path}（${reason}）。何も保存していません。ファイルを直すか削除してから、もう一度実行してください。`,
     dirPermissionWarning: (dir: string, reason: string) =>
       `⚠️ 設定フォルダの権限を 700 に絞れませんでした: ${dir}（${reason}）。設定ファイル自体は、権限 600 で書き込みます。`,
+  },
+  cache: {
+    pathLine: (dir: string) => `キャッシュのフォルダ: ${dir}`,
+    statsHeader: (dir: string) => `📁 キャッシュのフォルダ: ${dir}`,
+    statsLabels: { count: "ファイル数", totalSize: "合計サイズ" },
+    files: (n: number) => `${n} 件`,
+    cleaned: (n: number, size: string, dir: string) =>
+      `✅ キャッシュのファイルを ${n} 件消しました (${size} を解放): ${dir}`,
   },
   gemini: {
     modelRetiredDefault: (model: string) =>
@@ -342,6 +403,8 @@ export const ja: typeof en = {
       "※ 全文テキストは `vsub licenses --full` または配布同梱の `THIRD_PARTY_LICENSES.txt` で確認できます。",
   },
   update: {
+    checkAvailable: (latest: string, current: string) =>
+      `v${latest} が利用できます (現在: v${current})`,
     available: (current: string, latest: string) =>
       `新しいバージョンが利用可能です: v${current} ➔ v${latest}`,
     commandHint: (cmd: string) => `更新コマンド: ${cmd}`,

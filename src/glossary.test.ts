@@ -166,6 +166,27 @@ describe("glossary.ts", () => {
   });
 
   describe("extractWhisperPromptHints", () => {
+    it.each(["term", "用語", "😀"])("limits %s hints to a whole-term UTF-8 prefix", (prefix) => {
+      const terms = Array.from({ length: 100 }, (_, i) => `${prefix}${i}`);
+      const glossary = Object.fromEntries(terms.map((term) => [term, "訳語"]));
+      const hints = extractWhisperPromptHints(glossary);
+      const count = hints.split(", ").length;
+      expect(Buffer.byteLength(hints, "utf8")).toBeLessThanOrEqual(224);
+      expect(hints).toBe(terms.slice(0, count).join(", "));
+      expect(Buffer.byteLength(`${hints}, ${terms[count]}`, "utf8")).toBeGreaterThan(224);
+      expect(extractWhisperPromptHints(terms.map((term) => `${term}=訳語`).join(", "))).toBe(hints);
+    });
+
+    it("preserves exactly 224 bytes and stops before the next term", () => {
+      const term = "a".repeat(224);
+      expect(extractWhisperPromptHints({ [term]: "訳語" })).toBe(term);
+      expect(extractWhisperPromptHints({ [term]: "訳語", next: "次" })).toBe(term);
+    });
+
+    it("returns empty hints if the first term exceeds the byte limit", () => {
+      expect(extractWhisperPromptHints({ ["語".repeat(75)]: "訳語", next: "次" })).toBe("");
+    });
+
     it("should extract comma-separated keys from glossary object", () => {
       const glossary = {
         Antigravity: "アンチグラビティ",

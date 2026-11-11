@@ -11,20 +11,12 @@ import {
   type SupportedLanguage,
 } from "./i18n/index.js";
 
-// Load environment variables from .env file if present in startDir or parent directories
+// Load only startDir's .env; do not inspect parents to avoid unrelated project keys.
 export function loadEnv(startDir: string = process.cwd()): void {
-  let currentDir = startDir;
-  while (true) {
-    const envPath = path.join(currentDir, ".env");
-    if (fs.existsSync(envPath)) {
-      dotenv.config({ path: envPath, quiet: true });
-      return;
-    }
-    const parentDir = path.dirname(currentDir);
-    if (parentDir === currentDir) break;
-    currentDir = parentDir;
+  const envPath = path.join(startDir, ".env");
+  if (fs.existsSync(envPath)) {
+    dotenv.config({ path: envPath, quiet: true });
   }
-  dotenv.config({ quiet: true });
 }
 loadEnv();
 
@@ -328,8 +320,9 @@ export async function ensureApiKeys(
   const missingOpenRouter = requireOpenRouter && !openrouterApiKey;
 
   if ((missingGroq || missingGemini || missingOpenRouter) && isInteractive) {
-    console.log("\n🔑 API keys missing. Starting interactive setup.");
-    console.log("Note: Entered keys will be saved globally for future use at:");
+    const m = getI18n(options.lang).config;
+    console.log(m.missingKeysHeader);
+    console.log(m.missingKeysNote);
     console.log(`   ${getGlobalConfigPath()}\n`);
 
     const rl = readline.createInterface({
@@ -341,20 +334,14 @@ export async function ensureApiKeys(
 
     try {
       if (missingOpenRouter) {
-        promptedOpenRouterKey = (
-          await rl.question("1. Enter OpenRouter API Key (https://openrouter.ai/keys): ")
-        ).trim();
+        promptedOpenRouterKey = (await rl.question(m.promptOpenRouterKey)).trim();
         openrouterApiKey = promptedOpenRouterKey;
       } else if (missingGroq) {
-        groqApiKey = (
-          await rl.question("1. Enter Groq API Key (https://console.groq.com/): ")
-        ).trim();
+        groqApiKey = (await rl.question(m.promptGroqKey)).trim();
       }
 
       if (missingGemini) {
-        geminiApiKey = (
-          await rl.question("2. Enter Gemini API Key (https://aistudio.google.com/): ")
-        ).trim();
+        geminiApiKey = (await rl.question(m.promptGeminiKey)).trim();
       }
 
       if (groqApiKey || geminiApiKey || promptedOpenRouterKey) {
@@ -366,7 +353,7 @@ export async function ensureApiKeys(
           },
           { lang: options.lang },
         );
-        console.log("✅ Configuration saved successfully.\n");
+        console.log(m.missingKeysSaved);
       }
     } finally {
       rl.close();

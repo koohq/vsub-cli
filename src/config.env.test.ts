@@ -47,7 +47,7 @@ describe("loadEnv quiet behaviour", () => {
     }
   });
 
-  it("loads .env from parent directory without logging to console.error", () => {
+  it("does not load .env from parent directories", () => {
     const parentDir = path.join(tmpDir, "parent");
     const childDir = path.join(parentDir, "child");
     fs.mkdirSync(childDir, { recursive: true });
@@ -55,6 +55,13 @@ describe("loadEnv quiet behaviour", () => {
 
     loadEnv(childDir);
 
+    expect(process.env[DUMMY_ENV_KEY]).toBeUndefined();
+    expect(consoleErrorSpy).not.toHaveBeenCalled();
+  });
+
+  it("loads only the start directory .env without logging to console.error", () => {
+    fs.writeFileSync(path.join(tmpDir, ".env"), `${DUMMY_ENV_KEY}=${DUMMY_ENV_VALUE}\n`);
+    loadEnv(tmpDir);
     expect(process.env[DUMMY_ENV_KEY]).toBe(DUMMY_ENV_VALUE);
     expect(consoleErrorSpy).not.toHaveBeenCalled();
   });

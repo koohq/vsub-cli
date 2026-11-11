@@ -16,6 +16,26 @@ import {
 import type { SrtEntry } from "./srt.js";
 
 describe("formatter.ts", () => {
+  it.each([
+    {
+      parse: parseChaptersFormat,
+      kind: "chapters",
+      japanese: "チャプター",
+      supported: "txt, json, vtt",
+    },
+    { parse: parseSummaryFormat, kind: "summary", japanese: "要約", supported: "md, txt, json" },
+  ])(
+    "localizes unsupported $kind formats and preserves default English",
+    ({ parse, kind, japanese, supported }) => {
+      expect(() => parse("xxx", "ja")).toThrow(
+        `サポートされていない${japanese}の形式です: "xxx". 利用可能な形式: ${supported}`,
+      );
+      expect(() => parse("xxx")).toThrow(
+        `Unsupported ${kind} format: "xxx". Supported formats: ${supported}`,
+      );
+    },
+  );
+
   const sampleEntries: SrtEntry[] = [
     {
       id: 1,

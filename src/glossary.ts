@@ -193,15 +193,24 @@ export function formatGlossaryPrompt(glossary: FlatGlossary): string {
   return lines.join("\n");
 }
 
+// Groq allows 224 prompt tokens. Whisper's byte-level BPE cannot use more tokens
+// than UTF-8 bytes, so this byte limit keeps generated hints within that budget.
+const WHISPER_HINT_MAX_BYTES = 224;
+
 /**
  * Extracts comma-separated source terms from a glossary or raw input for Whisper prompt hint.
  */
 export function extractWhisperPromptHints(glossary: FlatGlossary | string): string {
-  if (typeof glossary === "string") {
-    const parsed = parseGlossary(glossary);
-    return Object.keys(parsed).join(", ");
+  const parsed = typeof glossary === "string" ? parseGlossary(glossary) : glossary;
+  const terms: string[] = [];
+  let bytes = 0;
+  for (const term of Object.keys(parsed)) {
+    const nextBytes = bytes + (terms.length > 0 ? 2 : 0) + Buffer.byteLength(term, "utf8");
+    if (nextBytes > WHISPER_HINT_MAX_BYTES) break;
+    terms.push(term);
+    bytes = nextBytes;
   }
-  return Object.keys(glossary).join(", ");
+  return terms.join(", ");
 }
 
 /**

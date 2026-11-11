@@ -264,9 +264,7 @@ export function createProgram(): Command {
           spinner.start();
           const checkResult = await checkUpdate({ force: true });
           if (checkResult?.updateAvailable) {
-            spinner.info(
-              `v${checkResult.latestVersion} available (current: v${checkResult.currentVersion})`,
-            );
+            spinner.info(m.checkAvailable(checkResult.latestVersion, checkResult.currentVersion));
             console.log(`\n${formatUpdateNotification(checkResult, lang)}\n`);
           } else {
             spinner.succeed(m.alreadyLatest(getCurrentVersion()));
@@ -315,18 +313,23 @@ export function createProgram(): Command {
   configCmd
     .command("path")
     .description("Display global configuration file path")
-    .action(() => {
-      console.log(`Configuration file path: ${getGlobalConfigPath()}`);
+    .action((_options: unknown, cmd: Command) => {
+      const { lang } = readActionOptions<{ lang?: string }>(cmd);
+      const m = getI18n(lang ?? getConfig(undefined, lang).lang ?? "en").config;
+      console.log(m.pathLine(getGlobalConfigPath()));
     });
 
   configCmd
     .command("show")
     .description("Display current settings")
-    .action(() => {
+    .action((_options: unknown, cmd: Command) => {
+      const { lang } = readActionOptions<{ lang?: string }>(cmd);
       const configPath = getGlobalConfigPath();
-      const resolvedConfig = getConfig();
+      const resolvedConfig = getConfig(undefined, lang);
+      const m = getI18n(lang ?? resolvedConfig.lang ?? "en").config;
+      const labels = m.showLabels;
 
-      console.log(`\n📁 Config File: ${configPath}`);
+      console.log(`\n${m.showHeader(configPath)}`);
       console.log("----------------------------------------");
       let transcriptionText: string;
       try {
@@ -334,7 +337,7 @@ export function createProgram(): Command {
         const label = STT_PROVIDER_LABELS[stt.provider];
         transcriptionText = `${label} (${stt.model}) [${stt.source}]`;
       } catch {
-        transcriptionText = `invalid provider "${resolvedConfig.sttProvider}"`;
+        transcriptionText = m.invalidProvider(`${resolvedConfig.sttProvider}`);
       }
       let textGenText: string;
       try {
@@ -342,48 +345,51 @@ export function createProgram(): Command {
         const label = LLM_PROVIDER_LABELS[llm.provider];
         textGenText = `${label} (${llm.model}) [${llm.source}]`;
       } catch {
-        textGenText = `invalid provider "${resolvedConfig.llmProvider}"`;
+        textGenText = m.invalidProvider(`${resolvedConfig.llmProvider}`);
       }
       const rows: [string, string | undefined][] = [
-        ["Display Language", resolvedConfig.lang || "en"],
+        [labels.lang, resolvedConfig.lang || "en"],
         [
-          "Groq API Key",
+          labels.groqApiKey,
           resolvedConfig.groqApiKey
             ? `${resolvedConfig.groqApiKey.slice(0, 4)}...${resolvedConfig.groqApiKey.slice(-4)}`
-            : "(Not configured)",
+            : m.notConfigured,
         ],
         [
-          "Gemini API Key",
+          labels.geminiApiKey,
           resolvedConfig.geminiApiKey
             ? `${resolvedConfig.geminiApiKey.slice(0, 4)}...${resolvedConfig.geminiApiKey.slice(-4)}`
-            : "(Not configured)",
+            : m.notConfigured,
         ],
         [
-          "OpenRouter API Key",
+          labels.openrouterApiKey,
           resolvedConfig.openrouterApiKey
             ? `${resolvedConfig.openrouterApiKey.slice(0, 4)}...${resolvedConfig.openrouterApiKey.slice(-4)}`
-            : "(Not configured)",
+            : m.notConfigured,
         ],
-        ["Transcription", transcriptionText],
-        ["Text Generation", textGenText],
-        ["FFmpeg Path", `${resolvedConfig.ffmpegPath}`],
+        [labels.transcription, transcriptionText],
+        [labels.textGeneration, textGenText],
+        [labels.ffmpegPath, `${resolvedConfig.ffmpegPath}`],
         [
-          "Whisper Prompt",
+          labels.whisperPrompt,
           resolvedConfig.whisperPrompt ? `"${resolvedConfig.whisperPrompt}"` : undefined,
         ],
-        ["Translate Prompt", resolvedConfig.prompt ? `"${resolvedConfig.prompt}"` : undefined],
-        ["Glossary", resolvedConfig.glossary ? `"${resolvedConfig.glossary}"` : undefined],
-        ["Gemini Model", resolvedConfig.geminiModel || undefined],
-        ["Groq Model", resolvedConfig.groqModel || undefined],
-        ["OpenRouter STT Model", resolvedConfig.openrouterSttModel || undefined],
-        ["OpenRouter LLM Model", resolvedConfig.openrouterLlmModel || undefined],
-        ["Max Length", resolvedConfig.maxLength ? `${resolvedConfig.maxLength} chars` : undefined],
-        ["Burn Position", resolvedConfig.burnPosition || undefined],
+        [labels.prompt, resolvedConfig.prompt ? `"${resolvedConfig.prompt}"` : undefined],
+        [labels.glossary, resolvedConfig.glossary ? `"${resolvedConfig.glossary}"` : undefined],
+        [labels.geminiModel, resolvedConfig.geminiModel || undefined],
+        [labels.groqModel, resolvedConfig.groqModel || undefined],
+        [labels.openrouterSttModel, resolvedConfig.openrouterSttModel || undefined],
+        [labels.openrouterLlmModel, resolvedConfig.openrouterLlmModel || undefined],
         [
-          "Burn Font Size",
+          labels.maxLength,
+          resolvedConfig.maxLength ? m.chars(resolvedConfig.maxLength) : undefined,
+        ],
+        [labels.burnPosition, resolvedConfig.burnPosition || undefined],
+        [
+          labels.burnFontSize,
           resolvedConfig.burnFontSize ? `${resolvedConfig.burnFontSize}` : undefined,
         ],
-        ["Update Check", resolvedConfig.disableUpdateCheck ? "Disabled" : "Enabled"],
+        [labels.updateCheck, resolvedConfig.disableUpdateCheck ? m.disabled : m.enabled],
       ];
       const LABEL_WIDTH = Math.max(...rows.map(([label]) => displayWidth(label)));
       for (const [label, value] of rows) {
@@ -473,13 +479,10 @@ export function createProgram(): Command {
         }
 
         const normalizedLang = options.lang ? normalizeLanguage(options.lang) : undefined;
+        const m = getI18n(normalizedLang ?? getConfig().lang).config;
         if (options.lang && !normalizedLang) {
-          console.error(
-            pc.red(
-              `\n✖ Invalid display language: "${options.lang}". Supported languages: "en", "ja"\n`,
-            ),
-          );
-          process.exit(1);
+          console.error(pc.red(`\n✖ ${m.invalidDisplayLang(options.lang)}\n`));
+          return process.exit(1);
         }
 
         let sttProviderVal: SttProvider | undefined;
@@ -543,9 +546,7 @@ export function createProgram(): Command {
           burnPositionVal === undefined &&
           burnFontSizeVal === undefined
         ) {
-          console.log(
-            "⚠️ Please specify settings to save. (Example: vsub config set --gemini-model gemini-3.8-flash)",
-          );
+          console.log(m.setNothing);
           return;
         }
 
@@ -585,7 +586,7 @@ export function createProgram(): Command {
           return process.exit(1);
         }
 
-        console.log(`✅ Configuration updated and saved: ${getGlobalConfigPath()}`);
+        console.log(m.setSaved(getGlobalConfigPath()));
       },
     );
 
@@ -609,20 +610,30 @@ export function createProgram(): Command {
     .command("path")
     .description("Display cache directory path")
     .option("--cache-dir <path>", "Custom cache directory")
-    .action((options: { cacheDir?: string }) => {
-      console.log(`Cache directory: ${getCacheDir(options.cacheDir)}`);
+    .action((options: { cacheDir?: string }, cmd: Command) => {
+      const { lang } = readActionOptions<{ lang?: string }>(cmd);
+      const m = getI18n(lang ?? getConfig(undefined, lang).lang ?? "en").cache;
+      console.log(m.pathLine(getCacheDir(options.cacheDir)));
     });
 
   cacheCmd
     .command("stats")
     .description("Display cache usage and entry counts")
     .option("--cache-dir <path>", "Custom cache directory")
-    .action((options: { cacheDir?: string }) => {
+    .action((options: { cacheDir?: string }, cmd: Command) => {
+      const { lang } = readActionOptions<{ lang?: string }>(cmd);
+      const m = getI18n(lang ?? getConfig(undefined, lang).lang ?? "en").cache;
       const stats = getCacheStats(options.cacheDir);
-      console.log(`\n📁 Cache Directory : ${stats.cacheDir}`);
+      console.log(`\n${m.statsHeader(stats.cacheDir)}`);
       console.log("----------------------------------------");
-      console.log(`Cached Files     : ${stats.count} files`);
-      console.log(`Total Size       : ${formatFileSize(stats.totalBytes)}`);
+      const rows: [string, string][] = [
+        [m.statsLabels.count, m.files(stats.count)],
+        [m.statsLabels.totalSize, formatFileSize(stats.totalBytes)],
+      ];
+      const LABEL_WIDTH = Math.max(...rows.map(([label]) => displayWidth(label)));
+      for (const [label, value] of rows) {
+        console.log(`${padEndToWidth(label, LABEL_WIDTH)} : ${value}`);
+      }
       console.log("----------------------------------------\n");
     });
 
@@ -630,10 +641,12 @@ export function createProgram(): Command {
     .command("clean")
     .description("Delete all intermediate cache files")
     .option("--cache-dir <path>", "Custom cache directory")
-    .action((options: { cacheDir?: string }) => {
+    .action((options: { cacheDir?: string }, cmd: Command) => {
+      const { lang } = readActionOptions<{ lang?: string }>(cmd);
+      const m = getI18n(lang ?? getConfig(undefined, lang).lang ?? "en").cache;
       const result = clearCache(options.cacheDir);
       console.log(
-        `✅ Cleared ${result.deletedCount} cache files (${formatFileSize(result.freedBytes)} freed) from: ${result.cacheDir}`,
+        m.cleaned(result.deletedCount, formatFileSize(result.freedBytes), result.cacheDir),
       );
     });
 
@@ -723,7 +736,7 @@ export function createProgram(): Command {
       const isStdout = Boolean(options.stdout || options.output === "-");
 
       try {
-        const format = parseChaptersFormat(options.format);
+        const format = parseChaptersFormat(options.format, lang);
         await processChaptersPipeline({
           inputFile: file,
           targetLang: options.targetLang,
@@ -835,7 +848,7 @@ export function createProgram(): Command {
       const isStdout = Boolean(options.stdout || options.output === "-");
 
       try {
-        const format = parseSummaryFormat(options.format);
+        const format = parseSummaryFormat(options.format, lang);
         await processSummaryPipeline({
           inputFile: file,
           targetLang: options.targetLang,
