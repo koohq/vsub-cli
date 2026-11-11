@@ -180,6 +180,22 @@ describe("CLI integration harness", () => {
       { command: "chapters", format: "txt", getMock: () => processChaptersPipeline },
       { command: "summarize", format: "md", getMock: () => processSummaryPipeline },
     ])("$command arguments", ({ command, format, getMock }) => {
+      it.each([undefined, "Term A=用語A"])("forwards glossary %s", async (glossary) => {
+        await runCli(command, "sample.srt", ...(glossary ? ["--glossary", glossary] : []));
+        expect(getMock()).toHaveBeenCalledWith(expect.objectContaining({ glossary }));
+      });
+
+      it("documents glossary immediately after prompt", () => {
+        const subcommand = createProgram().commands.find((item) => item.name() === command);
+        const help = stripVTControlCharacters(subcommand?.helpInformation() ?? "");
+        const destination = command === "chapters" ? "chapter titles" : "the summary";
+        expect(help).toContain("--glossary <path-or-terms>");
+        expect(help.replace(/\s+/g, " ")).toContain(
+          `Glossary file path (JSON) or inline terms (key=val,key=val) for names and terms in ${destination} and Groq recognition hints (default: VSUB_GLOSSARY or config)`,
+        );
+        const optionNames = subcommand?.options.map((option) => option.long) ?? [];
+        expect(optionNames[optionNames.indexOf("--prompt") + 1]).toBe("--glossary");
+      });
       it.each([false, true])("pins all pipeline fields (explicit: %s)", async (explicit) => {
         await runCli(
           command,
@@ -229,6 +245,7 @@ describe("CLI integration harness", () => {
           output: explicit ? "result.json" : undefined,
           stdout: explicit,
           prompt: explicit ? "test prompt" : undefined,
+          glossary: undefined,
           geminiModel: explicit ? "test-gemini" : undefined,
           llmProvider: explicit ? "openrouter" : undefined,
           llmModel: explicit ? "test-llm" : undefined,

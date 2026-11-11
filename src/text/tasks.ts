@@ -123,6 +123,7 @@ export interface RefineResult {
 
 export interface ChapterOptions {
   prompt?: string | undefined;
+  glossary?: FlatGlossary | undefined;
   targetLang?: string | undefined;
   lang?: SupportedLanguage | undefined;
   verbose?: boolean | undefined;
@@ -130,6 +131,7 @@ export interface ChapterOptions {
 
 export interface SummaryOptions {
   prompt?: string | undefined;
+  glossary?: FlatGlossary | undefined;
   targetLang?: string | undefined;
   lang?: SupportedLanguage | undefined;
   verbose?: boolean | undefined;
@@ -543,6 +545,11 @@ STRICT RULES:
     prompt += `\n\nADDITIONAL CHAPTER INSTRUCTIONS:\n${options.prompt.trim()}`;
   }
 
+  const glossaryRules = options?.glossary ? formatGlossaryPrompt(options.glossary) : "";
+  if (glossaryRules) {
+    prompt += `\n\nGLOSSARY / TERMINOLOGY (when these names or terms appear, write them in the chapter titles exactly as shown on the right):\n${glossaryRules}`;
+  }
+
   prompt += `\n\nTimestamped Transcript:\n${transcript}`;
 
   return generateJsonWithRetry<ChapterItem[]>(
@@ -638,6 +645,11 @@ STRICT RULES:
 
   if (options?.prompt?.trim()) {
     prompt += `\n\nADDITIONAL SUMMARY INSTRUCTIONS:\n${options.prompt.trim()}`;
+  }
+
+  const glossaryRules = options?.glossary ? formatGlossaryPrompt(options.glossary) : "";
+  if (glossaryRules) {
+    prompt += `\n\nGLOSSARY / TERMINOLOGY (when these names or terms appear, write them in the summary exactly as shown on the right):\n${glossaryRules}`;
   }
 
   prompt += `\n\nTimestamped Transcript:\n${transcript}`;

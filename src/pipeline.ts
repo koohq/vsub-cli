@@ -47,7 +47,7 @@ import {
   type SummaryFormat,
   type SummaryResult,
 } from "./formatter.js";
-import { extractWhisperPromptHints } from "./glossary.js";
+import { computeGlossaryHash, extractWhisperPromptHints, parseGlossary } from "./glossary.js";
 import { getI18n, type I18nMessages, type SupportedLanguage } from "./i18n/index.js";
 import { getLanguageDisplayName, parseTargetLanguages, resolveTargetLang } from "./languages.js";
 import { refineSourceEntries } from "./refine.js";
@@ -1021,6 +1021,7 @@ export interface ResolveTranscriptOptions {
   sttModel?: string | undefined;
   groqModel?: string | undefined;
   whisperPrompt?: string | undefined;
+  glossary?: string | undefined;
   noCache?: boolean | undefined;
   fresh?: boolean | undefined;
   cacheDir?: string | undefined;
@@ -1073,6 +1074,7 @@ export async function resolveTranscriptEntries(
   );
   const transcriptionContext = resolveTranscriptionContext(resolvedConfig, stt, {
     whisperPrompt: options.whisperPrompt,
+    glossary: options.glossary,
   });
 
   const useCache = !options.noCache && !options.fresh;
@@ -1162,6 +1164,7 @@ interface TextTaskOptions {
   sttModel?: string | undefined;
   whisperPrompt?: string | undefined;
   prompt?: string | undefined;
+  glossary?: string | undefined;
   noCache?: boolean | undefined;
   fresh?: boolean | undefined;
   cacheDir?: string | undefined;
@@ -1226,8 +1229,12 @@ async function prepareTextTask<Format extends string>(
     lang,
   );
   const targetLang = targetLanguages[0] ?? "ja";
+  const glossaryInput = options.glossary?.trim() || rawConfig.glossary;
+  const glossary = glossaryInput ? parseGlossary(glossaryInput, targetLang) : undefined;
+  const glossaryHash = glossary ? computeGlossaryHash(glossary) : undefined;
   const transcriptionContext = resolveTranscriptionContext(resolvedConfig, stt, {
     whisperPrompt: options.whisperPrompt,
+    glossary: options.glossary,
   });
 
   let outputPath: string | undefined;
@@ -1274,7 +1281,13 @@ async function prepareTextTask<Format extends string>(
   const isTranscriptionValid =
     !isSrt && isTranscriptionCacheValid(mediaCache?.transcription, transcriptionContext);
   function generatedCacheContext(sourceEntries: SrtEntry[]): GeneratedCacheContext {
-    return { sourceEntries, provider: llm.provider, prompt: options.prompt, model: llm.model };
+    return {
+      sourceEntries,
+      provider: llm.provider,
+      prompt: options.prompt,
+      model: llm.model,
+      glossaryHash,
+    };
   }
 
   return {
@@ -1286,6 +1299,7 @@ async function prepareTextTask<Format extends string>(
     resolvedLlmConfig,
     llm,
     targetLang,
+    glossary,
     outputPath,
     spinner,
     useCache,
@@ -1321,6 +1335,7 @@ async function resolveTextTaskTranscript(
     sttModel: options.sttModel,
     groqModel: options.groqModel,
     whisperPrompt: options.whisperPrompt,
+    glossary: options.glossary,
     noCache: options.noCache,
     fresh: options.fresh,
     cacheDir: options.cacheDir,
@@ -1455,6 +1470,7 @@ export async function processChaptersPipeline(
   spinner.start(cm.step2Generating(providerLabel, llm.model, targetLang.toUpperCase()));
   const chapters = await generateChapters(transcriptResult.entries, textModel, {
     targetLang,
+    glossary: prepared.glossary,
     prompt: options.prompt,
     lang,
     verbose,
@@ -1539,6 +1555,7 @@ export async function processSummaryPipeline(
   spinner.start(sm.step2Generating(providerLabel, llm.model, targetLang.toUpperCase()));
   const summary = await generateSummary(transcriptResult.entries, textModel, {
     targetLang,
+    glossary: prepared.glossary,
     prompt: options.prompt,
     lang,
     verbose,

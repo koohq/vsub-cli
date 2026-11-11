@@ -19,6 +19,8 @@ import { DEFAULT_GEMINI_MODEL, DEFAULT_GROQ_MODEL, saveGlobalConfig } from "./co
 import { burnSubtitlesToVideo, embedSubtitlesToVideo, extractAudio } from "./ffmpeg.js";
 import type { ChaptersFormat, SummaryFormat } from "./formatter.js";
 import { type ChapterItem, secondsToTimestamp } from "./formatter.js";
+import * as glossaryModule from "./glossary.js";
+import { computeGlossaryHash, extractWhisperPromptHints } from "./glossary.js";
 import { getI18n } from "./i18n/index.js";
 import { parseTargetLanguages } from "./languages.js";
 import {
@@ -697,6 +699,128 @@ describe("pipeline.ts", () => {
         getGenerator: () => generateSummary,
       },
     ] as const)("$task", ({ task, suffix, formats, run, getGenerator }) => {
+      describe("glossary options", () => {
+        const glossary = "Term A=用語A";
+
+        beforeEach(() => {
+          process.env["VSUB_OPENROUTER_API_KEY"] = "test-openrouter-api-key";
+          vi.spyOn(process.stdout, "write").mockReturnValue(true);
+        });
+
+        function runTask(options: Partial<TaskOptions> = {}) {
+          return run({ inputFile, cacheDir, stdout: true, sttProvider: "groq", ...options });
+        }
+
+        function savedGenerated() {
+          const cache = loadMediaCache(inputFile, cacheDir);
+          return task === "chapters" ? cache?.chapters?.["ja"] : cache?.summaries?.["ja"];
+        }
+
+        it.each(["ja,en", "en,ja", "fr"])(
+          "reads the glossary once for the first output language %s",
+          async (targetLang) => {
+            const glossaryPath = path.join(tempDir, "glossary.json");
+            const translations = { ja: { "Term A": "用語A" }, en: { "Term A": "Term B" } };
+            fs.writeFileSync(glossaryPath, JSON.stringify(translations));
+            const parse = vi.spyOn(glossaryModule, "parseGlossary");
+            await runTask({ glossary: glossaryPath, targetLang, sttProvider: "openrouter" });
+            const first = targetLang.split(",")[0];
+            expect(parse).toHaveBeenCalledExactlyOnceWith(glossaryPath, first);
+            expect(getGenerator()).toHaveBeenCalledWith(
+              expect.anything(),
+              expect.anything(),
+              expect.objectContaining({
+                glossary: first === "ja" ? translations.ja : first === "en" ? translations.en : {},
+              }),
+            );
+          },
+        );
+
+        it.each([
+          { source: "none", expected: undefined },
+          { source: "config", expected: { "Term A": "設定語A" } },
+          { source: "env", expected: { "Term A": "環境語A" } },
+          { source: "blank option", expected: { "Term A": "環境語A" } },
+          { source: "option", expected: { "Term A": "用語A" } },
+        ])("resolves glossary precedence from $source", async ({ source, expected }) => {
+          if (source !== "none") saveGlobalConfig({ glossary: "Term A=設定語A" });
+          if (source !== "none" && source !== "config")
+            process.env["VSUB_GLOSSARY"] = "Term A=環境語A";
+          await runTask({
+            glossary:
+              source === "option"
+                ? `  ${glossary}  `
+                : source === "blank option"
+                  ? "  "
+                  : undefined,
+          });
+          expect(getGenerator()).toHaveBeenCalledWith(
+            expect.anything(),
+            expect.anything(),
+            expect.objectContaining({ glossary: expected }),
+          );
+        });
+
+        it("saves glossary hashes, reuses matching results and regenerates changed results", async () => {
+          const options = { glossary, whisperPrompt: "Fixed recognition hint" };
+          await runTask(options);
+          expect(savedGenerated()?.glossaryHash).toBe(computeGlossaryHash({ "Term A": "用語A" }));
+          expect((await runTask(options)).fromCache).toBe(true);
+          expect(getGenerator()).toHaveBeenCalledTimes(1);
+          expect((await runTask({ ...options, glossary: "Term A=用語B" })).fromCache).toBe(false);
+          expect(savedGenerated()?.glossaryHash).toBe(computeGlossaryHash({ "Term A": "用語B" }));
+          expect(getGenerator()).toHaveBeenCalledTimes(2);
+          expect(transcribeAudioSegments).toHaveBeenCalledTimes(1);
+        });
+
+        it("shares the main pipeline's glossary transcription cache on both lookups", async () => {
+          await processMediaPipeline({
+            mediaFile: inputFile,
+            cacheDir,
+            stdout: true,
+            noTranslate: true,
+            sttProvider: "groq",
+            glossary,
+          });
+          expect((await runTask({ glossary })).transcriptionFromCache).toBe(true);
+          expect((await runTask({ glossary })).fromCache).toBe(true);
+          expect(transcribeAudioSegments).toHaveBeenCalledTimes(1);
+          expect(getGenerator()).toHaveBeenCalledTimes(1);
+        });
+
+        it.each([undefined, "Explicit recognition hint"])(
+          "passes and saves glossary recognition hints (override: %s)",
+          async (whisperPrompt) => {
+            const prompt = whisperPrompt ?? extractWhisperPromptHints(glossary);
+            await runTask({ glossary, whisperPrompt });
+            expect(transcribeAudioSegments).toHaveBeenCalledWith(
+              expect.anything(),
+              expect.anything(),
+              false,
+              undefined,
+              expect.objectContaining({ prompt }),
+            );
+            expect(loadMediaCache(inputFile, cacheDir)?.transcription?.prompt).toBe(prompt);
+          },
+        );
+
+        it.each([false, true])(
+          "rejects invalid glossary JSON before transcription or generation (cached: %s)",
+          async (cached) => {
+            if (cached) await runTask();
+            vi.mocked(getGenerator()).mockClear();
+            vi.mocked(transcribeAudioSegments).mockClear();
+            const glossaryPath = path.join(tempDir, "invalid-glossary.json");
+            fs.writeFileSync(glossaryPath, "{invalid json");
+            await expect(runTask({ glossary: glossaryPath })).rejects.toThrow(
+              "Failed to parse glossary file (invalid-glossary.json)",
+            );
+            expect(getGenerator()).not.toHaveBeenCalled();
+            expect(transcribeAudioSegments).not.toHaveBeenCalled();
+          },
+        );
+      });
+
       describe("single target language", () => {
         let spinner: ReturnType<typeof ui.createSpinner>;
 

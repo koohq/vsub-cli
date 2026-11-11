@@ -918,6 +918,25 @@ describe("cache module", () => {
 
       type GeneratedCacheItem = CachedChapters | CachedSummary;
 
+      it("saves the glossary hash", () => {
+        expect(createFn({ ...baseContext, glossaryHash: "hash-a" }).glossaryHash).toBe("hash-a");
+      });
+
+      it.each([
+        { saved: "hash-a", current: "hash-a", expected: true },
+        { saved: "hash-a", current: "hash-b", expected: false },
+        { saved: undefined, current: undefined, expected: true },
+        { saved: undefined, current: "", expected: true },
+        { saved: undefined, current: "hash-a", expected: false },
+        { saved: "hash-a", current: undefined, expected: false },
+      ])("compares glossary hashes ($saved -> $current)", ({ saved, current, expected }) => {
+        const cached = createFn(baseContext);
+        if (saved !== undefined) cached.glossaryHash = saved;
+        expect(validateFn(cached as never, { ...baseContext, glossaryHash: current })).toBe(
+          expected,
+        );
+      });
+
       const table: Array<{
         name: string;
         savedContext: GeneratedCacheContext;

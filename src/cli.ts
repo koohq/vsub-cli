@@ -236,6 +236,7 @@ interface TextTaskOptionTexts {
   defaultFormat: string;
   stdout: string;
   prompt: string;
+  glossary: string;
   geminiModel: string;
   fresh: string;
 }
@@ -247,6 +248,7 @@ function addTextTaskOptions(command: Command, texts: TextTaskOptionTexts): Comma
     .option("-o, --output <path>", "Output file path or '-' for stdout")
     .option("--stdout", texts.stdout, false)
     .option("--prompt <instruction>", texts.prompt)
+    .option("--glossary <path-or-terms>", texts.glossary)
     .option("--gemini-model <model>", texts.geminiModel);
 
   return addLlmProviderOptions(command)
@@ -280,6 +282,7 @@ interface TextTaskActionOptions {
   output?: string;
   stdout?: boolean;
   prompt?: string;
+  glossary?: string | undefined;
   geminiModel?: string;
   llmProvider?: string;
   llmModel?: string;
@@ -317,6 +320,7 @@ function createTextTaskAction<Format>(
         output: options.output,
         stdout: options.stdout,
         prompt: options.prompt,
+        glossary: options.glossary,
         geminiModel: options.geminiModel,
         llmProvider: options.llmProvider,
         llmModel: options.llmModel,
@@ -931,6 +935,8 @@ export function createProgram(): Command {
     defaultFormat: "txt",
     stdout: "Output chapters directly to stdout",
     prompt: "Additional instruction prompt for chapter generation",
+    glossary:
+      "Glossary file path (JSON) or inline terms (key=val,key=val) for names and terms in chapter titles and Groq recognition hints (default: VSUB_GLOSSARY or config)",
     geminiModel: "Gemini model to use for chapters generation (Gemini provider only)",
     fresh: "Ignore existing cache and generate fresh chapters, overwriting cache",
   }).action(createTextTaskAction(parseChaptersFormat, processChaptersPipeline));
@@ -950,6 +956,8 @@ export function createProgram(): Command {
     defaultFormat: "md",
     stdout: "Output summary directly to stdout",
     prompt: "Additional instruction prompt for summary generation",
+    glossary:
+      "Glossary file path (JSON) or inline terms (key=val,key=val) for names and terms in the summary and Groq recognition hints (default: VSUB_GLOSSARY or config)",
     geminiModel: "Gemini model to use for summary generation (Gemini provider only)",
     fresh: "Ignore existing cache and generate fresh summary, overwriting cache",
   }).action(createTextTaskAction(parseSummaryFormat, processSummaryPipeline));

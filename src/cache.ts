@@ -54,6 +54,7 @@ export interface CachedChapters {
   provider?: LlmProvider | undefined;
   model?: string | undefined;
   prompt?: string | undefined;
+  glossaryHash?: string | undefined;
   sourceHash?: string | undefined;
   chapters: ChapterItem[];
   createdAt: number;
@@ -64,6 +65,7 @@ export interface CachedSummary {
   provider?: LlmProvider | undefined;
   model?: string | undefined;
   prompt?: string | undefined;
+  glossaryHash?: string | undefined;
   sourceHash?: string | undefined;
   summary: SummaryResult;
   createdAt: number;
@@ -165,6 +167,7 @@ export interface GeneratedCacheContext {
   sourceEntries: SrtEntry[];
   provider?: LlmProvider | undefined;
   prompt?: string | undefined;
+  glossaryHash?: string | undefined;
   model?: string | undefined;
 }
 
@@ -339,7 +342,7 @@ export function isChaptersCacheValid(
   cached: CachedChapters | undefined,
   context: GeneratedCacheContext,
 ): boolean {
-  return isLlmSourceCacheValid(cached, context);
+  return isGeneratedCacheValid(cached, context);
 }
 
 /**
@@ -349,7 +352,17 @@ export function isSummaryCacheValid(
   cached: CachedSummary | undefined,
   context: GeneratedCacheContext,
 ): boolean {
-  return isLlmSourceCacheValid(cached, context);
+  return isGeneratedCacheValid(cached, context);
+}
+
+function isGeneratedCacheValid(
+  cached: CachedChapters | CachedSummary | undefined,
+  context: GeneratedCacheContext,
+): boolean {
+  return (
+    isLlmSourceCacheValid(cached, context) &&
+    normalizeCacheString(cached?.glossaryHash) === normalizeCacheString(context.glossaryHash)
+  );
 }
 
 function createCachedTextTask<T extends { chapters: ChapterItem[] } | { summary: SummaryResult }>(
@@ -362,6 +375,7 @@ function createCachedTextTask<T extends { chapters: ChapterItem[] } | { summary:
     provider: context.provider,
     model: context.model,
     prompt: context.prompt,
+    glossaryHash: context.glossaryHash,
     sourceHash: computeEntriesHash(context.sourceEntries),
     ...content,
     createdAt: Date.now(),

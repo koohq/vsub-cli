@@ -360,6 +360,7 @@ vsub video.mp4 -t ja --context-window 8
 ```
 
 ### 8. 用語集と指示の追加
+用語集は `vsub chapters` と `vsub summarize` でも使えます。
 
 #### 用語集を直接指定する
 ```bash
@@ -398,12 +399,15 @@ vsub video.mp4 -t ja --prompt "ITエンジニア向けに、丁寧なです・�
 ```bash
 # YouTube にそのまま使えるチャプターを作る (00:00 タイトルの形式。[名前].chapters.txt に保存)
 vsub chapters video.mp4 -t ja
+vsub chapters video.mp4 -t ja --glossary ./glossary.json
 vsub chapters subtitle.srt -f json  # 構造化した JSON 配列で出力する
 
 # 構造化した要約を作る (既定は Markdown。[名前].summary.md に保存)
 vsub summarize video.mp4 -t ja
 vsub summarize interview.srt -f txt # プレーンテキストで出力する
 ```
+
+`--glossary`（省略時は `VSUB_GLOSSARY` または `vsub config set --glossary` で保存した用語集）を出力の言語で読み、章の題と要約の名前・用語の書き方にも使います。Groq では認識のヒントにもなるので、メインのコマンドと同じ `--glossary` を付ければ文字起こしのキャッシュを使い回せます。
 
 ### 10. 標準出力と UNIX パイプでの連携（`--stdout` / `-o -`）
 字幕・テキスト・チャプター・要約を、ファイルに書かずに `stdout` へ直接出力します（進み具合の表示と、`--verbose` のログは `stderr` に出るので、パイプに流れるデータは汚れません）。

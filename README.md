@@ -358,6 +358,7 @@ vsub video.mp4 -t ja --context-window 8
 ```
 
 ### 8. Using Glossaries & Custom Prompts
+Glossaries can also be used with `vsub chapters` and `vsub summarize`.
 
 #### Inline Glossary Mapping
 ```bash
@@ -396,12 +397,15 @@ Generate YouTube chapters or structured Markdown summaries from any video, audio
 ```bash
 # Generate YouTube-compatible chapters (00:00 Title format, saved to [name].chapters.txt)
 vsub chapters video.mp4 -t ja
+vsub chapters video.mp4 -t ja --glossary ./glossary.json
 vsub chapters subtitle.srt -f json  # Output as structured JSON array
 
 # Generate structured executive summary (Markdown by default, saved to [name].summary.md)
 vsub summarize video.mp4 -t ja
 vsub summarize interview.srt -f txt # Output plain text summary
 ```
+
+`--glossary` (or, when omitted, `VSUB_GLOSSARY` or the glossary saved with `vsub config set --glossary`) also controls names and terms in chapter titles and summaries, using the output language's glossary entries. On Groq it also supplies recognition hints, so use the same `--glossary` as the main command to reuse its transcription cache.
 
 ### 10. Standard Output Streaming & UNIX Pipe Integration (`--stdout` / `-o -`)
 Stream subtitles, transcripts, chapters, or summaries directly to `stdout` without writing files to disk (progress spinners and `--verbose` logs are routed to `stderr` so piped data stays clean):

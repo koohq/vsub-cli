@@ -65,6 +65,38 @@ describe("src/text/tasks.ts", () => {
 
   const defaultModel = createGeminiTextModel("fake-key", "gemini-3.8-flash");
 
+  describe.each([
+    {
+      name: "chapters",
+      generate: generateChapters,
+      destination: "the chapter titles",
+      result: [{ timestamp: "00:00", title: "Intro" }],
+    },
+    {
+      name: "summary",
+      generate: generateSummary,
+      destination: "the summary",
+      result: { title: "Title", summary: "Text", keyPoints: [], topics: [] },
+    },
+  ])("$name glossary prompt", ({ generate, destination, result }) => {
+    it.each([undefined, {}, { "Term A": "用語A" }])(
+      "places glossary rules after instructions and before transcript (%j)",
+      async (glossary) => {
+        mockGenerateContent.mockResolvedValueOnce({ text: JSON.stringify(result) });
+        await generate(makeEntries(1), defaultModel, { prompt: "Keep names exact", glossary });
+        const prompt = stripVTControlCharacters(mockGenerateContent.mock.calls[0]?.[0].contents);
+        if (glossary && Object.keys(glossary).length) {
+          const heading = `GLOSSARY / TERMINOLOGY (when these names or terms appear, write them in ${destination} exactly as shown on the right):`;
+          expect(prompt).toContain(`${heading}\n- "Term A" -> "用語A"`);
+          expect(prompt.indexOf("Keep names exact")).toBeLessThan(prompt.indexOf(heading));
+          expect(prompt.indexOf(heading)).toBeLessThan(prompt.indexOf("Timestamped Transcript:"));
+        } else {
+          expect(prompt).not.toContain("GLOSSARY");
+        }
+      },
+    );
+  });
+
   it.each(["translation", "refinement"])(
     "routes verbose %s chunks to stderr only",
     async (task) => {
