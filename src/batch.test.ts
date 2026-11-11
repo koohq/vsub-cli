@@ -3,11 +3,17 @@ import os from "node:os";
 import path from "node:path";
 import { stripVTControlCharacters } from "node:util";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { findMediaFiles, runBatchPipeline } from "./batch.js";
+import { type BatchPipelineOptions, findMediaFiles, runBatchPipeline } from "./batch.js";
+import {
+  createCachedTranscription,
+  saveTranscriptionCache,
+  type TranscriptionCacheContext,
+} from "./cache.js";
 import * as configModule from "./config.js";
 import * as ffmpegModule from "./ffmpeg.js";
 import * as pipelineModule from "./pipeline.js";
 import * as tasksModule from "./text/tasks.js";
+import { resolveSttSettings } from "./transcribe/select.js";
 import * as transcriberModule from "./transcribe/transcriber.js";
 import { getTranslationResumeHint, TranslationStoppedError } from "./translation.js";
 
@@ -363,6 +369,149 @@ describe("batch.ts", () => {
             llmModel: "gemini-3.8-flash",
           });
       });
+
+      function cacheTranscription(
+        file = dummyFile,
+        options: Partial<BatchPipelineOptions> = {},
+        overrides: Partial<TranscriptionCacheContext> = {},
+      ): void {
+        const config = configModule.getConfig();
+        const { stt } = resolveSttSettings(config, options);
+        const context = pipelineModule.resolveTranscriptionContext(config, stt, options);
+        saveTranscriptionCache(
+          file,
+          createCachedTranscription(
+            { ...context, ...overrides },
+            [{ id: 1, startTime: "00:00:00,000", endTime: "00:00:01,000", text: "Test line" }],
+            "en",
+          ),
+          path.join(tempDir, "cache"),
+        );
+      }
+
+      describe.each(["groq", "openrouter"] as const)("cached %s transcription", (sttProvider) => {
+        let options: BatchPipelineOptions;
+
+        beforeEach(() => {
+          options = {
+            targets: [dummyFile],
+            cacheDir: path.join(tempDir, "cache"),
+            sttProvider,
+            whisperPrompt: "Test recognition hint",
+            noTranslate: true,
+          };
+        });
+
+        it("starts without API keys when all transcriptions are cached", async () => {
+          vi.mocked(configModule.getConfig).mockReturnValue({
+            ffmpegPath: "ffmpeg",
+            groqApiKey: "",
+            geminiApiKey: "",
+          });
+          const second = path.join(tempDir, "second.mp4");
+          fs.writeFileSync(second, "dummy second");
+          options.targets.push(second);
+          for (const file of options.targets) cacheTranscription(file, options);
+          const result = await runBatchPipeline(options);
+          expect(ensureApiKeysSpy).toHaveBeenCalledWith(
+            expect.anything(),
+            expect.objectContaining({
+              requireGroq: false,
+              requireGemini: false,
+              requireOpenRouter: false,
+            }),
+          );
+          expect(processMediaPipelineSpy).toHaveBeenCalledTimes(2);
+          expect(checkFfmpegSpy).toHaveBeenCalledTimes(1);
+          expect(result.succeededCount).toBe(2);
+        });
+
+        it.each(["partial", "fresh", "noCache", "provider", "model", "hint"] as const)(
+          "requires the transcription key for %s cache misses",
+          async (mode) => {
+            if (mode === "hint" && sttProvider === "openrouter") {
+              options.sttProvider = "groq";
+            }
+            cacheTranscription(dummyFile, options, {
+              ...(mode === "provider"
+                ? { provider: sttProvider === "groq" ? "openrouter" : "groq" }
+                : {}),
+              ...(mode === "model" ? { model: "other-model" } : {}),
+              ...(mode === "hint" ? { prompt: "Other hint" } : {}),
+            });
+            if (mode === "partial") {
+              const second = path.join(tempDir, "uncached.mp4");
+              fs.writeFileSync(second, "dummy uncached");
+              options.targets.push(second);
+            }
+            if (mode === "fresh") options.fresh = true;
+            if (mode === "noCache") options.noCache = true;
+            vi.mocked(configModule.getConfig).mockReturnValue({
+              ffmpegPath: "ffmpeg",
+              groqApiKey: "",
+              geminiApiKey: "",
+            });
+            await expect(runBatchPipeline(options)).rejects.toThrow(
+              options.sttProvider === "groq" ? "VSUB_GROQ_API_KEY" : "VSUB_OPENROUTER_API_KEY",
+            );
+            expect(ensureApiKeysSpy).toHaveBeenCalledWith(
+              expect.anything(),
+              expect.objectContaining({
+                requireGroq: options.sttProvider === "groq",
+                requireOpenRouter: options.sttProvider === "openrouter",
+                requireGemini: false,
+              }),
+            );
+            expect(processMediaPipelineSpy).not.toHaveBeenCalled();
+          },
+        );
+
+        it.each([
+          { llmProvider: "gemini", refine: false },
+          { llmProvider: "gemini", refine: true },
+          { llmProvider: "openrouter", refine: false },
+          { llmProvider: "openrouter", refine: true },
+        ] as const)(
+          "requires only text generation keys ($llmProvider, refine: $refine)",
+          async ({ llmProvider, refine }) => {
+            vi.mocked(configModule.getConfig).mockReturnValue({
+              ffmpegPath: "ffmpeg",
+              groqApiKey: "",
+              geminiApiKey: "test-gemini-key",
+              openrouterApiKey: "test-openrouter-key",
+            });
+            cacheTranscription(dummyFile, options);
+            await runBatchPipeline({ ...options, llmProvider, noTranslate: refine, refine });
+            expect(ensureApiKeysSpy).toHaveBeenCalledWith(
+              expect.anything(),
+              expect.objectContaining({
+                requireGroq: false,
+                requireGemini: llmProvider === "gemini",
+                requireOpenRouter: llmProvider === "openrouter",
+              }),
+            );
+            expect(processMediaPipelineSpy).toHaveBeenCalledTimes(1);
+          },
+        );
+      });
+
+      it.each([false, true])(
+        "shows the automatic Groq hint only on a cache miss (cached: %s)",
+        async (cached) => {
+          const log = vi.spyOn(console, "log").mockImplementation(() => {});
+          const options = {
+            targets: [dummyFile],
+            cacheDir: path.join(tempDir, "cache"),
+            noTranslate: true,
+          };
+          if (cached) cacheTranscription(dummyFile, options);
+          await runBatchPipeline(options);
+          const output = stripVTControlCharacters(log.mock.calls.flat().join("\n"));
+          const hint = "Transcribing with Groq because VSUB_OPENROUTER_API_KEY is not set";
+          if (cached) expect(output).not.toContain(hint);
+          else expect(output).toContain(hint);
+        },
+      );
 
       it.each([
         {

@@ -1,10 +1,15 @@
 import fs from "node:fs";
 import path from "node:path";
 import pc from "picocolors";
+import { isTranscriptionCacheValid, loadMediaCache } from "./cache.js";
 import { ensureApiKeys, getConfig } from "./config.js";
 import { checkFfmpeg, isAudioFile, isVideoFile } from "./ffmpeg.js";
 import { getI18n } from "./i18n/index.js";
-import { type ProcessMediaOptions, processMediaPipeline } from "./pipeline.js";
+import {
+  type ProcessMediaOptions,
+  processMediaPipeline,
+  resolveTranscriptionContext,
+} from "./pipeline.js";
 import { resolveLlmSettings } from "./text/select.js";
 import { resolveSttSettings } from "./transcribe/select.js";
 import { getTranslationResumeHint } from "./translation.js";
@@ -162,10 +167,26 @@ export async function runBatchPipeline(options: BatchPipelineOptions): Promise<B
     lang,
   );
 
-  const requiresGroq = stt.provider === "groq";
+  const useCache = !options.noCache && !options.fresh;
+  const transcriptionContext = resolveTranscriptionContext(resolvedLlmConfig, stt, {
+    whisperPrompt: options.whisperPrompt,
+    glossary: options.glossary,
+  });
+  const needsTranscription =
+    !useCache ||
+    mediaFiles.some(
+      (file) =>
+        !isTranscriptionCacheValid(
+          loadMediaCache(file, options.cacheDir)?.transcription,
+          transcriptionContext,
+        ),
+    );
+
+  const requiresGroq = needsTranscription && stt.provider === "groq";
   const needsLlm = !options.noTranslate || Boolean(options.refine);
   const requireOpenRouter =
-    stt.provider === "openrouter" || (needsLlm && llm.provider === "openrouter");
+    (needsTranscription && stt.provider === "openrouter") ||
+    (needsLlm && llm.provider === "openrouter");
   const requiresGemini = needsLlm && llm.provider === "gemini";
 
   const config = await ensureApiKeys(resolvedLlmConfig, {
@@ -176,7 +197,7 @@ export async function runBatchPipeline(options: BatchPipelineOptions): Promise<B
   });
   await checkFfmpeg(config.ffmpegPath);
 
-  if (stt.source === "auto" && stt.provider === "groq") {
+  if (needsTranscription && stt.source === "auto" && stt.provider === "groq") {
     console.log(i18n.pipeline.sttGroqAutoHint);
   }
 
