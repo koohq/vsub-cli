@@ -405,7 +405,7 @@ vsub summarize interview.srt -f txt # プレーンテキストで出力する
 ```
 
 ### 10. 標準出力と UNIX パイプでの連携（`--stdout` / `-o -`）
-字幕・テキスト・チャプター・要約を、ファイルに書かずに `stdout` へ直接出力します（進み具合の表示は `stderr` に出るので、パイプに流れるデータは汚れません）。
+字幕・テキスト・チャプター・要約を、ファイルに書かずに `stdout` へ直接出力します（進み具合の表示と、`--verbose` のログは `stderr` に出るので、パイプに流れるデータは汚れません）。
 ```bash
 # JSON の字幕データを jq に直接渡す
 vsub video.mp4 -t en -f json --stdout | jq '.[0]'

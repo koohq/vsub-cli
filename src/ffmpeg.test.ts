@@ -1,6 +1,7 @@
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
+import { stripVTControlCharacters } from "node:util";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   buildSubtitlesFilter,
@@ -256,7 +257,8 @@ describe("ffmpeg.ts", () => {
     });
 
     it("should split when duration exceeds maxChunkSeconds even if under maxFileBytes", async () => {
-      const log = vi.spyOn(console, "log").mockImplementation(() => {});
+      const stdout = vi.spyOn(console, "log").mockImplementation(() => {});
+      const log = vi.spyOn(console, "error").mockImplementation(() => {});
       mockFfmpegWithExtractedSize(100, 2, 301);
 
       const result = await extractAudio(
@@ -274,9 +276,11 @@ describe("ffmpeg.ts", () => {
       const splitArgs = getSplitArgs();
       expect(splitArgs[splitArgs.indexOf("-segment_times") + 1]).toBe("300.000");
       expect(result.audioPaths).toHaveLength(2);
-      expect(log).toHaveBeenCalledWith(
+      expect(log.mock.calls.map(([line]) => stripVTControlCharacters(String(line)))).toContain(
         "[ffmpeg] Extracted audio is longer than 300s. Splitting into segments of up to 300s at silences",
       );
+      expect(stdout).not.toHaveBeenCalled();
+      stdout.mockRestore();
       log.mockRestore();
     });
 
@@ -325,7 +329,7 @@ describe("ffmpeg.ts", () => {
     });
 
     it.each([false, true])("should plan silence splits with size limit: %s", async (bySize) => {
-      const log = vi.spyOn(console, "log").mockImplementation(() => {});
+      const log = vi.spyOn(console, "error").mockImplementation(() => {});
       try {
         mockFfmpegWithExtractedSize(bySize ? 1001 : 100, 3, 720, {
           silenceStderr: "silence_start: 295.85\nsilence_end: 296.35 | silence_duration: 0.5",
@@ -368,11 +372,15 @@ describe("ffmpeg.ts", () => {
         expect(result.durations?.[0]).toBeCloseTo(296.1);
         expect(result.durations?.[1]).toBeCloseTo(300);
         expect(result.durations?.[2]).toBeCloseTo(123.9);
-        expect(log).toHaveBeenCalledWith("[ffmpeg] Split points: 296.1s, 596.1s (no silence)");
+        expect(log.mock.calls.map(([line]) => stripVTControlCharacters(String(line)))).toContain(
+          "[ffmpeg] Split points: 296.1s, 596.1s (no silence)",
+        );
         if (bySize) {
           expect(
             log.mock.calls.some(([line]) =>
-              String(line).includes("Splitting into segments of up to 300s at silences"),
+              stripVTControlCharacters(String(line)).includes(
+                "Splitting into segments of up to 300s at silences",
+              ),
             ),
           ).toBe(true);
         }
@@ -392,7 +400,7 @@ describe("ffmpeg.ts", () => {
     it.each(["duration", "detection"])(
       "should explain the fixed split fallback for unavailable %s",
       async (failure) => {
-        const log = vi.spyOn(console, "log").mockImplementation(() => {});
+        const log = vi.spyOn(console, "error").mockImplementation(() => {});
         try {
           mockFfmpegWithExtractedSize(1001, 2, failure === "duration" ? undefined : 720, {
             detectionError: new Error("silencedetect failed"),
@@ -404,7 +412,9 @@ describe("ffmpeg.ts", () => {
           expect(splitArgs[splitArgs.indexOf("-segment_time") + 1]).toBe("300");
           expect(
             log.mock.calls.some(([line]) =>
-              /\[ffmpeg\].*falling back.*(?:duration|silence)/i.test(String(line)),
+              /\[ffmpeg\].*falling back.*(?:duration|silence)/i.test(
+                stripVTControlCharacters(String(line)),
+              ),
             ),
           ).toBe(true);
         } finally {
@@ -414,7 +424,7 @@ describe("ffmpeg.ts", () => {
     );
 
     it("should stay quiet without verbose output when splitting", async () => {
-      const log = vi.spyOn(console, "log").mockImplementation(() => {});
+      const log = vi.spyOn(console, "error").mockImplementation(() => {});
       try {
         mockFfmpegWithExtractedSize(1001, 2, 350);
         const result = await extractAudio(inputPath, "ffmpeg", TEST_LIMITS);

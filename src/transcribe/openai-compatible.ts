@@ -92,14 +92,14 @@ export function createOpenAICompatibleTranscriber(
       if (profile.promptField === "none" && options?.prompt) {
         if (options.verbose && !hasWarnedPrompt) {
           hasWarnedPrompt = true;
-          console.log(
+          console.error(
             `[${profile.logLabel}] Recognition hints (whisper prompt) are not sent: this API has no prompt field.`,
           );
         }
       }
 
       if (options?.verbose) {
-        console.log(
+        console.error(
           `[${profile.logLabel}] Requesting transcription [model: ${model}]: ${audioPath}`,
         );
       }
@@ -139,7 +139,7 @@ export function createOpenAICompatibleTranscriber(
             const delay = DEFAULT_RETRY_DELAYS_MS[attempt] ?? 2000;
             if (options?.verbose) {
               const errDesc = fetchErr instanceof Error ? fetchErr.message : String(fetchErr);
-              console.log(
+              console.error(
                 `[${profile.logLabel}] Retrying (${attempt + 1}/${MAX_RETRY_COUNT}) after ${errDesc}...`,
               );
             }
@@ -256,7 +256,7 @@ export function createOpenAICompatibleTranscriber(
             delay = Math.min(sec, MAX_RETRY_AFTER_SECONDS) * 1000;
           }
           if (options?.verbose) {
-            console.log(
+            console.error(
               `[${profile.logLabel}] Retrying (${attempt + 1}/${MAX_RETRY_COUNT}) after ${response.status}...`,
             );
           }

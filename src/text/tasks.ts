@@ -247,7 +247,7 @@ function logChunkVerbose(
 ): void {
   const ctxInfo =
     contextTexts && contextTexts.length > 0 ? ` [context: ${contextTexts.length} lines]` : "";
-  console.log(
+  console.error(
     `[${model.logLabel}] ${action} (${chunkIndex}/${totalChunks}) [${itemCount} items] [model: ${model.model}]${ctxInfo}...`,
   );
 }

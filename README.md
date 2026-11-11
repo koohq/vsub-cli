@@ -403,7 +403,7 @@ vsub summarize interview.srt -f txt # Output plain text summary
 ```
 
 ### 10. Standard Output Streaming & UNIX Pipe Integration (`--stdout` / `-o -`)
-Stream subtitles, transcripts, chapters, or summaries directly to `stdout` without writing files to disk (progress spinners are routed to `stderr` so piped data stays clean):
+Stream subtitles, transcripts, chapters, or summaries directly to `stdout` without writing files to disk (progress spinners and `--verbose` logs are routed to `stderr` so piped data stays clean):
 ```bash
 # Stream JSON subtitle entries directly to jq
 vsub video.mp4 -t en -f json --stdout | jq '.[0]'

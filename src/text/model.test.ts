@@ -1,3 +1,4 @@
+import { stripVTControlCharacters } from "node:util";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { SupportedLanguage } from "../i18n/index.js";
 import {
@@ -187,7 +188,8 @@ describe("generateJsonWithRetry", () => {
 
   it("should output verbose logs with where clause and without where clause", async () => {
     vi.useFakeTimers();
-    const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+    const stdout = vi.spyOn(console, "log").mockImplementation(() => {});
+    const logSpy = vi.spyOn(console, "error").mockImplementation(() => {});
 
     // With where clause
     const modelWithWhere = createMockTextModel({
@@ -205,12 +207,16 @@ describe("generateJsonWithRetry", () => {
     await vi.runAllTimersAsync();
     await p1;
 
-    expect(logSpy).toHaveBeenCalledWith(
+    expect(
+      logSpy.mock.calls.map(([line]) => stripVTControlCharacters(String(line))),
+    ).toContainEqual(
       expect.stringMatching(
         /^\[MockLLM\] Error on chunk 1\/3 \(attempt 1\/4, retrying in \d+ms\): fail 1$/,
       ),
     );
-    expect(logSpy).toHaveBeenCalledWith("[MockLLM] Retry attempt 2/4 for chunk 1/3...");
+    expect(logSpy.mock.calls.map(([line]) => stripVTControlCharacters(String(line)))).toContain(
+      "[MockLLM] Retry attempt 2/4 for chunk 1/3...",
+    );
 
     logSpy.mockClear();
 
@@ -229,13 +235,19 @@ describe("generateJsonWithRetry", () => {
     await vi.runAllTimersAsync();
     await p2;
 
-    expect(logSpy).toHaveBeenCalledWith(
+    expect(
+      logSpy.mock.calls.map(([line]) => stripVTControlCharacters(String(line))),
+    ).toContainEqual(
       expect.stringMatching(
         /^\[MockLLM\] Error during chapters generation \(attempt 1\/4, retrying in \d+ms\): fail 2$/,
       ),
     );
-    expect(logSpy).toHaveBeenCalledWith("[MockLLM] Retry attempt 2/4 for chapters generation...");
+    expect(logSpy.mock.calls.map(([line]) => stripVTControlCharacters(String(line)))).toContain(
+      "[MockLLM] Retry attempt 2/4 for chapters generation...",
+    );
 
+    expect(stdout).not.toHaveBeenCalled();
+    stdout.mockRestore();
     logSpy.mockRestore();
   });
 });

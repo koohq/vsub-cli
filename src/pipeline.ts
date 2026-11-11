@@ -646,7 +646,7 @@ export async function processMediaPipeline(
       maxDuration: resolvedMaxDuration,
     });
     if (verbose && srtEntries.length !== rawEntriesCount) {
-      console.log(
+      console.error(
         `${prefix}[Reflow] Adjusted subtitle segments: ${rawEntriesCount} -> ${srtEntries.length} entries`,
       );
     }

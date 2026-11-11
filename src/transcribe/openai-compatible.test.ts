@@ -1,6 +1,7 @@
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
+import { stripVTControlCharacters } from "node:util";
 import { afterEach, beforeEach, describe, expect, it, type Mock, vi } from "vitest";
 import {
   createOpenAICompatibleTranscriber,
@@ -135,7 +136,8 @@ describe("openai-compatible.ts", () => {
     );
 
     it("should log request before sending when verbose is true", async () => {
-      const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+      const stdout = vi.spyOn(console, "log").mockImplementation(() => {});
+      const logSpy = vi.spyOn(console, "error").mockImplementation(() => {});
       mockFetch.mockResolvedValueOnce(jsonResponse(200, { segments: [] }));
       const transcriber = createOpenAICompatibleTranscriber(TEST_PROFILE, "test-api-key", {
         fetch: mockFetch,
@@ -144,9 +146,10 @@ describe("openai-compatible.ts", () => {
 
       await transcriber.transcribe(testAudioPath, { verbose: true });
 
-      expect(logSpy).toHaveBeenCalledWith(
+      expect(logSpy.mock.calls.map(([line]) => stripVTControlCharacters(String(line)))).toContain(
         `[Test STT] Requesting transcription [model: test-model-default]: ${testAudioPath}`,
       );
+      expect(stdout).not.toHaveBeenCalled();
     });
   });
 
@@ -180,7 +183,7 @@ describe("openai-compatible.ts", () => {
     });
 
     it("should not send prompt and warn only once in verbose mode when promptField is 'none'", async () => {
-      const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+      const logSpy = vi.spyOn(console, "error").mockImplementation(() => {});
       mockFetch.mockImplementation(() => Promise.resolve(jsonResponse(200, { segments: [] })));
 
       const transcriber = createOpenAICompatibleTranscriber(
@@ -202,7 +205,9 @@ describe("openai-compatible.ts", () => {
 
       const warningMessage =
         "[Test STT] Recognition hints (whisper prompt) are not sent: this API has no prompt field.";
-      const warningCalls = logSpy.mock.calls.filter((c) => c[0] === warningMessage);
+      const warningCalls = logSpy.mock.calls.filter(
+        ([line]) => stripVTControlCharacters(String(line)) === warningMessage,
+      );
       expect(warningCalls).toHaveLength(1);
     });
   });
@@ -475,7 +480,7 @@ describe("openai-compatible.ts", () => {
     });
 
     it("should log retry attempt when verbose is true", async () => {
-      const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+      const logSpy = vi.spyOn(console, "error").mockImplementation(() => {});
       mockFetch
         .mockResolvedValueOnce(jsonResponse(429, { error: { message: "Too Many Requests" } }))
         .mockResolvedValueOnce(jsonResponse(200, { segments: [] }));
@@ -487,7 +492,9 @@ describe("openai-compatible.ts", () => {
 
       await transcriber.transcribe(testAudioPath, { verbose: true });
 
-      expect(logSpy).toHaveBeenCalledWith("[Test STT] Retrying (1/2) after 429...");
+      expect(logSpy.mock.calls.map(([line]) => stripVTControlCharacters(String(line)))).toContain(
+        "[Test STT] Retrying (1/2) after 429...",
+      );
     });
   });
 });

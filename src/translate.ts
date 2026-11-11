@@ -188,7 +188,7 @@ export async function runTranslateCommand(
         maxDuration: resolvedMaxDuration,
       });
       if (verbose && srtEntries.length !== rawEntriesCount) {
-        console.log(
+        console.error(
           `[Reflow] Adjusted subtitle segments: ${rawEntriesCount} -> ${srtEntries.length} entries`,
         );
       }

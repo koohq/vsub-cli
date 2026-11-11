@@ -246,7 +246,7 @@ export async function extractAudio(
     ];
 
     if (verbose) {
-      console.log(`[ffmpeg] Executing command: ${ffmpegPath} ${ffmpegArgs.join(" ")}`);
+      console.error(`[ffmpeg] Executing command: ${ffmpegPath} ${ffmpegArgs.join(" ")}`);
     }
 
     await execa(ffmpegPath, ffmpegArgs);
@@ -282,11 +282,11 @@ export async function extractAudio(
     } else {
       if (verbose) {
         if (shouldSplitBySize) {
-          console.log(
+          console.error(
             `[ffmpeg] Extracted audio exceeds 25MB threshold (${(stats.size / 1024 / 1024).toFixed(1)}MB). Splitting into segments of up to ${splitLimits.segmentSeconds}s at silences`,
           );
         } else {
-          console.log(
+          console.error(
             `[ffmpeg] Extracted audio is longer than ${splitLimits.maxChunkSeconds}s. Splitting into segments of up to ${splitLimits.segmentSeconds}s at silences`,
           );
         }
@@ -316,18 +316,18 @@ export async function extractAudio(
           );
         } catch {
           if (verbose) {
-            console.log(
+            console.error(
               "[ffmpeg] Falling back to fixed-length segments: silence detection failed.",
             );
           }
         }
       } else if (verbose) {
-        console.log(
+        console.error(
           "[ffmpeg] Falling back to fixed-length segments: audio duration is unavailable.",
         );
       }
       if (verbose && splitPoints !== undefined) {
-        console.log(
+        console.error(
           `[ffmpeg] Split points: ${splitPoints.map((point) => `${Number(point.seconds.toFixed(3))}s${point.noSilence ? " (no silence)" : ""}`).join(", ")}`,
         );
       }
@@ -601,7 +601,7 @@ export async function burnSubtitlesToVideo(
   ];
 
   if (verbose) {
-    console.log(`[ffmpeg] Burning subtitles: ${ffmpegPath} ${ffmpegArgs.join(" ")}`);
+    console.error(`[ffmpeg] Burning subtitles: ${ffmpegPath} ${ffmpegArgs.join(" ")}`);
   }
 
   try {
@@ -752,7 +752,7 @@ export async function embedSubtitlesToVideo(
   ffmpegArgs.push("-y", resolvedOutput);
 
   if (verbose) {
-    console.log(`[ffmpeg] Embedding soft subtitles: ${ffmpegPath} ${ffmpegArgs.join(" ")}`);
+    console.error(`[ffmpeg] Embedding soft subtitles: ${ffmpegPath} ${ffmpegArgs.join(" ")}`);
   }
 
   try {

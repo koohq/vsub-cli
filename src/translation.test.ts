@@ -204,9 +204,8 @@ describe("src/translation.ts", () => {
             lang === "en"
               ? "[1/3]   ↻ JA: resuming from the cache (1 of 3 chunks already saved)"
               : "[1/3]   ↻ JA: 途中から再開します（3 チャンクのうち 1 は保存済み）";
-          expect(error.mock.calls.map(([text]) => stripVTControlCharacters(String(text)))).toEqual([
-            notice,
-          ]);
+          const lines = error.mock.calls.map(([text]) => stripVTControlCharacters(String(text)));
+          expect(lines.filter((line) => line === notice)).toEqual([notice]);
           expect(mockSpinner.info).not.toHaveBeenCalled();
         },
       );

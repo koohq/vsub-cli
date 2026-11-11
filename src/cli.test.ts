@@ -21,7 +21,7 @@ import {
   processMediaPipeline,
   processSummaryPipeline,
 } from "./pipeline.js";
-import { parseSrt, reflowSrtEntries } from "./srt.js";
+import { parseSrt, reflowSrtEntries, stringifySrt } from "./srt.js";
 import { isolateConfigAndEnv } from "./test-support/isolate-config-env.js";
 import { DEFAULT_CONTEXT_WINDOW_SIZE, translateSrtEntries } from "./text/tasks.js";
 import { getTranslationResumeHint, TranslationStoppedError } from "./translation.js";
@@ -534,6 +534,65 @@ describe("CLI integration harness", () => {
         expect(exitSpy).not.toHaveBeenCalled();
       },
     );
+  });
+
+  describe("verbose stdout reflow", () => {
+    it.each(["translate", "main"])("writes only the subtitle result for %s", async (command) => {
+      const content =
+        "1\n00:00:00,000 --> 00:00:10,000\nThis is a deliberately long dummy subtitle line with several words.\n";
+      fs.writeFileSync(dummySrtPath, content);
+      const stdout = vi.spyOn(process.stdout, "write").mockReturnValue(true);
+      const stderr = vi.spyOn(console, "error").mockImplementation(() => {});
+      try {
+        if (command === "translate") {
+          await runCli(
+            "translate",
+            dummySrtPath,
+            "--stdout",
+            "--verbose",
+            "--no-cache",
+            "--max-length",
+            "12",
+          );
+        } else {
+          const actual = await vi.importActual<typeof import("./pipeline.js")>("./pipeline.js");
+          vi.mocked(processMediaPipeline).mockImplementationOnce(actual.processMediaPipeline);
+          vi.mocked(loadMediaCache).mockReturnValueOnce({
+            version: 2,
+            mediaPath: dummyVideoPath,
+            mediaSize: 0,
+            createdAt: Date.now(),
+            updatedAt: Date.now(),
+            transcription: {
+              entries: parseSrt(content),
+              detectedLanguage: "en",
+              createdAt: Date.now(),
+            },
+          });
+          await runCli(
+            dummyVideoPath,
+            "--stdout",
+            "--verbose",
+            "--no-translate",
+            "--max-length",
+            "12",
+            "--stt-provider",
+            "groq",
+          );
+        }
+        const entries = reflowSrtEntries(parseSrt(content), { maxLength: 12 });
+        expect(entries.length).toBeGreaterThan(1);
+        expect(stdout).toHaveBeenCalledExactlyOnceWith(stringifySrt(entries));
+        expect(logSpy).not.toHaveBeenCalled();
+        expect(stderr.mock.calls.map(([line]) => stripVTControlCharacters(String(line)))).toContain(
+          `[Reflow] Adjusted subtitle segments: 1 -> ${entries.length} entries`,
+        );
+        expect(exitSpy).not.toHaveBeenCalled();
+      } finally {
+        stdout.mockRestore();
+        stderr.mockRestore();
+      }
+    });
   });
 
   const subcommandOptionCases = [

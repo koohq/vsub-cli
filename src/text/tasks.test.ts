@@ -1,3 +1,4 @@
+import { stripVTControlCharacters } from "node:util";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { SrtEntry } from "../srt.js";
 import { createGeminiTextModel } from "./gemini.js";
@@ -63,6 +64,26 @@ describe("src/text/tasks.ts", () => {
   });
 
   const defaultModel = createGeminiTextModel("fake-key", "gemini-3.8-flash");
+
+  it.each(["translation", "refinement"])(
+    "routes verbose %s chunks to stderr only",
+    async (task) => {
+      const stdout = vi.spyOn(console, "log").mockImplementation(() => {});
+      const stderr = vi.spyOn(console, "error").mockImplementation(() => {});
+      try {
+        const entries = makeEntries(1);
+        mockGenerateContent.mockResolvedValueOnce({ text: JSON.stringify(textItems(["Result"])) });
+        if (task === "translation") await translateSrtEntries(entries, "ja", defaultModel, true);
+        else await refineSrtEntries(entries, defaultModel, true);
+        expect(stderr.mock.calls.map(([line]) => stripVTControlCharacters(String(line)))).toEqual([
+          `[Gemini API] ${task === "translation" ? "Translating" : "Refining"} chunk (1/1) [1 items] [model: gemini-3.8-flash]...`,
+        ]);
+        expect(stdout).not.toHaveBeenCalled();
+      } finally {
+        vi.restoreAllMocks();
+      }
+    },
+  );
 
   describe("translation checkpoints", () => {
     afterEach(() => vi.useRealTimers());

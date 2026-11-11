@@ -57,7 +57,7 @@ export async function generateJsonWithRetry<T>(
 
   for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
     if (options.verbose && attempt > 1) {
-      console.log(
+      console.error(
         `[${model.logLabel}] Retry attempt ${attempt}/${MAX_RETRIES} for ${whereOrTask}...`,
       );
     }
@@ -103,11 +103,11 @@ export async function generateJsonWithRetry<T>(
 
     if (options.verbose) {
       if (options.where) {
-        console.log(
+        console.error(
           `[${model.logLabel}] Error on ${options.where} (attempt ${attempt}/${MAX_RETRIES}, retrying in ${delayMs}ms): ${lastError?.message}`,
         );
       } else {
-        console.log(
+        console.error(
           `[${model.logLabel}] Error during ${options.task} (attempt ${attempt}/${MAX_RETRIES}, retrying in ${delayMs}ms): ${lastError?.message}`,
         );
       }

@@ -146,7 +146,7 @@ export async function transcribeAudioSegments(
     }
 
     if (verbose && audioPaths.length > 1) {
-      console.log(
+      console.error(
         `[${transcriber.logLabel}] Transcribing segment (${i + 1}/${audioPaths.length})...`,
       );
     }

@@ -36,7 +36,7 @@ export function createGroqTranscriber(apiKey: string): Transcriber {
 
       if (options?.verbose) {
         const promptInfo = options.prompt ? ` (prompt: "${options.prompt.slice(0, 30)}...")` : "";
-        console.log(
+        console.error(
           `[Groq API] Requesting Whisper transcription [model: ${model}]: ${audioPath}${promptInfo}`,
         );
       }

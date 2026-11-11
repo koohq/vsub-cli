@@ -1,3 +1,4 @@
+import { stripVTControlCharacters } from "node:util";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { formatSrtTime } from "../srt.js";
 import {
@@ -251,7 +252,7 @@ describe("transcriber.ts", () => {
     });
 
     it("should forward prompt, model and verbose to transcribe()", async () => {
-      vi.spyOn(console, "log").mockImplementation(() => {});
+      vi.spyOn(console, "error").mockImplementation(() => {});
       const transcriber = createFakeTranscriber([{ segments: [] }, { segments: [] }]);
 
       await transcribeAudioSegments(["a.m4a", "b.m4a"], transcriber, true, undefined, {
@@ -277,14 +278,18 @@ describe("transcriber.ts", () => {
     });
 
     it("should log the segment progress with logLabel only when verbose and multiple chunks", async () => {
-      const log = vi.spyOn(console, "log").mockImplementation(() => {});
+      const stdout = vi.spyOn(console, "log").mockImplementation(() => {});
+      const log = vi.spyOn(console, "error").mockImplementation(() => {});
 
       await transcribeAudioSegments(
         ["a.m4a", "b.m4a"],
         createFakeTranscriber([{}, {}], { logLabel: "Fake API" }),
         true,
       );
-      expect(log).toHaveBeenCalledWith("[Fake API] Transcribing segment (1/2)...");
+      expect(log.mock.calls.map(([line]) => stripVTControlCharacters(String(line)))).toContain(
+        "[Fake API] Transcribing segment (1/2)...",
+      );
+      expect(stdout).not.toHaveBeenCalled();
 
       log.mockClear();
       await transcribeAudioSegments(["a.m4a"], createFakeTranscriber([{}]), true);

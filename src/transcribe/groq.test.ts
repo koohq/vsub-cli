@@ -1,3 +1,4 @@
+import { stripVTControlCharacters } from "node:util";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { createGroqTranscriber, GROQ_LIMITS } from "./groq.js";
 import { createTranscriber } from "./select.js";
@@ -39,9 +40,21 @@ describe("transcribe/groq.ts", () => {
 
   afterEach(() => {
     vi.unstubAllEnvs();
+    vi.restoreAllMocks();
   });
 
   describe("createGroqTranscriber", () => {
+    it("routes verbose requests to stderr only", async () => {
+      const stdout = vi.spyOn(console, "log").mockImplementation(() => {});
+      const stderr = vi.spyOn(console, "error").mockImplementation(() => {});
+      mockCreateTranscription.mockResolvedValueOnce({ segments: [] });
+      await createGroqTranscriber("test-key").transcribe("dummy.m4a", { verbose: true });
+      expect(stderr.mock.calls.map(([line]) => stripVTControlCharacters(String(line)))).toEqual([
+        "[Groq API] Requesting Whisper transcription [model: whisper-large-v3-turbo]: dummy.m4a",
+      ]);
+      expect(stdout).not.toHaveBeenCalled();
+    });
+
     it("should convert Groq transcription segments to SrtEntry array", async () => {
       mockCreateTranscription.mockResolvedValueOnce({
         language: "english",
