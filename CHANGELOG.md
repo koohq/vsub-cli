@@ -2,6 +2,17 @@
 
 All notable changes to this project will be documented in this file. See [standard-version](https://github.com/conventional-changelog/standard-version) for commit guidelines.
 
+## [1.7.1](https://github.com/koohq/vsub-cli/compare/vsub-cli-v1.7.0...vsub-cli-v1.7.1) (2026-11-11)
+
+
+### Bug Fixes
+
+* key the media cache by file size and sampled content ([4512bdb](https://github.com/koohq/vsub-cli/commit/4512bdba1b32440a4f6d1abf0d8145b54cfcf377))
+* match translated and refined lines by id instead of position ([5dc3f76](https://github.com/koohq/vsub-cli/commit/5dc3f7660829356d8f0e5e5786a8a96619b424b2))
+* resume interrupted translations and stop sending chunks after a failure ([5af300f](https://github.com/koohq/vsub-cli/commit/5af300fdf4565bfe10b1efaa96d4d449b23cb552))
+* split long audio at silences before the chunk limit ([ffc23a4](https://github.com/koohq/vsub-cli/commit/ffc23a492a9b22fdadf5e6bd6c85ff26d4fa5e04))
+* use only the first target language for chapters and summaries ([c0a2434](https://github.com/koohq/vsub-cli/commit/c0a2434b8dc67a1f58dd907404baeedda241005e))
+
 ## [1.7.0](https://github.com/koohq/vsub-cli/compare/vsub-cli-v1.6.1...vsub-cli-v1.7.0) (2026-11-11)
 
 
