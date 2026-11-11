@@ -365,6 +365,12 @@ export const ja: typeof en = {
       `表示言語が正しくありません: "${value}"。対応している言語: "en", "ja"`,
     setSaved: (path: string) => `✅ 設定を保存しました: ${path}`,
     missingKeysHeader: "\n🔑 API キーがありません。対話形式で設定を始めます。",
+    requiredKeysMissing: (items: string[]) =>
+      `必要な API キーが設定されていません:\n- ${items.join("\n- ")}\n対話形式の入力、.env ファイル、環境変数のいずれかで設定してください。`,
+    openRouterKeyHint:
+      "VSUB_OPENROUTER_API_KEY（取得先: https://openrouter.ai/keys。汎用の OPENROUTER_API_KEY は、--stt-provider openrouter・--llm-provider openrouter・VSUB_STT_PROVIDER=openrouter・VSUB_LLM_PROVIDER=openrouter のときだけ読みます。翻訳には Gemini のキー VSUB_GEMINI_API_KEY / GEMINI_API_KEY も使えます）",
+    groqKeyHint: "VSUB_GROQ_API_KEY / GROQ_API_KEY（取得先: https://console.groq.com/）",
+    geminiKeyHint: "VSUB_GEMINI_API_KEY / GEMINI_API_KEY（取得先: https://aistudio.google.com/）",
     missingKeysNote: "入力したキーは、次回から使えるよう次の場所に保存します:",
     promptOpenRouterKey: "1. OpenRouter の API キーを入力 (https://openrouter.ai/keys): ",
     promptGroqKey: "1. Groq の API キーを入力 (https://console.groq.com/): ",

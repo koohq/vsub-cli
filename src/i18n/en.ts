@@ -366,6 +366,12 @@ export const en = {
       `Invalid display language: "${value}". Supported languages: "en", "ja"`,
     setSaved: (path: string) => `✅ Configuration updated and saved: ${path}`,
     missingKeysHeader: "\n🔑 API keys missing. Starting interactive setup.",
+    requiredKeysMissing: (items: string[]) =>
+      `Required API key(s) are not configured:\n- ${items.join("\n- ")}\nPlease set them via interactive prompt, .env file, or environment variables.`,
+    openRouterKeyHint:
+      "VSUB_OPENROUTER_API_KEY (Get at: https://openrouter.ai/keys; the generic OPENROUTER_API_KEY is read only with --stt-provider openrouter, --llm-provider openrouter, VSUB_STT_PROVIDER=openrouter, or VSUB_LLM_PROVIDER=openrouter; Gemini keys VSUB_GEMINI_API_KEY / GEMINI_API_KEY can also be used for translation)",
+    groqKeyHint: "VSUB_GROQ_API_KEY / GROQ_API_KEY (Get at: https://console.groq.com/)",
+    geminiKeyHint: "VSUB_GEMINI_API_KEY / GEMINI_API_KEY (Get at: https://aistudio.google.com/)",
     missingKeysNote: "Note: Entered keys will be saved globally for future use at:",
     promptOpenRouterKey: "1. Enter OpenRouter API Key (https://openrouter.ai/keys): ",
     promptGroqKey: "1. Enter Groq API Key (https://console.groq.com/): ",

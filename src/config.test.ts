@@ -314,6 +314,35 @@ describe("config.ts", () => {
   });
 
   describe("validateApiKeys", () => {
+    it.each([undefined, "en", "ja"] as const)("pins missing key guidance for %s", (lang) => {
+      const hints =
+        lang === "ja"
+          ? [
+              "VSUB_OPENROUTER_API_KEY（取得先: https://openrouter.ai/keys。汎用の OPENROUTER_API_KEY は、--stt-provider openrouter・--llm-provider openrouter・VSUB_STT_PROVIDER=openrouter・VSUB_LLM_PROVIDER=openrouter のときだけ読みます。翻訳には Gemini のキー VSUB_GEMINI_API_KEY / GEMINI_API_KEY も使えます）",
+              "VSUB_GROQ_API_KEY / GROQ_API_KEY（取得先: https://console.groq.com/）",
+              "VSUB_GEMINI_API_KEY / GEMINI_API_KEY（取得先: https://aistudio.google.com/）",
+            ]
+          : [
+              "VSUB_OPENROUTER_API_KEY (Get at: https://openrouter.ai/keys; the generic OPENROUTER_API_KEY is read only with --stt-provider openrouter, --llm-provider openrouter, VSUB_STT_PROVIDER=openrouter, or VSUB_LLM_PROVIDER=openrouter; Gemini keys VSUB_GEMINI_API_KEY / GEMINI_API_KEY can also be used for translation)",
+              "VSUB_GROQ_API_KEY / GROQ_API_KEY (Get at: https://console.groq.com/)",
+              "VSUB_GEMINI_API_KEY / GEMINI_API_KEY (Get at: https://aistudio.google.com/)",
+            ];
+      const header =
+        lang === "ja"
+          ? "必要な API キーが設定されていません:"
+          : "Required API key(s) are not configured:";
+      const footer =
+        lang === "ja"
+          ? "対話形式の入力、.env ファイル、環境変数のいずれかで設定してください。"
+          : "Please set them via interactive prompt, .env file, or environment variables.";
+      expect(() =>
+        validateApiKeys(
+          { ffmpegPath: "ffmpeg", groqApiKey: "", geminiApiKey: "" },
+          { requireOpenRouter: true, lang },
+        ),
+      ).toThrow(new Error(`${header}\n- ${hints.join("\n- ")}\n${footer}`));
+    });
+
     it("should not throw error when all required keys are present", () => {
       expect(() => {
         validateApiKeys({

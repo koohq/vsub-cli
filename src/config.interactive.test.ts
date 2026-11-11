@@ -75,6 +75,24 @@ describe("ensureApiKeys interactive mode", () => {
     expect(savedConfig.openrouterApiKey).toBeUndefined();
   });
 
+  it("forwards Japanese to validation outside a terminal without prompting or saving", async () => {
+    Object.defineProperty(process.stdin, "isTTY", { value: false, configurable: true });
+    await expect(
+      ensureApiKeys(makeConfig(), {
+        lang: "ja",
+        requireGroq: false,
+        requireGemini: false,
+        requireOpenRouter: true,
+      }),
+    ).rejects.toThrow(
+      new Error(
+        "必要な API キーが設定されていません:\n- VSUB_OPENROUTER_API_KEY（取得先: https://openrouter.ai/keys。汎用の OPENROUTER_API_KEY は、--stt-provider openrouter・--llm-provider openrouter・VSUB_STT_PROVIDER=openrouter・VSUB_LLM_PROVIDER=openrouter のときだけ読みます。翻訳には Gemini のキー VSUB_GEMINI_API_KEY / GEMINI_API_KEY も使えます）\n対話形式の入力、.env ファイル、環境変数のいずれかで設定してください。",
+      ),
+    );
+    expect(questionMock).not.toHaveBeenCalled();
+    expect(loadGlobalConfig()).toEqual({});
+  });
+
   it("saves openrouterApiKey to config.json when prompted during interactive setup", async () => {
     questionMock.mockImplementation(async (query: string) => {
       if (query.includes("OpenRouter")) {

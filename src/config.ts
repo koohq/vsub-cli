@@ -374,7 +374,12 @@ export async function ensureApiKeys(
     openrouterApiKey,
   };
 
-  validateApiKeys(updatedConfig, { requireGroq, requireGemini, requireOpenRouter });
+  validateApiKeys(updatedConfig, {
+    requireGroq,
+    requireGemini,
+    requireOpenRouter,
+    lang: options.lang,
+  });
   return updatedConfig;
 }
 
@@ -384,28 +389,26 @@ export function validateApiKeys(
     requireGroq?: boolean;
     requireGemini?: boolean;
     requireOpenRouter?: boolean;
+    lang?: SupportedLanguage | undefined;
   } = {},
 ): void {
   const requireGroq = options.requireGroq ?? true;
   const requireGemini = options.requireGemini ?? true;
   const requireOpenRouter = options.requireOpenRouter ?? false;
   const missingKeys: string[] = [];
+  const m = getI18n(options.lang).config;
 
   if (requireOpenRouter && !config.openrouterApiKey) {
-    missingKeys.push(
-      "VSUB_OPENROUTER_API_KEY (Get at: https://openrouter.ai/keys; the generic OPENROUTER_API_KEY is read only with --stt-provider openrouter, --llm-provider openrouter, VSUB_STT_PROVIDER=openrouter, or VSUB_LLM_PROVIDER=openrouter; Gemini keys VSUB_GEMINI_API_KEY / GEMINI_API_KEY can also be used for translation)",
-    );
+    missingKeys.push(m.openRouterKeyHint);
   }
   if (requireGroq && !config.groqApiKey) {
-    missingKeys.push("VSUB_GROQ_API_KEY / GROQ_API_KEY (Get at: https://console.groq.com/)");
+    missingKeys.push(m.groqKeyHint);
   }
   if (requireGemini && !config.geminiApiKey) {
-    missingKeys.push("VSUB_GEMINI_API_KEY / GEMINI_API_KEY (Get at: https://aistudio.google.com/)");
+    missingKeys.push(m.geminiKeyHint);
   }
 
   if (missingKeys.length > 0) {
-    throw new Error(
-      `Required API key(s) are not configured:\n- ${missingKeys.join("\n- ")}\nPlease set them via interactive prompt, .env file, or environment variables.`,
-    );
+    throw new Error(m.requiredKeysMissing(missingKeys));
   }
 }

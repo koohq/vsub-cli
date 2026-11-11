@@ -103,8 +103,10 @@ describe("i18n module", () => {
             for (const value of Object.values(section)) {
               if (typeof value === "function") {
                 const fn = value as (...args: unknown[]) => string;
-                expect(() => fn(1, "test", "test2")).not.toThrow();
-                expect(typeof fn(1, "test", "test2")).toBe("string");
+                const args =
+                  value === dict.config.requiredKeysMissing ? [["test-key"]] : [1, "test", "test2"];
+                expect(() => fn(...args)).not.toThrow();
+                expect(typeof fn(...args)).toBe("string");
               }
             }
           }
