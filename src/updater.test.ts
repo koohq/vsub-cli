@@ -37,6 +37,7 @@ import {
   replaceBinarySafely,
   saveUpdateCache,
   UPDATE_CHECK_INTERVAL_MS,
+  withoutPSModulePath,
 } from "./updater.js";
 
 const originalExecPath = process.execPath;
@@ -58,6 +59,7 @@ describe("updater.ts", () => {
   afterEach(() => {
     fs.rmSync(tempDir, { recursive: true, force: true });
     vi.restoreAllMocks();
+    vi.unstubAllEnvs();
     setProcessExecPath(originalExecPath);
   });
 
@@ -290,6 +292,35 @@ e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855  vsub-windows-x
     });
   });
 
+  describe("withoutPSModulePath", () => {
+    it("should copy the environment without PSModulePath and leave the original unchanged", () => {
+      const env = {
+        PATH: "C:\\test-tools",
+        SystemRoot: "C:\\Windows",
+        PSModulePath: "C:\\test-modules",
+      };
+
+      const result = withoutPSModulePath(env);
+
+      expect(result).toEqual({ PATH: "C:\\test-tools", SystemRoot: "C:\\Windows" });
+      expect(result).not.toBe(env);
+      expect(env).toEqual({
+        PATH: "C:\\test-tools",
+        SystemRoot: "C:\\Windows",
+        PSModulePath: "C:\\test-modules",
+      });
+    });
+
+    it.each(["PSMODULEPATH", "psmodulepath", "PsMoDuLePaTh"])(
+      "should omit %s regardless of casing",
+      (key) => {
+        expect(withoutPSModulePath({ PATH: "C:\\test-tools", [key]: "C:\\test-modules" })).toEqual({
+          PATH: "C:\\test-tools",
+        });
+      },
+    );
+  });
+
   describe("extractArchive", () => {
     it("should extract archive using execa tar", async () => {
       const extractDir = path.join(tempDir, "extracted");
@@ -344,6 +375,35 @@ e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855  vsub-windows-x
       };
     }
 
+    it("should omit PSModulePath and preserve other environment variables in PowerShell fallback", async () => {
+      vi.stubEnv("PSModulePath", "C:\\test-modules\\PowerShell\\Modules");
+      vi.stubEnv("VSUB_TEST_ENV_MARKER", "kept");
+      const archivePath = path.join(tempDir, "vsub.zip");
+      const extractDir = path.join(tempDir, "dest");
+
+      mockExeca.mockClear();
+      setupTarFallback({
+        onPowerShell: () => {
+          fs.mkdirSync(extractDir, { recursive: true });
+          fs.writeFileSync(path.join(extractDir, "vsub.exe"), "dummy binary");
+        },
+      });
+
+      await extractArchive(archivePath, extractDir, "win32");
+
+      const powershellCall = mockExeca.mock.calls.find(([cmd]) => cmd === "powershell");
+      const options = powershellCall?.[2];
+      expect(options).toEqual(
+        expect.objectContaining({
+          extendEnv: false,
+          env: expect.objectContaining({ VSUB_TEST_ENV_MARKER: "kept" }),
+        }),
+      );
+      expect(Object.keys(options.env).some((key) => key.toLowerCase() === "psmodulepath")).toBe(
+        false,
+      );
+    });
+
     it("should pass -LiteralPath and escaped paths to PowerShell Expand-Archive when tar fails", async () => {
       const specialDir = path.join(tempDir, "it's [x]");
       fs.mkdirSync(specialDir, { recursive: true });
@@ -364,11 +424,15 @@ e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855  vsub-windows-x
 
       const quotedArchive = `'${archivePath.replace(/'/g, "''")}'`;
       const quotedDest = `'${extractDir.replace(/'/g, "''")}'`;
-      expect(mockExeca).toHaveBeenCalledWith("powershell", [
-        "-NoProfile",
-        "-Command",
-        `$ProgressPreference = 'SilentlyContinue'; $ErrorActionPreference = 'Stop'; Expand-Archive -LiteralPath ${quotedArchive} -DestinationPath ${quotedDest} -Force`,
-      ]);
+      expect(mockExeca).toHaveBeenCalledWith(
+        "powershell",
+        [
+          "-NoProfile",
+          "-Command",
+          `$ProgressPreference = 'SilentlyContinue'; $ErrorActionPreference = 'Stop'; Expand-Archive -LiteralPath ${quotedArchive} -DestinationPath ${quotedDest} -Force`,
+        ],
+        expect.objectContaining({ extendEnv: false }),
+      );
     });
 
     it("should remove destDir and intermediate files before PowerShell Expand-Archive fallback", async () => {

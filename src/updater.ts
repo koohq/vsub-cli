@@ -309,6 +309,15 @@ export function quotePowerShellLiteral(value: string): string {
 }
 
 /**
+ * Omits PSModulePath so Windows PowerShell uses its own modules instead of inheriting PowerShell 7 modules.
+ */
+export function withoutPSModulePath(env: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
+  return Object.fromEntries(
+    Object.entries(env).filter(([key]) => key.toLowerCase() !== "psmodulepath"),
+  );
+}
+
+/**
  * Extracts archive (.zip or .tar.gz) into destDir and returns path to extracted vsub executable.
  * Note: destDir must be a dedicated folder for this extraction (it will be removed recursively if tar fails before fallback).
  */
@@ -335,11 +344,15 @@ export async function extractArchive(
 
       // Suppress progress bar: Windows PowerShell 5.1's Expand-Archive is several times
       // slower while rendering its progress bar, even when output is piped.
-      await execa("powershell", [
-        "-NoProfile",
-        "-Command",
-        `$ProgressPreference = 'SilentlyContinue'; $ErrorActionPreference = 'Stop'; Expand-Archive -LiteralPath ${quotePowerShellLiteral(archivePath)} -DestinationPath ${quotePowerShellLiteral(destDir)} -Force`,
-      ]);
+      await execa(
+        "powershell",
+        [
+          "-NoProfile",
+          "-Command",
+          `$ProgressPreference = 'SilentlyContinue'; $ErrorActionPreference = 'Stop'; Expand-Archive -LiteralPath ${quotePowerShellLiteral(archivePath)} -DestinationPath ${quotePowerShellLiteral(destDir)} -Force`,
+        ],
+        { env: withoutPSModulePath(process.env), extendEnv: false },
+      );
     } else {
       throw new Error(
         `Failed to extract archive ${archivePath}: ${err instanceof Error ? err.message : String(err)}`,
