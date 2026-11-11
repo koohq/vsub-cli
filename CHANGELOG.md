@@ -2,6 +2,22 @@
 
 All notable changes to this project will be documented in this file. See [standard-version](https://github.com/conventional-changelog/standard-version) for commit guidelines.
 
+## [1.6.0](https://github.com/koohq/vsub-cli/compare/vsub-cli-v1.5.1...vsub-cli-v1.6.0) (2026-11-11)
+
+
+### Features
+
+* add --refine to correct transcript recognition errors with the text model ([4938c83](https://github.com/koohq/vsub-cli/commit/4938c833e51ab85e94465c9a98933414b7cbeba4))
+* choose the text generation provider in init and config ([544838f](https://github.com/koohq/vsub-cli/commit/544838f93947a2f521eeb744f4c5024c02052f90))
+* choose the transcription provider in init and config ([012bba2](https://github.com/koohq/vsub-cli/commit/012bba2a518cc58061b223a1c14e442cb6eaac0e))
+* let translation, chapters and summaries run on OpenRouter ([c758348](https://github.com/koohq/vsub-cli/commit/c758348e6f5a0eb1cd71e87539bbfeecdb4fc558))
+* let users choose the transcription provider (OpenRouter or Groq) ([c3b3cff](https://github.com/koohq/vsub-cli/commit/c3b3cff1f557952edab93d15688afffa37dda1b6))
+
+
+### Performance Improvements
+
+* use low thinking level for Gemini translation, chapters and summary ([e43a027](https://github.com/koohq/vsub-cli/commit/e43a0275988de063c95197ed7aab0620a9dd77db))
+
 ## [1.5.1](https://github.com/koohq/vsub-cli/compare/vsub-cli-v1.5.0...vsub-cli-v1.5.1) (2026-11-09)
 
 
