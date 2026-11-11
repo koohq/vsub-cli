@@ -3443,6 +3443,29 @@ describe("pipeline.ts", () => {
       vi.spyOn(process.stdout, "write").mockReturnValue(true);
     });
 
+    it.each([
+      { saved: true, env: undefined, refine: undefined, expected: 1 },
+      { saved: false, env: "1", refine: undefined, expected: 1 },
+      { saved: true, env: undefined, refine: false, expected: 0 },
+      { saved: true, env: "1", refine: false, expected: 0 },
+      { saved: true, env: "false", refine: true, expected: 1 },
+    ])(
+      "resolves refinement from saved $saved, env $env, CLI $refine",
+      async ({ saved, env, refine, expected }) => {
+        saveGlobalConfig({ refine: saved });
+        if (env !== undefined) process.env["VSUB_REFINE"] = env;
+        seedTranscriptionCache();
+        await processMediaPipeline({
+          mediaFile,
+          cacheDir,
+          noTranslate: true,
+          stdout: true,
+          refine,
+        });
+        expect(refineSrtEntries).toHaveBeenCalledTimes(expected);
+      },
+    );
+
     it("keeps default behavior unchanged when --refine is omitted", async () => {
       seedTranscriptionCache();
       saveTranslationCache(

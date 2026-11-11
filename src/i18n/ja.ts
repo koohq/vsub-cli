@@ -342,6 +342,7 @@ export const ja: typeof en = {
       openrouterApiKey: "OpenRouter の API キー",
       transcription: "文字起こし",
       textGeneration: "文章の生成",
+      refine: "文字起こしの修正",
       ffmpegPath: "FFmpeg のパス",
       whisperPrompt: "認識ヒント",
       prompt: "翻訳指示",
@@ -365,6 +366,8 @@ export const ja: typeof en = {
       "⚠️ 保存する設定を指定してください。(例: vsub config set --gemini-model gemini-3.8-flash)",
     invalidDisplayLang: (value: string) =>
       `表示言語が正しくありません: "${value}"。対応している言語: "en", "ja"`,
+    invalidRefine: (value: string) =>
+      `--refine の値が正しくありません: "${value}"。true か false を指定してください。`,
     setSaved: (path: string) => `✅ 設定を保存しました: ${path}`,
     missingKeysHeader: "\n🔑 API キーがありません。対話形式で設定を始めます。",
     requiredKeysMissing: (items: string[]) =>

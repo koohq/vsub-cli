@@ -256,7 +256,8 @@ Options:
   --keep-audio                  Keep intermediate extracted audio files without deleting (default: false)
   --no-translate                Skip translation and output raw transcribed subtitles (default: false)
   --save-original               Save original transcription subtitle file alongside the result (default: false)
-  --refine                      Correct speech recognition errors in the transcript with the text generation model before translation (off by default; uses --glossary and --prompt; timing and line count are kept) (default: false)
+  --refine                      Correct speech recognition errors in the transcript with the text generation model before translation (default: VSUB_REFINE, config, or off; uses --glossary and --prompt; timing and line count are kept)
+  --no-refine                   Do not refine the transcript, even if VSUB_REFINE or the config turns it on
   --force-translate             Force translation even if detected language matches target language (default: false)
   --no-update-check             Disable checking for new version updates (default: false)
   --verbose                     Output detailed log messages (API requests, etc.) (default: false)
@@ -437,6 +438,7 @@ vsub video.mp4 --no-translate --refine
 ```
 * **What it fixes**: Corrects clear ASR recognition errors such as homophones / wrong kanji, misheard proper nouns and technical terms, and split or merged words.
 * **Provider & model**: Uses your configured text generation provider and model (`--llm-provider`, `--llm-model`, `--gemini-model`).
+* **Enable by default**: Use `vsub config set --refine true` or `VSUB_REFINE=true`; use `--no-refine` to turn it off for one run. Priority is `--refine`/`--no-refine` → `VSUB_REFINE` → the config file. This applies only to the main command and `vsub batch`.
 * **Glossary & notes**: Works best when paired with `--glossary` (improvements are much smaller without one). Your `--prompt` notes are also passed as background context, and when using a language-keyed glossary file, the table for the first target language is used to supply the correct spellings of terms.
 * **Timing & structure guarantees**: Subtitle timestamps, entry IDs, and line counts are never changed. If the model's answer does not match the input lines for any 50-line chunk, vsub keeps the original text for that chunk and prints a warning.
 * **Limitations**: **Speech completely dropped during transcription will not be recovered, and subtitle timing will not be adjusted.**
@@ -451,9 +453,10 @@ vsub video.mp4 --no-translate --refine
 # Show current configuration (API keys are masked)
 vsub config show
 
-# Save persistent defaults (display language, target language, prompts, glossary, concurrency, reflow length, burn style)
+# Save persistent defaults (display language, target language, prompts, glossary, concurrency, reflow length, transcript refinement, burn style)
 vsub config set --lang ja --prompt "Translate politely" --glossary "./glossary.json" --concurrency 4
 vsub config set --target-lang ja,en
+vsub config set --refine true
 vsub config set --max-length 32 --burn-position bottom --burn-font-size medium
 vsub config set --stt-provider openrouter --openrouter-key "your_openrouter_key"
 vsub config set --llm-provider openrouter

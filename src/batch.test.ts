@@ -520,6 +520,28 @@ describe("batch.ts", () => {
           expected: { requireGroq: true, requireGemini: false, requireOpenRouter: false },
         },
         {
+          description: "configured refinement without a CLI flag",
+          mockConfig: {
+            groqApiKey: "test-groq-key",
+            geminiApiKey: "test-gemini-key",
+            ffmpegPath: "ffmpeg",
+            refine: true,
+          },
+          options: { noTranslate: true },
+          expected: { requireGroq: true, requireGemini: true, requireOpenRouter: false },
+        },
+        {
+          description: "configured refinement disabled by CLI",
+          mockConfig: {
+            groqApiKey: "test-groq-key",
+            geminiApiKey: "test-gemini-key",
+            ffmpegPath: "ffmpeg",
+            refine: true,
+          },
+          options: { noTranslate: true, refine: false },
+          expected: { requireGroq: true, requireGemini: false, requireOpenRouter: false },
+        },
+        {
           description: "without noTranslate",
           options: {},
           expected: { requireGroq: true, requireGemini: true, requireOpenRouter: false },

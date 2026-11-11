@@ -343,6 +343,7 @@ export const en = {
       openrouterApiKey: "OpenRouter API Key",
       transcription: "Transcription",
       textGeneration: "Text Generation",
+      refine: "Refine Transcript",
       ffmpegPath: "FFmpeg Path",
       whisperPrompt: "Whisper Prompt",
       prompt: "Translate Prompt",
@@ -366,6 +367,7 @@ export const en = {
       "⚠️ Please specify settings to save. (Example: vsub config set --gemini-model gemini-3.8-flash)",
     invalidDisplayLang: (value: string) =>
       `Invalid display language: "${value}". Supported languages: "en", "ja"`,
+    invalidRefine: (value: string) => `Invalid value for --refine: "${value}". Use true or false.`,
     setSaved: (path: string) => `✅ Configuration updated and saved: ${path}`,
     missingKeysHeader: "\n🔑 API keys missing. Starting interactive setup.",
     requiredKeysMissing: (items: string[]) =>

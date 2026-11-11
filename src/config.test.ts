@@ -5,7 +5,9 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   getConfig,
   getGlobalConfigPath,
+  parseBooleanSetting,
   parsePositiveInteger,
+  resolveRefine,
   resolveReflowLimits,
   validateApiKeys,
 } from "./config.js";
@@ -26,6 +28,49 @@ vi.mock("node:fs", async (importOriginal) => {
 });
 
 describe("config.ts", () => {
+  describe("refine settings", () => {
+    it.each([
+      { value: "true", expected: true },
+      { value: "TRUE", expected: true },
+      { value: " 1 ", expected: true },
+      { value: "false", expected: false },
+      { value: "False", expected: false },
+      { value: "0", expected: false },
+      { value: "yes", expected: undefined },
+      { value: "on", expected: undefined },
+      { value: "", expected: undefined },
+      { value: undefined, expected: undefined },
+      { value: true, expected: undefined },
+    ])("parses boolean $value as $expected", ({ value, expected }) => {
+      expect(parseBooleanSetting(value)).toBe(expected);
+    });
+
+    it.each([
+      { saved: undefined, env: undefined, expected: undefined },
+      { saved: true, env: undefined, expected: true },
+      { saved: false, env: undefined, expected: false },
+      { saved: true, env: "false", expected: false },
+      { saved: false, env: "1", expected: true },
+      { saved: true, env: "yes", expected: true },
+      { saved: true, env: "", expected: true },
+      { saved: "true", env: undefined, expected: undefined },
+    ])("resolves saved $saved and env $env as $expected", ({ saved, env, expected }) => {
+      vi.mocked(fs.existsSync).mockReturnValue(true);
+      vi.mocked(fs.readFileSync).mockReturnValue(JSON.stringify({ refine: saved }));
+      if (env !== undefined) process.env["VSUB_REFINE"] = env;
+      expect(getConfig().refine).toBe(expected);
+    });
+
+    it.each([
+      { cli: true, config: false, expected: true },
+      { cli: false, config: true, expected: false },
+      { cli: undefined, config: true, expected: true },
+      { cli: undefined, config: undefined, expected: false },
+    ])("resolves CLI $cli and config $config as $expected", ({ cli, config, expected }) => {
+      expect(resolveRefine(cli, config)).toBe(expected);
+    });
+  });
+
   describe("positive integer helpers", () => {
     it.each([
       { value: "12.7", expected: 12 },
@@ -95,6 +140,7 @@ describe("config.ts", () => {
     delete process.env["VSUB_GLOSSARY"];
     delete process.env["GLOSSARY"];
     delete process.env["VSUB_CONCURRENCY"];
+    delete process.env["VSUB_REFINE"];
     delete process.env["VSUB_BURN_POSITION"];
     delete process.env["VSUB_BURN_FONT_SIZE"];
   });

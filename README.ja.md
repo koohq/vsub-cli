@@ -258,7 +258,8 @@ Options:
   --keep-audio                  途中で取り出した音声ファイルを消さずに残す (既定: false)
   --no-translate                翻訳せず、文字起こしした字幕をそのまま出力する (既定: false)
   --save-original               翻訳した字幕と一緒に、文字起こしした原文の字幕も保存する (既定: false)
-  --refine                      翻訳の前に、文章の生成モデルで文字起こしの認識の誤りを直す (既定は無効。--glossary と --prompt を使う。時刻と行数は変えない) (既定: false)
+  --refine                      翻訳の前に、文章の生成モデルで文字起こしの認識の誤りを直す (既定: VSUB_REFINE、設定ファイル、または無効。--glossary と --prompt を使う。時刻と行数は変えない)
+  --no-refine                   VSUB_REFINE や設定ファイルで有効になっていても、文字起こしを修正しない
   --force-translate             検出した言語が翻訳先と同じでも翻訳する (既定: false)
   --no-update-check             新しいバージョンの確認をしない (既定: false)
   --verbose                     詳しいログ (API リクエストなど) を出す (既定: false)
@@ -439,6 +440,7 @@ vsub video.mp4 --no-translate --refine
 ```
 * **直すもの**: 同音異義語や漢字の誤変換、聞き違えた固有名詞や専門用語、語の区切りの誤りなど、明らかな音声認識の誤りを直します。
 * **提供元とモデル**: 設定している文章の生成の提供元とモデル（`--llm-provider`、`--llm-model`、`--gemini-model`）を使います。
+* **いつも有効にする**: `vsub config set --refine true` または `VSUB_REFINE=true` で既定を有効にできます。1 回だけ切るには `--no-refine` を付けます。優先順位は `--refine`/`--no-refine` → `VSUB_REFINE` → 設定ファイルです。効くのはメインのコマンドと `vsub batch` だけです。
 * **用語集と指示**: `--glossary` と組み合わせるのがいちばん効果的です（用語集がないと、改善はかなり小さくなります）。`--prompt` の指示も背景の情報として渡します。言語ごとに分けた用語集ファイルでは、最初の翻訳先の言語の表を使って、用語の正しい書き方を伝えます。
 * **時刻と構成は変えない**: 字幕のタイムスタンプ、番号、行数は変わりません。50 行ずつのまとまりのどこかで、モデルの答えが元の行と対応しなかったときは、そのまとまりは元の文章のまま残し、警告を表示します。
 * **できないこと**: **文字起こしで抜け落ちた発話は戻りません。字幕の時刻も直りません。**
@@ -453,9 +455,10 @@ vsub video.mp4 --no-translate --refine
 # 今の設定を表示する (API キーは伏せて表示)
 vsub config show
 
-# 既定の値を保存する (表示言語、翻訳先、指示、用語集、並列数、分割の文字数、焼き込みの見た目)
+# 既定の値を保存する (表示言語、翻訳先、指示、用語集、並列数、分割の文字数、文字起こしの修正、焼き込みの見た目)
 vsub config set --lang ja --prompt "丁寧な敬体で翻訳" --glossary "./glossary.json" --concurrency 4
 vsub config set --target-lang ja,en
+vsub config set --refine true
 vsub config set --max-length 32 --burn-position bottom --burn-font-size medium
 vsub config set --stt-provider openrouter --openrouter-key "your_openrouter_key"
 vsub config set --llm-provider openrouter

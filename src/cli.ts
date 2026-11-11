@@ -7,6 +7,7 @@ import { clearCache, getCacheDir, getCacheStats } from "./cache.js";
 import {
   getConfig,
   getGlobalConfigPath,
+  parseBooleanSetting,
   parsePositiveInteger,
   saveGlobalConfig,
 } from "./config.js";
@@ -414,8 +415,11 @@ function addMediaOptions(command: Command): Command {
     )
     .option(
       "--refine",
-      "Correct speech recognition errors in the transcript with the text generation model before translation (off by default; uses --glossary and --prompt; timing and line count are kept)",
-      false,
+      "Correct speech recognition errors in the transcript with the text generation model before translation (default: VSUB_REFINE, config, or off; uses --glossary and --prompt; timing and line count are kept)",
+    )
+    .option(
+      "--no-refine",
+      "Do not refine the transcript, even if VSUB_REFINE or the config turns it on",
     )
     .option(
       "--force-translate",
@@ -602,6 +606,7 @@ export function createProgram(): Command {
         ],
         [labels.transcription, transcriptionText],
         [labels.textGeneration, textGenText],
+        [labels.refine, resolvedConfig.refine === true ? m.enabled : m.disabled],
         [labels.ffmpegPath, `${resolvedConfig.ffmpegPath}`],
         [
           labels.whisperPrompt,
@@ -638,7 +643,7 @@ export function createProgram(): Command {
   configCmd
     .command("set")
     .description(
-      "Save API Keys, models, prompts, glossary, concurrency, language, target language, or FFmpeg path to global config",
+      "Save API Keys, models, prompts, glossary, concurrency, language, target language, transcript refinement, or FFmpeg path to global config",
     )
     .option("-l, --lang <lang>", "UI display language (en, ja)")
     .option(
@@ -669,6 +674,10 @@ export function createProgram(): Command {
     .option("--glossary <path-or-terms>", "Default glossary file path (JSON) or inline terms")
     .option("--concurrency <number>", "Default concurrent translation requests (e.g. 3)")
     .option("--disable-update-check <boolean>", "Disable periodic update checks (true/false)")
+    .option(
+      "--refine <boolean>",
+      "Refine the transcript with the text generation model by default in the main command and batch (true/false)",
+    )
     .option("--max-length <chars>", "Default max characters per subtitle entry (e.g. 60)")
     .option("--burn-position <position>", "Default subtitle burn position (bottom, top, center)")
     .option(
@@ -694,6 +703,7 @@ export function createProgram(): Command {
         glossary?: string;
         concurrency?: string;
         disableUpdateCheck?: string;
+        refine?: string;
         maxLength?: string;
         burnPosition?: string;
         burnFontSize?: string;
@@ -718,6 +728,12 @@ export function createProgram(): Command {
         const m = getI18n(normalizedLang ?? getConfig().lang).config;
         if (options.lang && !normalizedLang) {
           console.error(pc.red(`\n✖ ${m.invalidDisplayLang(options.lang)}\n`));
+          return process.exit(1);
+        }
+
+        const refineVal = parseBooleanSetting(options.refine);
+        if (options.refine !== undefined && refineVal === undefined) {
+          console.error(pc.red(`\n✖ ${m.invalidRefine(options.refine)}\n`));
           return process.exit(1);
         }
 
@@ -789,6 +805,7 @@ export function createProgram(): Command {
           !options.glossary &&
           concurrencyNum === undefined &&
           disableUpdateCheckVal === undefined &&
+          refineVal === undefined &&
           maxLengthNum === undefined &&
           burnPositionVal === undefined &&
           burnFontSizeVal === undefined
@@ -801,6 +818,7 @@ export function createProgram(): Command {
           saveGlobalConfig(
             {
               ...(normalizedLang ? { lang: normalizedLang } : {}),
+              ...(refineVal !== undefined ? { refine: refineVal } : {}),
               ...(targetLangVal !== undefined ? { targetLang: targetLangVal } : {}),
               ...(options.groqKey ? { groqApiKey: options.groqKey.trim() } : {}),
               ...(options.geminiKey ? { geminiApiKey: options.geminiKey.trim() } : {}),

@@ -16,6 +16,32 @@ export function parsePositiveInteger(value: unknown): number | undefined {
   return !Number.isNaN(number) && number > 0 ? Math.floor(number) : undefined;
 }
 
+/**
+ * Parses a boolean setting value: "true"/"1" -> true, "false"/"0" -> false
+ * (trimmed, case-insensitive). Returns undefined for any other value.
+ */
+export function parseBooleanSetting(value: unknown): boolean | undefined {
+  if (typeof value !== "string") return undefined;
+  switch (value.trim().toLowerCase()) {
+    case "true":
+    case "1":
+      return true;
+    case "false":
+    case "0":
+      return false;
+    default:
+      return undefined;
+  }
+}
+
+/** Resolves whether to refine the transcript: --refine/--no-refine, then VSUB_REFINE/config, then off. */
+export function resolveRefine(
+  cliRefine: boolean | undefined,
+  configRefine: boolean | undefined,
+): boolean {
+  return cliRefine ?? configRefine ?? false;
+}
+
 export function resolveReflowLimits(
   options: { maxLength?: unknown; maxDuration?: unknown },
   configMaxLength: number | undefined,
@@ -52,6 +78,8 @@ export interface AppConfig {
   lang?: SupportedLanguage | undefined;
   disableUpdateCheck?: boolean | undefined;
   maxLength?: number | undefined;
+  /** Transcript refinement: VSUB_REFINE, then the config file. */
+  refine?: boolean | undefined;
   burnPosition?: string | undefined;
   burnFontSize?: string | number | undefined;
   /** vsub-specific OpenRouter key: VSUB_OPENROUTER_API_KEY, then the config file. */
@@ -247,6 +275,9 @@ export function getConfig(cliFfmpegPath?: string, cliLang?: string): AppConfig {
   }
 
   const envMaxLength = process.env["VSUB_MAX_LENGTH"]?.trim();
+  const refine =
+    parseBooleanSetting(process.env["VSUB_REFINE"]) ??
+    (typeof globalConfig.refine === "boolean" ? globalConfig.refine : undefined);
   const maxLength =
     parsePositiveInteger(envMaxLength) ?? parsePositiveInteger(globalConfig.maxLength);
 
@@ -293,6 +324,7 @@ export function getConfig(cliFfmpegPath?: string, cliLang?: string): AppConfig {
     lang,
     disableUpdateCheck,
     maxLength,
+    refine,
     burnPosition,
     burnFontSize,
     openrouterApiKey,

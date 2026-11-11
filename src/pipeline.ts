@@ -16,7 +16,13 @@ import {
   saveTranscriptionCache,
   type TranscriptionCacheContext,
 } from "./cache.js";
-import { type AppConfig, ensureApiKeys, getConfig, resolveReflowLimits } from "./config.js";
+import {
+  type AppConfig,
+  ensureApiKeys,
+  getConfig,
+  resolveRefine,
+  resolveReflowLimits,
+} from "./config.js";
 import {
   burnSubtitlesToVideo,
   checkFfmpeg,
@@ -674,7 +680,7 @@ export async function processMediaPipeline(
     const resolvedConcurrency = resolveConcurrency(options.concurrency, rawConfig.concurrency);
 
     let refinementResult: ProcessMediaResult["refinement"];
-    if (options.refine) {
+    if (resolveRefine(options.refine, rawConfig.refine)) {
       const refined = await refineSourceEntries({
         sourceEntries: srtEntries,
         detectedLanguage,

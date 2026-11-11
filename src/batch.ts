@@ -2,7 +2,7 @@ import fs from "node:fs";
 import path from "node:path";
 import pc from "picocolors";
 import { isTranscriptionCacheValid, loadMediaCache } from "./cache.js";
-import { ensureApiKeys, getConfig } from "./config.js";
+import { ensureApiKeys, getConfig, resolveRefine } from "./config.js";
 import { checkFfmpeg, isAudioFile, isVideoFile } from "./ffmpeg.js";
 import { getI18n } from "./i18n/index.js";
 import {
@@ -183,7 +183,7 @@ export async function runBatchPipeline(options: BatchPipelineOptions): Promise<B
     );
 
   const requiresGroq = needsTranscription && stt.provider === "groq";
-  const needsLlm = !options.noTranslate || Boolean(options.refine);
+  const needsLlm = !options.noTranslate || resolveRefine(options.refine, rawConfig.refine);
   const requireOpenRouter =
     (needsTranscription && stt.provider === "openrouter") ||
     (needsLlm && llm.provider === "openrouter");

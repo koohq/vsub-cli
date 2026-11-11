@@ -889,6 +889,25 @@ describe("CLI integration harness", () => {
     });
   });
 
+  describe.each([
+    { command: "main", args: ["video.mp4"], getMock: () => processMediaPipeline },
+    { command: "batch", args: ["batch", "videos"], getMock: () => runBatchPipeline },
+  ])("$command refinement flags", ({ args, getMock }) => {
+    it.each([
+      { flags: [], expected: undefined },
+      { flags: ["--refine"], expected: true },
+      { flags: ["--no-refine"], expected: false },
+      { flags: ["--refine", "--no-refine"], expected: false },
+      { flags: ["--no-refine", "--refine"], expected: true },
+    ])("passes $flags as $expected", async ({ flags, expected }) => {
+      await runCli(...args, ...flags);
+      const mock = vi.mocked(getMock());
+      expect(mock).toHaveBeenCalledTimes(1);
+      expect(mock.mock.calls[0]?.[0].refine).toBe(expected);
+      expect(exitSpy).not.toHaveBeenCalled();
+    });
+  });
+
   describe("translate flags", () => {
     describe.each([
       {
@@ -1490,7 +1509,7 @@ describe("CLI integration harness", () => {
           const rows: string[] = logSpy.mock.calls
             .map(([text]: unknown[]) => stripVTControlCharacters(String(text)))
             .filter((line: string) => line.includes(":") && !line.includes("Config File:"));
-          expect(rows.length).toBe(withOptional ? 20 : 9);
+          expect(rows.length).toBe(withOptional ? 21 : 10);
           expect(rows.map((line) => ui.displayWidth(line.slice(0, line.indexOf(":"))))).toEqual(
             rows.map(() => "OpenRouter STT Model".length + 1),
           );
@@ -1584,7 +1603,7 @@ describe("CLI integration harness", () => {
     });
   });
 
-  describe("config target language settings", () => {
+  describe("config saved settings", () => {
     const originalEnv = process.env;
     let configPath: string;
     let errorSpy: ReturnType<typeof vi.spyOn>;
@@ -1610,6 +1629,70 @@ describe("CLI integration harness", () => {
       fs.mkdirSync(path.dirname(configPath), { recursive: true });
       fs.writeFileSync(configPath, JSON.stringify(config), "utf8");
     }
+
+    it.each([
+      { input: "TRUE", expected: true },
+      { input: " 1 ", expected: true },
+      { input: "0", expected: false },
+      { input: "false", expected: false },
+    ])("saves refinement $input as a boolean", async ({ input, expected }) => {
+      placeConfig({ prompt: "test prompt" });
+      await runCli("config", "set", "--refine", input);
+      expect(JSON.parse(fs.readFileSync(configPath, "utf8"))).toEqual({
+        prompt: "test prompt",
+        refine: expected,
+      });
+      const output = stripVTControlCharacters(logSpy.mock.calls.flat().join("\n"));
+      expect(output).toContain(getI18n("en").config.setSaved(""));
+      expect(output).not.toContain(getI18n("en").config.setNothing);
+      expect(exitSpy).not.toHaveBeenCalled();
+    });
+
+    describe.each(["en", "ja"] as const)("%s refinement", (lang) => {
+      it.each(["yes", ""])("rejects refinement %j without saving other options", async (input) => {
+        placeConfig({ refine: true, prompt: "test prompt" });
+        const before = fs.readFileSync(configPath, "utf8");
+        await runCli("config", "set", "--refine", input, "--prompt", "new prompt", "-l", lang);
+        expect(exitSpy).toHaveBeenCalledWith(1);
+        const message =
+          lang === "en"
+            ? `Invalid value for --refine: "${input}". Use true or false.`
+            : `--refine の値が正しくありません: "${input}"。true か false を指定してください。`;
+        expect(stripVTControlCharacters(errorSpy.mock.calls.flat().join("\n"))).toBe(
+          `\n✖ ${message}\n`,
+        );
+        expect(saveGlobalConfig).not.toHaveBeenCalled();
+        expect(fs.readFileSync(configPath, "utf8")).toBe(before);
+      });
+
+      it.each([
+        { saved: undefined, env: undefined, enabled: false },
+        { saved: true, env: undefined, enabled: true },
+        { saved: true, env: "false", enabled: false },
+      ])(
+        "shows refinement after text generation ($saved, $env)",
+        async ({ saved, env, enabled }) => {
+          placeConfig({ lang, refine: saved });
+          if (env !== undefined) process.env["VSUB_REFINE"] = env;
+          await runCli("config", "show");
+          const rows = stripVTControlCharacters(logSpy.mock.calls.flat().join("\n"))
+            .split("\n")
+            .filter((line) => line.includes(" : "));
+          const generationLabel = lang === "en" ? "Text Generation" : "文章の生成";
+          const index = rows.findIndex((line) => line.split(" : ")[0]?.trim() === generationLabel);
+          expect(index).toBeGreaterThanOrEqual(0);
+          const refineRow = rows[index + 1]?.split(" : ");
+          expect(refineRow?.[0]?.trim()).toBe(
+            lang === "en" ? "Refine Transcript" : "文字起こしの修正",
+          );
+          const m = getI18n(lang).config;
+          expect(refineRow?.[1]).toBe(enabled ? m.enabled : m.disabled);
+          expect(new Set(rows.map((row) => ui.displayWidth(row.split(" : ")[0] ?? ""))).size).toBe(
+            1,
+          );
+        },
+      );
+    });
 
     it("saves normalized target languages alone without showing empty-setting guidance", async () => {
       placeConfig({ prompt: "test prompt" });
@@ -1820,7 +1903,8 @@ describe("CLI integration harness", () => {
           "Additional instruction prompt for translation",
           "Number of concurrent translation requests",
           "Gemini model to use for translation (Gemini provider only)",
-          "Correct speech recognition errors in the transcript with the text generation model before translation (off by default; uses --glossary and --prompt; timing and line count are kept)",
+          "Correct speech recognition errors in the transcript with the text generation model before translation (default: VSUB_REFINE, config, or off; uses --glossary and --prompt; timing and line count are kept)",
+          "--no-refine Do not refine the transcript, even if VSUB_REFINE or the config turns it on",
           "Force translation even if detected language matches target language",
         ],
       },
@@ -1834,7 +1918,8 @@ describe("CLI integration harness", () => {
           "Additional instruction prompt for translation",
           "Number of concurrent translation requests",
           "Gemini model to use for translation (Gemini provider only)",
-          "Correct speech recognition errors in the transcript with the text generation model before translation (off by default; uses --glossary and --prompt; timing and line count are kept)",
+          "Correct speech recognition errors in the transcript with the text generation model before translation (default: VSUB_REFINE, config, or off; uses --glossary and --prompt; timing and line count are kept)",
+          "--no-refine Do not refine the transcript, even if VSUB_REFINE or the config turns it on",
           "Force translation even if detected language matches target language",
         ],
       },
@@ -1885,6 +1970,8 @@ describe("CLI integration harness", () => {
           return configCmd?.commands.find((c) => c.name() === "set")?.helpInformation() ?? "";
         },
         expectedPhrases: [
+          "transcript refinement",
+          "--refine <boolean> Refine the transcript with the text generation model by default in the main command and batch (true/false)",
           "Default translation instruction prompt",
           "Default concurrent translation requests (e.g. 3)",
           "OpenRouter API Key (for transcription and text generation)",
