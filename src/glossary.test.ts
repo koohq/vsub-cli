@@ -141,11 +141,15 @@ describe("glossary.ts", () => {
       });
     });
 
-    it("should throw a clear error on invalid JSON file", () => {
+    it.each([undefined, "en", "ja"])("localizes invalid JSON errors in %s", (lang) => {
       const brokenJson = path.join(tempDir, "broken.json");
-      fs.writeFileSync(brokenJson, "{ invalid json", "utf-8");
+      fs.writeFileSync(brokenJson, "", "utf-8");
 
-      expect(() => parseGlossary(brokenJson)).toThrow(/Failed to parse glossary file/);
+      expect(() => parseGlossary(brokenJson, undefined, lang)).toThrow(
+        lang === "ja"
+          ? "用語集ファイル（broken.json）を読み込めませんでした: Unexpected end of JSON input"
+          : "Failed to parse glossary file (broken.json): Unexpected end of JSON input",
+      );
     });
   });
 
@@ -166,6 +170,14 @@ describe("glossary.ts", () => {
   });
 
   describe("extractWhisperPromptHints", () => {
+    it("localizes errors from glossary files", () => {
+      const brokenJson = path.join(tempDir, "broken.json");
+      fs.writeFileSync(brokenJson, "", "utf-8");
+      expect(() => extractWhisperPromptHints(brokenJson, "ja")).toThrow(
+        "用語集ファイル（broken.json）を読み込めませんでした: Unexpected end of JSON input",
+      );
+    });
+
     it.each(["term", "用語", "😀"])("limits %s hints to a whole-term UTF-8 prefix", (prefix) => {
       const terms = Array.from({ length: 100 }, (_, i) => `${prefix}${i}`);
       const glossary = Object.fromEntries(terms.map((term) => [term, "訳語"]));

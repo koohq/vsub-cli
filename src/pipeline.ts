@@ -306,13 +306,14 @@ export function resolveTranscriptionContext(
     whisperPrompt?: string | undefined;
     glossary?: string | undefined;
   },
+  lang?: SupportedLanguage | string,
 ): TranscriptionCacheContext {
   let whisperPrompt: string | undefined;
   if (stt.provider !== "openrouter") {
     const glossaryInput = overrides?.glossary?.trim() || rawConfig.glossary;
     whisperPrompt = overrides?.whisperPrompt?.trim() || rawConfig.whisperPrompt;
     if (!whisperPrompt && glossaryInput) {
-      whisperPrompt = extractWhisperPromptHints(glossaryInput);
+      whisperPrompt = extractWhisperPromptHints(glossaryInput, lang);
     }
   }
   return {
@@ -507,10 +508,12 @@ export async function processMediaPipeline(
   }
 
   const glossaryInput = options.glossary?.trim() || rawConfig.glossary;
-  const transcriptionContext = resolveTranscriptionContext(rawConfig, stt, {
-    whisperPrompt: options.whisperPrompt,
-    glossary: glossaryInput,
-  });
+  const transcriptionContext = resolveTranscriptionContext(
+    rawConfig,
+    stt,
+    { whisperPrompt: options.whisperPrompt, glossary: glossaryInput },
+    lang,
+  );
 
   const { maxLength: resolvedMaxLength, maxDuration: resolvedMaxDuration } = resolveReflowLimits(
     options,
@@ -1072,10 +1075,12 @@ export async function resolveTranscriptEntries(
     },
     lang,
   );
-  const transcriptionContext = resolveTranscriptionContext(resolvedConfig, stt, {
-    whisperPrompt: options.whisperPrompt,
-    glossary: options.glossary,
-  });
+  const transcriptionContext = resolveTranscriptionContext(
+    resolvedConfig,
+    stt,
+    { whisperPrompt: options.whisperPrompt, glossary: options.glossary },
+    lang,
+  );
 
   const useCache = !options.noCache && !options.fresh;
   const mediaCache = useCache ? loadMediaCache(resolvedPath, options.cacheDir) : null;
@@ -1230,12 +1235,14 @@ async function prepareTextTask<Format extends string>(
   );
   const targetLang = targetLanguages[0] ?? "ja";
   const glossaryInput = options.glossary?.trim() || rawConfig.glossary;
-  const glossary = glossaryInput ? parseGlossary(glossaryInput, targetLang) : undefined;
+  const glossary = glossaryInput ? parseGlossary(glossaryInput, targetLang, lang) : undefined;
   const glossaryHash = glossary ? computeGlossaryHash(glossary) : undefined;
-  const transcriptionContext = resolveTranscriptionContext(resolvedConfig, stt, {
-    whisperPrompt: options.whisperPrompt,
-    glossary: options.glossary,
-  });
+  const transcriptionContext = resolveTranscriptionContext(
+    resolvedConfig,
+    stt,
+    { whisperPrompt: options.whisperPrompt, glossary: options.glossary },
+    lang,
+  );
 
   let outputPath: string | undefined;
   if (!isStdout) {

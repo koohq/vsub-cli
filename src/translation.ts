@@ -147,7 +147,7 @@ export async function translateToTargets(
     }
 
     const glossaryMap = params.glossaryInput
-      ? parseGlossary(params.glossaryInput, targetL)
+      ? parseGlossary(params.glossaryInput, targetL, params.lang)
       : undefined;
     const glossaryHash = glossaryMap ? computeGlossaryHash(glossaryMap) : undefined;
     if (glossaryMap) {

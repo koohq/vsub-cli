@@ -133,6 +133,18 @@ describe("src/translation.ts", () => {
       function readCache() {
         return cacheModule.loadMediaCache(params.cacheFilePath, params.cacheDir);
       }
+
+      it("localizes invalid glossary errors before translation", async () => {
+        const file = path.join(tempDir, "broken.json");
+        fs.writeFileSync(file, "");
+        await expect(
+          translateToTargets({ ...params, glossaryInput: file, lang: "ja" }),
+        ).rejects.toThrow(
+          "用語集ファイル（broken.json）を読み込めませんでした: Unexpected end of JSON input",
+        );
+        expect(generateJson).not.toHaveBeenCalled();
+      });
+
       function partial(chunks: Record<string, string[]>) {
         return cacheModule.createPartialTranslation(
           "ja",

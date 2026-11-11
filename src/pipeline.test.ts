@@ -111,6 +111,14 @@ describe("pipeline.ts", () => {
     const glossary = Array.from({ length: 100 }, (_, i) => `用語${i}=訳語${i}`).join(", ");
     const stt = { provider: "groq", model: "test-whisper", source: "option" } as const;
 
+    it("localizes errors when resolving Groq glossary hints", () => {
+      const file = path.join(tempDir, "broken.json");
+      fs.writeFileSync(file, "");
+      expect(() => resolveTranscriptionContext({ glossary: file }, stt, undefined, "ja")).toThrow(
+        "用語集ファイル（broken.json）を読み込めませんでした: Unexpected end of JSON input",
+      );
+    });
+
     it("limits generated Groq prompts to 224 UTF-8 bytes", () => {
       const context = resolveTranscriptionContext({ glossary }, stt);
       expect(context.prompt).toBeTruthy();
@@ -716,6 +724,16 @@ describe("pipeline.ts", () => {
           return task === "chapters" ? cache?.chapters?.["ja"] : cache?.summaries?.["ja"];
         }
 
+        it("localizes invalid glossary errors before running the text task", async () => {
+          const file = path.join(tempDir, "broken.json");
+          fs.writeFileSync(file, "");
+          await expect(runTask({ glossary: file, lang: "ja" })).rejects.toThrow(
+            "用語集ファイル（broken.json）を読み込めませんでした: Unexpected end of JSON input",
+          );
+          expect(transcribeAudioSegments).not.toHaveBeenCalled();
+          expect(getGenerator()).not.toHaveBeenCalled();
+        });
+
         it.each(["ja,en", "en,ja", "fr"])(
           "reads the glossary once for the first output language %s",
           async (targetLang) => {
@@ -725,7 +743,7 @@ describe("pipeline.ts", () => {
             const parse = vi.spyOn(glossaryModule, "parseGlossary");
             await runTask({ glossary: glossaryPath, targetLang, sttProvider: "openrouter" });
             const first = targetLang.split(",")[0];
-            expect(parse).toHaveBeenCalledExactlyOnceWith(glossaryPath, first);
+            expect(parse).toHaveBeenCalledExactlyOnceWith(glossaryPath, first, "en");
             expect(getGenerator()).toHaveBeenCalledWith(
               expect.anything(),
               expect.anything(),

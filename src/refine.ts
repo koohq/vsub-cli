@@ -76,7 +76,7 @@ export async function refineSourceEntries(
 
   const i18n = getI18n(params.lang);
   const glossaryMap = params.glossaryInput
-    ? parseGlossary(params.glossaryInput, params.glossaryTargetLang)
+    ? parseGlossary(params.glossaryInput, params.glossaryTargetLang, params.lang)
     : undefined;
   const glossaryHash = glossaryMap ? computeGlossaryHash(glossaryMap) : undefined;
 

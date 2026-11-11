@@ -5,6 +5,8 @@ export const en = {
     skipped: "Skipped",
     error: "Error",
     warning: "Warning",
+    glossaryParseFailed: (file: string, reason: string) =>
+      `Failed to parse glossary file (${file}): ${reason}`,
     lines: (count: number) => `${count} lines`,
     files: (count: number) => `${count} files`,
     segments: (count: number) => `${count} segments`,

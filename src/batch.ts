@@ -168,10 +168,12 @@ export async function runBatchPipeline(options: BatchPipelineOptions): Promise<B
   );
 
   const useCache = !options.noCache && !options.fresh;
-  const transcriptionContext = resolveTranscriptionContext(resolvedLlmConfig, stt, {
-    whisperPrompt: options.whisperPrompt,
-    glossary: options.glossary,
-  });
+  const transcriptionContext = resolveTranscriptionContext(
+    resolvedLlmConfig,
+    stt,
+    { whisperPrompt: options.whisperPrompt, glossary: options.glossary },
+    lang,
+  );
   const needsTranscription =
     !useCache ||
     mediaFiles.some(

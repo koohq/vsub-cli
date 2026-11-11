@@ -1,6 +1,7 @@
 import crypto from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
+import { getI18n, type SupportedLanguage } from "./i18n/index.js";
 
 export type FlatGlossary = Record<string, string>;
 
@@ -151,7 +152,11 @@ export function parseJsonGlossary(rawJson: unknown, targetLang?: string): FlatGl
 /**
  * Parses glossary from a file path (JSON) or an inline string, resolving for targetLang if specified.
  */
-export function parseGlossary(input: string, targetLang?: string): FlatGlossary {
+export function parseGlossary(
+  input: string,
+  targetLang?: string,
+  lang?: SupportedLanguage | string,
+): FlatGlossary {
   const trimmed = input.trim();
   if (!trimmed) return {};
 
@@ -163,7 +168,10 @@ export function parseGlossary(input: string, targetLang?: string): FlatGlossary 
       return parseJsonGlossary(json, targetLang);
     } catch (err) {
       throw new Error(
-        `Failed to parse glossary file (${path.basename(resolvedPath)}): ${err instanceof Error ? err.message : String(err)}`,
+        getI18n(lang).common.glossaryParseFailed(
+          path.basename(resolvedPath),
+          err instanceof Error ? err.message : String(err),
+        ),
       );
     }
   }
@@ -200,8 +208,11 @@ const WHISPER_HINT_MAX_BYTES = 224;
 /**
  * Extracts comma-separated source terms from a glossary or raw input for Whisper prompt hint.
  */
-export function extractWhisperPromptHints(glossary: FlatGlossary | string): string {
-  const parsed = typeof glossary === "string" ? parseGlossary(glossary) : glossary;
+export function extractWhisperPromptHints(
+  glossary: FlatGlossary | string,
+  lang?: SupportedLanguage | string,
+): string {
+  const parsed = typeof glossary === "string" ? parseGlossary(glossary, undefined, lang) : glossary;
   const terms: string[] = [];
   let bytes = 0;
   for (const term of Object.keys(parsed)) {

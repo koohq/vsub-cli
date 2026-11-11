@@ -7,6 +7,8 @@ export const ja: typeof en = {
     skipped: "スキップ",
     error: "エラー",
     warning: "警告",
+    glossaryParseFailed: (file: string, reason: string) =>
+      `用語集ファイル（${file}）を読み込めませんでした: ${reason}`,
     lines: (count: number) => `${count} 行`,
     files: (count: number) => `${count} ファイル`,
     segments: (count: number) => `${count} セグメント`,
