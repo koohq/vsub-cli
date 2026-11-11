@@ -2,7 +2,13 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { getConfig, getGlobalConfigPath, validateApiKeys } from "./config.js";
+import {
+  getConfig,
+  getGlobalConfigPath,
+  parsePositiveInteger,
+  resolveReflowLimits,
+  validateApiKeys,
+} from "./config.js";
 
 // Mock fs for config file operations
 vi.mock("node:fs", async (importOriginal) => {
@@ -20,6 +26,50 @@ vi.mock("node:fs", async (importOriginal) => {
 });
 
 describe("config.ts", () => {
+  describe("positive integer helpers", () => {
+    it.each([
+      { value: "12.7", expected: 12 },
+      { value: "0.5", expected: 0 },
+      { value: " 5 ", expected: 5 },
+      { value: "1e2", expected: 100 },
+      { value: "", expected: undefined },
+      { value: "0", expected: undefined },
+      { value: "abc", expected: undefined },
+      { value: "-1", expected: undefined },
+      { value: undefined, expected: undefined },
+      { value: 12.7, expected: 12 },
+      { value: 0.5, expected: 0 },
+      { value: 0, expected: undefined },
+      { value: -1, expected: undefined },
+      { value: Number.NaN, expected: undefined },
+      { value: Number.POSITIVE_INFINITY, expected: Number.POSITIVE_INFINITY },
+    ])("parses $value as $expected", ({ value, expected }) => {
+      expect(parsePositiveInteger(value)).toBe(expected);
+      expect(resolveReflowLimits({ maxLength: value, maxDuration: value }, 42)).toEqual({
+        maxLength: expected ?? 42,
+        maxDuration: expected,
+      });
+    });
+
+    it("keeps omitted limits undefined when no maximum length is configured", () => {
+      expect(resolveReflowLimits({}, undefined)).toEqual({
+        maxLength: undefined,
+        maxDuration: undefined,
+      });
+    });
+
+    it("resolves length and duration independently", () => {
+      expect(resolveReflowLimits({ maxLength: "abc", maxDuration: "12.7" }, 42)).toEqual({
+        maxLength: 42,
+        maxDuration: 12,
+      });
+      expect(resolveReflowLimits({ maxLength: "12.7", maxDuration: "abc" }, 42)).toEqual({
+        maxLength: 12,
+        maxDuration: undefined,
+      });
+    });
+  });
+
   const originalEnv = { ...process.env };
 
   beforeEach(() => {
@@ -429,6 +479,16 @@ describe("config.ts", () => {
   });
 
   describe("maxLength", () => {
+    it.each(["0", "abc", "-1", ""])(
+      "falls back to file maxLength for invalid environment value %s",
+      (value) => {
+        process.env["VSUB_MAX_LENGTH"] = value;
+        vi.mocked(fs.existsSync).mockReturnValue(true);
+        vi.mocked(fs.readFileSync).mockReturnValue(JSON.stringify({ maxLength: 37.9 }));
+        expect(getConfig().maxLength).toBe(37);
+      },
+    );
+
     it("should parse VSUB_MAX_LENGTH environment variable", () => {
       process.env["VSUB_MAX_LENGTH"] = "50";
       const config = getConfig();

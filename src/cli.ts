@@ -4,7 +4,12 @@ import { Command, Option } from "commander";
 import pc from "picocolors";
 import { type BatchPipelineOptions, runBatchPipeline } from "./batch.js";
 import { clearCache, getCacheDir, getCacheStats } from "./cache.js";
-import { getConfig, getGlobalConfigPath, saveGlobalConfig } from "./config.js";
+import {
+  getConfig,
+  getGlobalConfigPath,
+  parsePositiveInteger,
+  saveGlobalConfig,
+} from "./config.js";
 import {
   burnSubtitlesToVideo,
   checkFfmpeg,
@@ -27,6 +32,7 @@ import {
 import { printLicenses } from "./licenses.js";
 import {
   findOutputPathConflict,
+  type ProcessChaptersOptions,
   type ProcessMediaOptions,
   processChaptersPipeline,
   processMediaPipeline,
@@ -200,15 +206,8 @@ function acceptGlobalOptions(rootCmd: Command): void {
   }
 }
 
-function addTranslationOptions(command: Command): Command {
+function addLlmProviderOptions(command: Command): Command {
   return command
-    .option("--prompt <instruction>", "Additional instruction prompt for translation")
-    .option(
-      "--glossary <path-or-terms>",
-      "Glossary file path (JSON) or inline terms (key=val,key=val)",
-    )
-    .option("--concurrency <number>", "Number of concurrent translation requests")
-    .option("--gemini-model <model>", "Gemini model to use for translation (Gemini provider only)")
     .option(
       "--llm-provider <provider>",
       "Text generation provider for translation, chapters and summaries: gemini or openrouter (default: VSUB_LLM_PROVIDER, config, or chosen from your API keys)",
@@ -217,6 +216,229 @@ function addTranslationOptions(command: Command): Command {
       "--llm-model <model>",
       "Model for the chosen text generation provider (default: gemini-3.8-flash on Gemini, google/gemini-3.8-flash on OpenRouter)",
     );
+}
+
+function addReflowOptions(command: Command): Command {
+  return command
+    .option("--max-length <chars>", "Max characters per subtitle entry before automatic splitting")
+    .option(
+      "--max-duration <seconds>",
+      "Max display duration in seconds per subtitle entry (default: 7)",
+    )
+    .option("--no-reflow", "Disable automatic splitting and reflowing of long subtitle segments");
+}
+
+interface TextTaskOptionTexts {
+  targetLang: string;
+  format: string;
+  defaultFormat: string;
+  stdout: string;
+  prompt: string;
+  geminiModel: string;
+  fresh: string;
+}
+
+function addTextTaskOptions(command: Command, texts: TextTaskOptionTexts): Command {
+  command
+    .option("-t, --target-lang <lang>", texts.targetLang)
+    .option("-f, --format <format>", texts.format, texts.defaultFormat)
+    .option("-o, --output <path>", "Output file path or '-' for stdout")
+    .option("--stdout", texts.stdout, false)
+    .option("--prompt <instruction>", texts.prompt)
+    .option("--gemini-model <model>", texts.geminiModel);
+
+  return addLlmProviderOptions(command)
+    .option(
+      "--stt-provider <provider>",
+      "Transcription provider: openrouter or groq (default: VSUB_STT_PROVIDER, config, or chosen from your API keys)",
+    )
+    .option(
+      "--stt-model <model>",
+      "Transcription model for the chosen provider (default: elevenlabs/scribe-v2 on OpenRouter, whisper-large-v3-turbo on Groq)",
+    )
+    .option(
+      "--groq-model <model>",
+      "Groq Whisper model to use if media transcription is needed (used only when the provider is groq)",
+    )
+    .option(
+      "--whisper-prompt <text>",
+      "Groq Whisper recognition prompt hint (Groq only; not sent to OpenRouter)",
+    )
+    .option("-w, --overwrite", "Overwrite existing output file without confirmation prompt", false)
+    .option("--backup", "Create backup (.bak) of existing output file before overwriting", false)
+    .option("--no-cache", "Do not use or save intermediate cache")
+    .option("--fresh", texts.fresh, false)
+    .option("--cache-dir <dir>", "Custom cache directory path")
+    .option("--verbose", "Output detailed log messages", false);
+}
+
+interface TextTaskActionOptions {
+  targetLang?: string;
+  format?: string;
+  output?: string;
+  stdout?: boolean;
+  prompt?: string;
+  geminiModel?: string;
+  llmProvider?: string;
+  llmModel?: string;
+  sttProvider?: string;
+  sttModel?: string;
+  groqModel?: string;
+  whisperPrompt?: string;
+  overwrite?: boolean;
+  backup?: boolean;
+  noCache?: boolean;
+  fresh?: boolean;
+  cacheDir?: string;
+  verbose?: boolean;
+  lang?: string;
+  noUpdateCheck?: boolean;
+}
+
+function createTextTaskAction<Format>(
+  parseFormat: (input: string | undefined, lang: string) => Format,
+  run: (options: Omit<ProcessChaptersOptions, "format"> & { format: Format }) => Promise<unknown>,
+) {
+  return async (file: string, _actionOpts: Record<string, unknown>, cmd: Command) => {
+    const options = readActionOptions<TextTaskActionOptions>(cmd);
+
+    const rawConfig = getConfig(undefined, options.lang);
+    const lang = options.lang ?? rawConfig.lang ?? "en";
+    const isStdout = Boolean(options.stdout || options.output === "-");
+
+    try {
+      const format = parseFormat(options.format, lang);
+      await run({
+        inputFile: file,
+        targetLang: options.targetLang,
+        format,
+        output: options.output,
+        stdout: options.stdout,
+        prompt: options.prompt,
+        geminiModel: options.geminiModel,
+        llmProvider: options.llmProvider,
+        llmModel: options.llmModel,
+        sttProvider: options.sttProvider,
+        sttModel: options.sttModel,
+        groqModel: options.groqModel,
+        whisperPrompt: options.whisperPrompt,
+        overwrite: options.overwrite,
+        backup: options.backup,
+        noCache: options.noCache,
+        fresh: options.fresh,
+        cacheDir: options.cacheDir,
+        verbose: options.verbose,
+        lang: normalizeLanguage(lang),
+      });
+
+      if (!isStdout) {
+        await notifyUpdateIfAvailable({
+          lang: normalizeLanguage(lang),
+          disableUpdateCheck: Boolean(options.noUpdateCheck || rawConfig.disableUpdateCheck),
+        });
+      }
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : String(err);
+      console.error(pc.red(`\n✖ ${message}`));
+      process.exit(1);
+    }
+  };
+}
+
+function addMediaOptions(command: Command): Command {
+  command
+    .option("-w, --overwrite", "Overwrite existing output files without confirmation prompt", false)
+    .option("--backup", "Create backup (.bak) of existing output files before overwriting", false)
+    .option(
+      "-b, --bilingual",
+      "Generate bilingual subtitles combining original and translated text",
+      false,
+    )
+    .option(
+      "--bilingual-order <order>",
+      "Order of bilingual subtitles: original-first (default) or target-first",
+      "original-first",
+    )
+    .option(
+      "--ffmpeg-path <path>",
+      "Path to ffmpeg executable (searches VSUB_FFMPEG_PATH or PATH if omitted)",
+    )
+    .option(
+      "--stt-provider <provider>",
+      "Transcription provider: openrouter or groq (default: VSUB_STT_PROVIDER, config, or chosen from your API keys)",
+    )
+    .option(
+      "--stt-model <model>",
+      "Transcription model for the chosen provider (default: elevenlabs/scribe-v2 on OpenRouter, whisper-large-v3-turbo on Groq)",
+    )
+    .option(
+      "--groq-model <model>",
+      "Groq Whisper model to use for transcription (used only when the provider is groq)",
+    )
+    .option(
+      "--whisper-prompt <text>",
+      "Prompt hint for Groq Whisper speech recognition (Groq only; not sent to OpenRouter)",
+    );
+
+  addTranslationOptions(command)
+    .option("--no-cache", "Do not use or save intermediate transcription/translation cache")
+    .option(
+      "--fresh",
+      "Ignore existing cache and generate fresh transcription/translations, overwriting cache",
+      false,
+    )
+    .option("--cache-dir <path>", "Custom cache directory");
+
+  addContextWindowOption(command)
+    .option("--burn", "Burn generated subtitles directly into output video (hardsub)", false)
+    .option(
+      "--burn-position <position>",
+      "Subtitle position for --burn: bottom (default), top, center",
+    )
+    .option(
+      "--burn-font-size <size>",
+      "Subtitle font size for --burn: small, medium, large, or number",
+    )
+    .option(
+      "--embed",
+      "Embed generated subtitles directly as soft subtitle tracks into output video",
+      false,
+    )
+    .option("--keep-audio", "Keep intermediate extracted audio files without deleting", false)
+    .option("--no-translate", "Skip translation and output raw transcribed subtitles")
+    .option(
+      "--save-original",
+      "Save original transcription subtitle file alongside the result",
+      false,
+    )
+    .option(
+      "--refine",
+      "Correct speech recognition errors in the transcript with the text generation model before translation (off by default; uses --glossary and --prompt; timing and line count are kept)",
+      false,
+    )
+    .option(
+      "--force-translate",
+      "Force translation even if detected language matches target language",
+      false,
+    );
+
+  return addReflowOptions(command);
+}
+
+function addTranslationOptions(command: Command): Command {
+  return addLlmProviderOptions(
+    command
+      .option("--prompt <instruction>", "Additional instruction prompt for translation")
+      .option(
+        "--glossary <path-or-terms>",
+        "Glossary file path (JSON) or inline terms (key=val,key=val)",
+      )
+      .option("--concurrency <number>", "Number of concurrent translation requests")
+      .option(
+        "--gemini-model <model>",
+        "Gemini model to use for translation (Gemini provider only)",
+      ),
+  );
 }
 
 function addContextWindowOption(command: Command): Command {
@@ -480,13 +702,7 @@ export function createProgram(): Command {
           disableUpdateCheckVal = val === "true" || val === "1";
         }
 
-        let maxLengthNum: number | undefined;
-        if (options.maxLength) {
-          const n = Number(options.maxLength);
-          if (!Number.isNaN(n) && n > 0) {
-            maxLengthNum = Math.floor(n);
-          }
-        }
+        const maxLengthNum = parsePositiveInteger(options.maxLength);
 
         const normalizedLang = options.lang ? normalizeLanguage(options.lang) : undefined;
         const m = getI18n(normalizedLang ?? getConfig().lang).config;
@@ -673,239 +889,40 @@ export function createProgram(): Command {
     });
 
   // Subcommand: chapters
-  program
+  const chaptersCmd = program
     .command("chapters")
     .description(
       "Generate video chapters (table of contents) from media or subtitle files via Gemini or OpenRouter",
     )
-    .argument("<file>", "Media file (.mp4, .mp3, etc.) or subtitle file (.srt)")
-    .option(
-      "-t, --target-lang <lang>",
-      "Target language for chapter titles (default: config or ja)",
-    )
-    .option(
-      "-f, --format <format>",
-      "Output format: txt (YouTube format), json, vtt (default: txt)",
-      "txt",
-    )
-    .option("-o, --output <path>", "Output file path or '-' for stdout")
-    .option("--stdout", "Output chapters directly to stdout", false)
-    .option("--prompt <instruction>", "Additional instruction prompt for chapter generation")
-    .option(
-      "--gemini-model <model>",
-      "Gemini model to use for chapters generation (Gemini provider only)",
-    )
-    .option(
-      "--llm-provider <provider>",
-      "Text generation provider for translation, chapters and summaries: gemini or openrouter (default: VSUB_LLM_PROVIDER, config, or chosen from your API keys)",
-    )
-    .option(
-      "--llm-model <model>",
-      "Model for the chosen text generation provider (default: gemini-3.8-flash on Gemini, google/gemini-3.8-flash on OpenRouter)",
-    )
-    .option(
-      "--stt-provider <provider>",
-      "Transcription provider: openrouter or groq (default: VSUB_STT_PROVIDER, config, or chosen from your API keys)",
-    )
-    .option(
-      "--stt-model <model>",
-      "Transcription model for the chosen provider (default: elevenlabs/scribe-v2 on OpenRouter, whisper-large-v3-turbo on Groq)",
-    )
-    .option(
-      "--groq-model <model>",
-      "Groq Whisper model to use if media transcription is needed (used only when the provider is groq)",
-    )
-    .option(
-      "--whisper-prompt <text>",
-      "Groq Whisper recognition prompt hint (Groq only; not sent to OpenRouter)",
-    )
-    .option("-w, --overwrite", "Overwrite existing output file without confirmation prompt", false)
-    .option("--backup", "Create backup (.bak) of existing output file before overwriting", false)
-    .option("--no-cache", "Do not use or save intermediate cache")
-    .option(
-      "--fresh",
-      "Ignore existing cache and generate fresh chapters, overwriting cache",
-      false,
-    )
-    .option("--cache-dir <dir>", "Custom cache directory path")
-    .option("--verbose", "Output detailed log messages", false)
-    .action(async (file: string, _actionOpts: Record<string, unknown>, cmd: Command) => {
-      const options = readActionOptions<{
-        targetLang?: string;
-        format?: string;
-        output?: string;
-        stdout?: boolean;
-        prompt?: string;
-        geminiModel?: string;
-        llmProvider?: string;
-        llmModel?: string;
-        sttProvider?: string;
-        sttModel?: string;
-        groqModel?: string;
-        whisperPrompt?: string;
-        overwrite?: boolean;
-        backup?: boolean;
-        noCache?: boolean;
-        fresh?: boolean;
-        cacheDir?: string;
-        verbose?: boolean;
-        lang?: string;
-        noUpdateCheck?: boolean;
-      }>(cmd);
+    .argument("<file>", "Media file (.mp4, .mp3, etc.) or subtitle file (.srt)");
 
-      const rawConfig = getConfig(undefined, options.lang);
-      const lang = options.lang ?? rawConfig.lang ?? "en";
-      const isStdout = Boolean(options.stdout || options.output === "-");
-
-      try {
-        const format = parseChaptersFormat(options.format, lang);
-        await processChaptersPipeline({
-          inputFile: file,
-          targetLang: options.targetLang,
-          format,
-          output: options.output,
-          stdout: options.stdout,
-          prompt: options.prompt,
-          geminiModel: options.geminiModel,
-          llmProvider: options.llmProvider,
-          llmModel: options.llmModel,
-          sttProvider: options.sttProvider,
-          sttModel: options.sttModel,
-          groqModel: options.groqModel,
-          whisperPrompt: options.whisperPrompt,
-          overwrite: options.overwrite,
-          backup: options.backup,
-          noCache: options.noCache,
-          fresh: options.fresh,
-          cacheDir: options.cacheDir,
-          verbose: options.verbose,
-          lang: normalizeLanguage(lang),
-        });
-
-        if (!isStdout) {
-          await notifyUpdateIfAvailable({
-            lang: normalizeLanguage(lang),
-            disableUpdateCheck: Boolean(options.noUpdateCheck || rawConfig.disableUpdateCheck),
-          });
-        }
-      } catch (err: unknown) {
-        const message = err instanceof Error ? err.message : String(err);
-        console.error(pc.red(`\n✖ ${message}`));
-        process.exit(1);
-      }
-    });
+  addTextTaskOptions(chaptersCmd, {
+    targetLang: "Target language for chapter titles (default: config or ja)",
+    format: "Output format: txt (YouTube format), json, vtt (default: txt)",
+    defaultFormat: "txt",
+    stdout: "Output chapters directly to stdout",
+    prompt: "Additional instruction prompt for chapter generation",
+    geminiModel: "Gemini model to use for chapters generation (Gemini provider only)",
+    fresh: "Ignore existing cache and generate fresh chapters, overwriting cache",
+  }).action(createTextTaskAction(parseChaptersFormat, processChaptersPipeline));
 
   // Subcommand: summarize
-  program
+  const summarizeCmd = program
     .command("summarize")
     .description(
       "Generate structured summary and key topic highlights from media or subtitle files via Gemini or OpenRouter",
     )
-    .argument("<file>", "Media file (.mp4, .mp3, etc.) or subtitle file (.srt)")
-    .option("-t, --target-lang <lang>", "Target language for summary (default: config or ja)")
-    .option("-f, --format <format>", "Output format: md (Markdown), txt, json (default: md)", "md")
-    .option("-o, --output <path>", "Output file path or '-' for stdout")
-    .option("--stdout", "Output summary directly to stdout", false)
-    .option("--prompt <instruction>", "Additional instruction prompt for summary generation")
-    .option(
-      "--gemini-model <model>",
-      "Gemini model to use for summary generation (Gemini provider only)",
-    )
-    .option(
-      "--llm-provider <provider>",
-      "Text generation provider for translation, chapters and summaries: gemini or openrouter (default: VSUB_LLM_PROVIDER, config, or chosen from your API keys)",
-    )
-    .option(
-      "--llm-model <model>",
-      "Model for the chosen text generation provider (default: gemini-3.8-flash on Gemini, google/gemini-3.8-flash on OpenRouter)",
-    )
-    .option(
-      "--stt-provider <provider>",
-      "Transcription provider: openrouter or groq (default: VSUB_STT_PROVIDER, config, or chosen from your API keys)",
-    )
-    .option(
-      "--stt-model <model>",
-      "Transcription model for the chosen provider (default: elevenlabs/scribe-v2 on OpenRouter, whisper-large-v3-turbo on Groq)",
-    )
-    .option(
-      "--groq-model <model>",
-      "Groq Whisper model to use if media transcription is needed (used only when the provider is groq)",
-    )
-    .option(
-      "--whisper-prompt <text>",
-      "Groq Whisper recognition prompt hint (Groq only; not sent to OpenRouter)",
-    )
-    .option("-w, --overwrite", "Overwrite existing output file without confirmation prompt", false)
-    .option("--backup", "Create backup (.bak) of existing output file before overwriting", false)
-    .option("--no-cache", "Do not use or save intermediate cache")
-    .option("--fresh", "Ignore existing cache and generate fresh summary, overwriting cache", false)
-    .option("--cache-dir <dir>", "Custom cache directory path")
-    .option("--verbose", "Output detailed log messages", false)
-    .action(async (file: string, _actionOpts: Record<string, unknown>, cmd: Command) => {
-      const options = readActionOptions<{
-        targetLang?: string;
-        format?: string;
-        output?: string;
-        stdout?: boolean;
-        prompt?: string;
-        geminiModel?: string;
-        llmProvider?: string;
-        llmModel?: string;
-        sttProvider?: string;
-        sttModel?: string;
-        groqModel?: string;
-        whisperPrompt?: string;
-        overwrite?: boolean;
-        backup?: boolean;
-        noCache?: boolean;
-        fresh?: boolean;
-        cacheDir?: string;
-        verbose?: boolean;
-        lang?: string;
-        noUpdateCheck?: boolean;
-      }>(cmd);
+    .argument("<file>", "Media file (.mp4, .mp3, etc.) or subtitle file (.srt)");
 
-      const rawConfig = getConfig(undefined, options.lang);
-      const lang = options.lang ?? rawConfig.lang ?? "en";
-      const isStdout = Boolean(options.stdout || options.output === "-");
-
-      try {
-        const format = parseSummaryFormat(options.format, lang);
-        await processSummaryPipeline({
-          inputFile: file,
-          targetLang: options.targetLang,
-          format,
-          output: options.output,
-          stdout: options.stdout,
-          prompt: options.prompt,
-          geminiModel: options.geminiModel,
-          llmProvider: options.llmProvider,
-          llmModel: options.llmModel,
-          sttProvider: options.sttProvider,
-          sttModel: options.sttModel,
-          groqModel: options.groqModel,
-          whisperPrompt: options.whisperPrompt,
-          overwrite: options.overwrite,
-          backup: options.backup,
-          noCache: options.noCache,
-          fresh: options.fresh,
-          cacheDir: options.cacheDir,
-          verbose: options.verbose,
-          lang: normalizeLanguage(lang),
-        });
-
-        if (!isStdout) {
-          await notifyUpdateIfAvailable({
-            lang: normalizeLanguage(lang),
-            disableUpdateCheck: Boolean(options.noUpdateCheck || rawConfig.disableUpdateCheck),
-          });
-        }
-      } catch (err: unknown) {
-        const message = err instanceof Error ? err.message : String(err);
-        console.error(pc.red(`\n✖ ${message}`));
-        process.exit(1);
-      }
-    });
+  addTextTaskOptions(summarizeCmd, {
+    targetLang: "Target language for summary (default: config or ja)",
+    format: "Output format: md (Markdown), txt, json (default: md)",
+    defaultFormat: "md",
+    stdout: "Output summary directly to stdout",
+    prompt: "Additional instruction prompt for summary generation",
+    geminiModel: "Gemini model to use for summary generation (Gemini provider only)",
+    fresh: "Ignore existing cache and generate fresh summary, overwriting cache",
+  }).action(createTextTaskAction(parseSummaryFormat, processSummaryPipeline));
 
   // Subcommand: translate
   const translateCmd = program
@@ -946,14 +963,9 @@ export function createProgram(): Command {
     )
     .option("--cache-dir <path>", "Custom cache directory");
 
-  addContextWindowOption(translateCmd)
-    .option("--gemini-key <key>", "Gemini API Key override")
-    .option("--max-length <chars>", "Max characters per subtitle entry before automatic splitting")
-    .option(
-      "--max-duration <seconds>",
-      "Max display duration in seconds per subtitle entry (default: 7)",
-    )
-    .option("--no-reflow", "Disable automatic splitting and reflowing of long subtitle segments")
+  addContextWindowOption(translateCmd).option("--gemini-key <key>", "Gemini API Key override");
+
+  addReflowOptions(translateCmd)
     .option(
       "--stdout",
       "Output translated subtitles directly to stdout instead of saving to file",
@@ -1332,87 +1344,9 @@ export function createProgram(): Command {
       "-f, --format <formats>",
       "Output formats: comma-separated list of srt, vtt, txt, json",
       "srt",
-    )
-    .option("-w, --overwrite", "Overwrite existing output files without confirmation prompt", false)
-    .option("--backup", "Create backup (.bak) of existing output files before overwriting", false)
-    .option(
-      "-b, --bilingual",
-      "Generate bilingual subtitles combining original and translated text",
-      false,
-    )
-    .option(
-      "--bilingual-order <order>",
-      "Order of bilingual subtitles: original-first (default) or target-first",
-      "original-first",
-    )
-    .option(
-      "--ffmpeg-path <path>",
-      "Path to ffmpeg executable (searches VSUB_FFMPEG_PATH or PATH if omitted)",
-    )
-    .option(
-      "--stt-provider <provider>",
-      "Transcription provider: openrouter or groq (default: VSUB_STT_PROVIDER, config, or chosen from your API keys)",
-    )
-    .option(
-      "--stt-model <model>",
-      "Transcription model for the chosen provider (default: elevenlabs/scribe-v2 on OpenRouter, whisper-large-v3-turbo on Groq)",
-    )
-    .option(
-      "--groq-model <model>",
-      "Groq Whisper model to use for transcription (used only when the provider is groq)",
-    )
-    .option(
-      "--whisper-prompt <text>",
-      "Prompt hint for Groq Whisper speech recognition (Groq only; not sent to OpenRouter)",
     );
 
-  addTranslationOptions(batchCmd)
-    .option("--no-cache", "Do not use or save intermediate transcription/translation cache")
-    .option(
-      "--fresh",
-      "Ignore existing cache and generate fresh transcription/translations, overwriting cache",
-      false,
-    )
-    .option("--cache-dir <path>", "Custom cache directory");
-
-  addContextWindowOption(batchCmd)
-    .option("--burn", "Burn generated subtitles directly into output video (hardsub)", false)
-    .option(
-      "--burn-position <position>",
-      "Subtitle position for --burn: bottom (default), top, center",
-    )
-    .option(
-      "--burn-font-size <size>",
-      "Subtitle font size for --burn: small, medium, large, or number",
-    )
-    .option(
-      "--embed",
-      "Embed generated subtitles directly as soft subtitle tracks into output video",
-      false,
-    )
-    .option("--keep-audio", "Keep intermediate extracted audio files without deleting", false)
-    .option("--no-translate", "Skip translation and output raw transcribed subtitles")
-    .option(
-      "--save-original",
-      "Save original transcription subtitle file alongside the result",
-      false,
-    )
-    .option(
-      "--refine",
-      "Correct speech recognition errors in the transcript with the text generation model before translation (off by default; uses --glossary and --prompt; timing and line count are kept)",
-      false,
-    )
-    .option(
-      "--force-translate",
-      "Force translation even if detected language matches target language",
-      false,
-    )
-    .option("--max-length <chars>", "Max characters per subtitle entry before automatic splitting")
-    .option(
-      "--max-duration <seconds>",
-      "Max display duration in seconds per subtitle entry (default: 7)",
-    )
-    .option("--no-reflow", "Disable automatic splitting and reflowing of long subtitle segments")
+  addMediaOptions(batchCmd)
     .option("--verbose", "Output detailed log messages", false)
     .action(async (targets: string[], _actionOptions: Record<string, unknown>, cmd: Command) => {
       const options = readActionOptions<
@@ -1468,87 +1402,9 @@ export function createProgram(): Command {
     .option(
       "-o, --output <path>",
       "Output path or base name for the generated subtitle file(s); with --embed or --burn and a video path (e.g. out.mkv), subtitles are saved as out.<lang>.<format>",
-    )
-    .option("-w, --overwrite", "Overwrite existing output files without confirmation prompt", false)
-    .option("--backup", "Create backup (.bak) of existing output files before overwriting", false)
-    .option(
-      "-b, --bilingual",
-      "Generate bilingual subtitles combining original and translated text",
-      false,
-    )
-    .option(
-      "--bilingual-order <order>",
-      "Order of bilingual subtitles: original-first (default) or target-first",
-      "original-first",
-    )
-    .option(
-      "--ffmpeg-path <path>",
-      "Path to ffmpeg executable (searches VSUB_FFMPEG_PATH or PATH if omitted)",
-    )
-    .option(
-      "--stt-provider <provider>",
-      "Transcription provider: openrouter or groq (default: VSUB_STT_PROVIDER, config, or chosen from your API keys)",
-    )
-    .option(
-      "--stt-model <model>",
-      "Transcription model for the chosen provider (default: elevenlabs/scribe-v2 on OpenRouter, whisper-large-v3-turbo on Groq)",
-    )
-    .option(
-      "--groq-model <model>",
-      "Groq Whisper model to use for transcription (used only when the provider is groq)",
-    )
-    .option(
-      "--whisper-prompt <text>",
-      "Prompt hint for Groq Whisper speech recognition (Groq only; not sent to OpenRouter)",
     );
 
-  addTranslationOptions(program)
-    .option("--no-cache", "Do not use or save intermediate transcription/translation cache")
-    .option(
-      "--fresh",
-      "Ignore existing cache and generate fresh transcription/translations, overwriting cache",
-      false,
-    )
-    .option("--cache-dir <path>", "Custom cache directory");
-
-  addContextWindowOption(program)
-    .option("--burn", "Burn generated subtitles directly into output video (hardsub)", false)
-    .option(
-      "--burn-position <position>",
-      "Subtitle position for --burn: bottom (default), top, center",
-    )
-    .option(
-      "--burn-font-size <size>",
-      "Subtitle font size for --burn: small, medium, large, or number",
-    )
-    .option(
-      "--embed",
-      "Embed generated subtitles directly as soft subtitle tracks into output video",
-      false,
-    )
-    .option("--keep-audio", "Keep intermediate extracted audio files without deleting", false)
-    .option("--no-translate", "Skip translation and output raw transcribed subtitles")
-    .option(
-      "--save-original",
-      "Save original transcription subtitle file alongside the result",
-      false,
-    )
-    .option(
-      "--refine",
-      "Correct speech recognition errors in the transcript with the text generation model before translation (off by default; uses --glossary and --prompt; timing and line count are kept)",
-      false,
-    )
-    .option(
-      "--force-translate",
-      "Force translation even if detected language matches target language",
-      false,
-    )
-    .option("--max-length <chars>", "Max characters per subtitle entry before automatic splitting")
-    .option(
-      "--max-duration <seconds>",
-      "Max display duration in seconds per subtitle entry (default: 7)",
-    )
-    .option("--no-reflow", "Disable automatic splitting and reflowing of long subtitle segments")
+  addMediaOptions(program)
     .option("--stdout", "Output subtitles directly to stdout instead of saving to file", false)
     .option("--verbose", "Output detailed log messages", false)
     .action(

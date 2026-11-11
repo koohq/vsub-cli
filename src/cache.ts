@@ -352,6 +352,22 @@ export function isSummaryCacheValid(
   return isLlmSourceCacheValid(cached, context);
 }
 
+function createCachedTextTask<T extends { chapters: ChapterItem[] } | { summary: SummaryResult }>(
+  targetLang: string,
+  context: GeneratedCacheContext,
+  content: T,
+) {
+  return {
+    targetLang,
+    provider: context.provider,
+    model: context.model,
+    prompt: context.prompt,
+    sourceHash: computeEntriesHash(context.sourceEntries),
+    ...content,
+    createdAt: Date.now(),
+  };
+}
+
 /**
  * Creates a CachedChapters object bound to the given context and chapters.
  */
@@ -360,15 +376,7 @@ export function createCachedChapters(
   context: GeneratedCacheContext,
   chapters: ChapterItem[],
 ): CachedChapters {
-  return {
-    targetLang,
-    provider: context.provider,
-    model: context.model,
-    prompt: context.prompt,
-    sourceHash: computeEntriesHash(context.sourceEntries),
-    chapters,
-    createdAt: Date.now(),
-  };
+  return createCachedTextTask(targetLang, context, { chapters });
 }
 
 /**
@@ -379,15 +387,7 @@ export function createCachedSummary(
   context: GeneratedCacheContext,
   summary: SummaryResult,
 ): CachedSummary {
-  return {
-    targetLang,
-    provider: context.provider,
-    model: context.model,
-    prompt: context.prompt,
-    sourceHash: computeEntriesHash(context.sourceEntries),
-    summary,
-    createdAt: Date.now(),
-  };
+  return createCachedTextTask(targetLang, context, { summary });
 }
 
 export interface MediaCacheData {

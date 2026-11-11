@@ -39,8 +39,9 @@ const { mockConfig } = vi.hoisted(() => ({
   },
 }));
 
-vi.mock("./config.js", () => {
+vi.mock("./config.js", async (importOriginal) => {
   return {
+    ...(await importOriginal<typeof import("./config.js")>()),
     DEFAULT_GEMINI_MODEL: "gemini-3.8-flash",
     DEFAULT_GROQ_MODEL: "whisper-large-v3-turbo",
     getConfig: vi.fn().mockReturnValue(mockConfig),
@@ -167,6 +168,114 @@ describe("CLI integration harness", () => {
     const program = createProgram();
     await program.parseAsync(["node", "vsub", ...args]);
   }
+
+  describe("chapters, summarize and reflow limit options", () => {
+    afterEach(() => {
+      vi.mocked(getConfig).mockReturnValue(mockConfig);
+    });
+
+    describe.each([
+      { command: "chapters", format: "txt", getMock: () => processChaptersPipeline },
+      { command: "summarize", format: "md", getMock: () => processSummaryPipeline },
+    ])("$command arguments", ({ command, format, getMock }) => {
+      it.each([false, true])("pins all pipeline fields (explicit: %s)", async (explicit) => {
+        await runCli(
+          command,
+          "sample.srt",
+          ...(explicit
+            ? [
+                "-t",
+                "en",
+                "-f",
+                "json",
+                "-o",
+                "result.json",
+                "--stdout",
+                "--prompt",
+                "test prompt",
+                "--gemini-model",
+                "test-gemini",
+                "--llm-provider",
+                "openrouter",
+                "--llm-model",
+                "test-llm",
+                "--stt-provider",
+                "groq",
+                "--stt-model",
+                "test-stt",
+                "--groq-model",
+                "test-groq",
+                "--whisper-prompt",
+                "test hint",
+                "-w",
+                "--backup",
+                "--no-cache",
+                "--fresh",
+                "--cache-dir",
+                "test-cache",
+                "--verbose",
+                "--lang",
+                "ja",
+                "--no-update-check",
+              ]
+            : []),
+        );
+        expect(getMock()).toHaveBeenCalledExactlyOnceWith({
+          inputFile: "sample.srt",
+          targetLang: explicit ? "en" : undefined,
+          format: explicit ? "json" : format,
+          output: explicit ? "result.json" : undefined,
+          stdout: explicit,
+          prompt: explicit ? "test prompt" : undefined,
+          geminiModel: explicit ? "test-gemini" : undefined,
+          llmProvider: explicit ? "openrouter" : undefined,
+          llmModel: explicit ? "test-llm" : undefined,
+          sttProvider: explicit ? "groq" : undefined,
+          sttModel: explicit ? "test-stt" : undefined,
+          groqModel: explicit ? "test-groq" : undefined,
+          whisperPrompt: explicit ? "test hint" : undefined,
+          overwrite: explicit,
+          backup: explicit,
+          noCache: explicit,
+          fresh: explicit,
+          cacheDir: explicit ? "test-cache" : undefined,
+          verbose: explicit,
+          lang: explicit ? "ja" : "en",
+        });
+        expect(exitSpy).not.toHaveBeenCalled();
+      });
+    });
+
+    it.each(["12.7", "0", "abc"])("pins config set --max-length %s", async (value) => {
+      await runCli("config", "set", "--max-length", value);
+      if (value === "12.7") {
+        expect(saveGlobalConfig).toHaveBeenCalledExactlyOnceWith(
+          { maxLength: 12 },
+          expect.anything(),
+        );
+      } else {
+        expect(saveGlobalConfig).not.toHaveBeenCalled();
+      }
+    });
+
+    it.each(["12.7", "0", "abc", "-1"])("pins translate reflow limits %s", async (value) => {
+      vi.mocked(getConfig).mockReturnValue({ ...mockConfig, maxLength: 42 });
+      await runCli(
+        "translate",
+        dummySrtPath,
+        "--max-length",
+        value,
+        "--max-duration",
+        value,
+        "--no-cache",
+      );
+      expect(reflowSrtEntries).toHaveBeenCalledWith(expect.anything(), {
+        maxLength: value === "12.7" ? 12 : 42,
+        maxDuration: value === "12.7" ? 12 : undefined,
+      });
+      expect(exitSpy).not.toHaveBeenCalled();
+    });
+  });
 
   describe("localized command output", () => {
     let errorSpy: ReturnType<typeof vi.spyOn>;

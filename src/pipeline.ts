@@ -6,6 +6,7 @@ import {
   createCachedChapters,
   createCachedSummary,
   createCachedTranscription,
+  type GeneratedCacheContext,
   isChaptersCacheValid,
   isSummaryCacheValid,
   isTranscriptionCacheValid,
@@ -15,7 +16,7 @@ import {
   saveTranscriptionCache,
   type TranscriptionCacheContext,
 } from "./cache.js";
-import { type AppConfig, ensureApiKeys, getConfig } from "./config.js";
+import { type AppConfig, ensureApiKeys, getConfig, resolveReflowLimits } from "./config.js";
 import {
   burnSubtitlesToVideo,
   checkFfmpeg,
@@ -41,7 +42,7 @@ import {
   type SummaryResult,
 } from "./formatter.js";
 import { extractWhisperPromptHints } from "./glossary.js";
-import { getI18n, type SupportedLanguage } from "./i18n/index.js";
+import { getI18n, type I18nMessages, type SupportedLanguage } from "./i18n/index.js";
 import { getLanguageDisplayName, parseTargetLanguages, resolveTargetLang } from "./languages.js";
 import { refineSourceEntries } from "./refine.js";
 import { type EnsureWritableResult, ensureWritableTargets } from "./safety.js";
@@ -505,18 +506,10 @@ export async function processMediaPipeline(
     glossary: glossaryInput,
   });
 
-  const maxLengthVal = options.maxLength !== undefined ? Number(options.maxLength) : undefined;
-  const resolvedMaxLength =
-    maxLengthVal !== undefined && !Number.isNaN(maxLengthVal) && maxLengthVal > 0
-      ? Math.floor(maxLengthVal)
-      : rawConfig.maxLength;
-
-  const maxDurationVal =
-    options.maxDuration !== undefined ? Number(options.maxDuration) : undefined;
-  const resolvedMaxDuration =
-    maxDurationVal !== undefined && !Number.isNaN(maxDurationVal) && maxDurationVal > 0
-      ? Math.floor(maxDurationVal)
-      : undefined;
+  const { maxLength: resolvedMaxLength, maxDuration: resolvedMaxDuration } = resolveReflowLimits(
+    options,
+    rawConfig.maxLength,
+  );
 
   const noReflow = Boolean(options.noReflow);
 
@@ -1125,10 +1118,9 @@ export async function resolveTranscriptEntries(
   }
 }
 
-export interface ProcessChaptersOptions {
+interface TextTaskOptions {
   inputFile: string;
   targetLang?: string | undefined;
-  format?: ChaptersFormat | undefined;
   output?: string | undefined;
   stdout?: boolean | undefined;
   overwrite?: boolean | undefined;
@@ -1148,35 +1140,26 @@ export interface ProcessChaptersOptions {
   lang?: SupportedLanguage | undefined;
 }
 
-export interface ProcessChaptersResult {
-  inputFile: string;
-  outputFile?: string | undefined;
-  chapters: ChapterItem[];
-  formattedOutput: string;
-  durationMs: number;
-  fromCache: boolean;
-  transcriptionFromCache: boolean;
-}
-
-/**
- * Pipeline to generate chapters from media or subtitle files.
- */
-export async function processChaptersPipeline(
-  options: ProcessChaptersOptions,
-): Promise<ProcessChaptersResult> {
-  const startTime = Date.now();
+async function prepareTextTask<Format extends string>(
+  options: TextTaskOptions & { format?: Format | undefined },
+  presentation: {
+    defaultFormat: Format;
+    outputSuffix: string;
+    extension: (format: Format) => string;
+    icon: string;
+    started: (file: string) => string;
+  },
+) {
   const verbose = Boolean(options.verbose);
   const isStdout = Boolean(options.stdout || options.output === "-");
   const lang = options.lang || "en";
   const i18n = getI18n(lang);
-  const cm = i18n.chapters;
-
   const resolvedInput = path.resolve(options.inputFile);
   if (!fs.existsSync(resolvedInput)) {
     throw new Error(i18n.pipeline.mediaNotFound(resolvedInput));
   }
 
-  const format = options.format || "txt";
+  const format = options.format || presentation.defaultFormat;
   const rawConfig = getConfig(undefined, lang);
   const { config: resolvedConfig, stt } = resolveSttSettings(
     rawConfig,
@@ -1207,8 +1190,8 @@ export async function processChaptersPipeline(
       outputPath = path.resolve(process.cwd(), options.output);
     } else {
       const parsed = path.parse(resolvedInput);
-      const ext = format === "json" ? "json" : format === "vtt" ? "vtt" : "txt";
-      outputPath = path.join(parsed.dir, `${parsed.name}.chapters.${ext}`);
+      const ext = presentation.extension(format);
+      outputPath = path.join(parsed.dir, `${parsed.name}.${presentation.outputSuffix}.${ext}`);
     }
 
     const safetyCheck = await ensureWritableTargets([outputPath], {
@@ -1222,29 +1205,151 @@ export async function processChaptersPipeline(
   }
 
   if (!isStdout) {
-    console.log(`\n📑 ${pc.bold(cm.started(pc.cyan(path.basename(resolvedInput))))}`);
+    console.log(
+      `\n${presentation.icon} ${pc.bold(presentation.started(pc.cyan(path.basename(resolvedInput))))}`,
+    );
   }
 
   const spinner = createSpinner("", { isSilent: verbose || isStdout });
 
-  // Check chapters cache
+  // Resolve reusable transcript context before checking the generated result.
   const useCache = !options.noCache && !options.fresh;
   const isSrt = resolvedInput.toLowerCase().endsWith(".srt");
   const mediaCache = useCache && !isSrt ? loadMediaCache(resolvedInput, options.cacheDir) : null;
-  const cachedChapters = mediaCache?.chapters?.[targetLang.toLowerCase()];
 
   const isTranscriptionValid =
     !isSrt && isTranscriptionCacheValid(mediaCache?.transcription, transcriptionContext);
+  function generatedCacheContext(sourceEntries: SrtEntry[]): GeneratedCacheContext {
+    return { sourceEntries, provider: llm.provider, prompt: options.prompt, model: llm.model };
+  }
+
+  return {
+    verbose,
+    isStdout,
+    lang,
+    resolvedInput,
+    format,
+    resolvedLlmConfig,
+    llm,
+    targetLang,
+    outputPath,
+    spinner,
+    useCache,
+    isSrt,
+    mediaCache,
+    cachedSourceEntries: isTranscriptionValid ? mediaCache?.transcription?.entries : undefined,
+    generatedCacheContext,
+  };
+}
+
+type TextTaskPreparation = Awaited<ReturnType<typeof prepareTextTask>>;
+
+async function resolveTextTaskTranscript(
+  options: TextTaskOptions,
+  prepared: TextTaskPreparation,
+  texts: Pick<I18nMessages["chapters"], "step1Resolve" | "noEntries" | "step1Parsed">,
+) {
+  const { resolvedLlmConfig, llm, lang, spinner, resolvedInput, verbose } = prepared;
+  // Ensure Text Model API Key
+  const config = await ensureApiKeys(resolvedLlmConfig, {
+    requireGemini: llm.provider === "gemini",
+    requireOpenRouter: llm.provider === "openrouter",
+    requireGroq: false,
+    lang,
+  });
+  const textModel = createTextModel(config, llm, { lang });
+
+  // Step 1: Resolve transcript entries
+  spinner.start(texts.step1Resolve);
+  const transcriptResult = await resolveTranscriptEntries({
+    filePath: resolvedInput,
+    sttProvider: options.sttProvider,
+    sttModel: options.sttModel,
+    groqModel: options.groqModel,
+    whisperPrompt: options.whisperPrompt,
+    noCache: options.noCache,
+    fresh: options.fresh,
+    cacheDir: options.cacheDir,
+    verbose,
+    lang,
+    spinner,
+  });
+
+  if (transcriptResult.entries.length === 0) {
+    spinner.fail(texts.noEntries);
+    throw new Error(texts.noEntries);
+  }
+  spinner.succeed(texts.step1Parsed(transcriptResult.entries.length));
+
+  return { textModel, transcriptResult };
+}
+
+function writeTextTaskOutput(
+  formattedOutput: string,
+  { isStdout, outputPath, spinner }: TextTaskPreparation,
+  texts: Pick<I18nMessages["chapters"], "step3Saving" | "step3Saved">,
+  showSaving = true,
+): void {
+  if (isStdout) {
+    process.stdout.write(formattedOutput);
+  } else if (outputPath) {
+    if (showSaving) spinner.start(texts.step3Saving);
+    fs.writeFileSync(outputPath, formattedOutput, "utf-8");
+    spinner.succeed(texts.step3Saved(pc.cyan(path.basename(outputPath))));
+  }
+}
+
+export interface ProcessChaptersOptions extends TextTaskOptions {
+  format?: ChaptersFormat | undefined;
+}
+
+export interface ProcessChaptersResult {
+  inputFile: string;
+  outputFile?: string | undefined;
+  chapters: ChapterItem[];
+  formattedOutput: string;
+  durationMs: number;
+  fromCache: boolean;
+  transcriptionFromCache: boolean;
+}
+
+/**
+ * Pipeline to generate chapters from media or subtitle files.
+ */
+export async function processChaptersPipeline(
+  options: ProcessChaptersOptions,
+): Promise<ProcessChaptersResult> {
+  const startTime = Date.now();
+  const cm = getI18n(options.lang || "en").chapters;
+  const prepared = await prepareTextTask(options, {
+    defaultFormat: "txt",
+    outputSuffix: "chapters",
+    extension: (format) => (format === "json" ? "json" : format === "vtt" ? "vtt" : "txt"),
+    icon: "📑",
+    started: cm.started,
+  });
+  const {
+    verbose,
+    isStdout,
+    lang,
+    resolvedInput,
+    format,
+    llm,
+    targetLang,
+    outputPath,
+    spinner,
+    useCache,
+    isSrt,
+    mediaCache,
+    cachedSourceEntries,
+    generatedCacheContext,
+  } = prepared;
+  const cachedChapters = mediaCache?.chapters?.[targetLang.toLowerCase()];
+
   const isChaptersValid =
     useCache &&
-    isTranscriptionValid &&
-    mediaCache?.transcription &&
-    isChaptersCacheValid(cachedChapters, {
-      sourceEntries: mediaCache.transcription.entries,
-      provider: llm.provider,
-      prompt: options.prompt,
-      model: llm.model,
-    });
+    cachedSourceEntries &&
+    isChaptersCacheValid(cachedChapters, generatedCacheContext(cachedSourceEntries));
 
   function finishChapters(
     rawChapters: ChapterItem[],
@@ -1271,28 +1376,13 @@ export async function processChaptersPipeline(
       saveChaptersCache(
         resolvedInput,
         targetLang,
-        createCachedChapters(
-          targetLang,
-          {
-            sourceEntries: entries,
-            provider: llm.provider,
-            prompt: options.prompt,
-            model: llm.model,
-          },
-          rawChapters,
-        ),
+        createCachedChapters(targetLang, generatedCacheContext(entries), rawChapters),
         options.cacheDir,
       );
     }
 
     const formattedOutput = formatChapters(chapters, format, endSeconds);
-    if (isStdout) {
-      process.stdout.write(formattedOutput);
-    } else if (outputPath) {
-      spinner.start(cm.step3Saving);
-      fs.writeFileSync(outputPath, formattedOutput, "utf-8");
-      spinner.succeed(cm.step3Saved(pc.cyan(path.basename(outputPath))));
-    }
+    writeTextTaskOutput(formattedOutput, prepared, cm);
 
     return {
       inputFile: resolvedInput,
@@ -1309,36 +1399,7 @@ export async function processChaptersPipeline(
     return finishChapters(cachedChapters.chapters, mediaCache.transcription.entries, true, true);
   }
 
-  // Ensure Text Model API Key
-  const config = await ensureApiKeys(resolvedLlmConfig, {
-    requireGemini: llm.provider === "gemini",
-    requireOpenRouter: llm.provider === "openrouter",
-    requireGroq: false,
-    lang,
-  });
-  const textModel = createTextModel(config, llm, { lang });
-
-  // Step 1: Resolve transcript entries
-  spinner.start(cm.step1Resolve);
-  const transcriptResult = await resolveTranscriptEntries({
-    filePath: resolvedInput,
-    sttProvider: options.sttProvider,
-    sttModel: options.sttModel,
-    groqModel: options.groqModel,
-    whisperPrompt: options.whisperPrompt,
-    noCache: options.noCache,
-    fresh: options.fresh,
-    cacheDir: options.cacheDir,
-    verbose,
-    lang,
-    spinner,
-  });
-
-  if (transcriptResult.entries.length === 0) {
-    spinner.fail(cm.noEntries);
-    throw new Error(cm.noEntries);
-  }
-  spinner.succeed(cm.step1Parsed(transcriptResult.entries.length));
+  const { textModel, transcriptResult } = await resolveTextTaskTranscript(options, prepared, cm);
 
   // Step 2: Generate chapters with LLM
   const providerLabel = LLM_PROVIDER_LABELS[llm.provider];
@@ -1352,27 +1413,8 @@ export async function processChaptersPipeline(
   return finishChapters(chapters, transcriptResult.entries, false, transcriptResult.fromCache);
 }
 
-export interface ProcessSummaryOptions {
-  inputFile: string;
-  targetLang?: string | undefined;
+export interface ProcessSummaryOptions extends TextTaskOptions {
   format?: SummaryFormat | undefined;
-  output?: string | undefined;
-  stdout?: boolean | undefined;
-  overwrite?: boolean | undefined;
-  backup?: boolean | undefined;
-  geminiModel?: string | undefined;
-  llmProvider?: string | undefined;
-  llmModel?: string | undefined;
-  groqModel?: string | undefined;
-  sttProvider?: string | undefined;
-  sttModel?: string | undefined;
-  whisperPrompt?: string | undefined;
-  prompt?: string | undefined;
-  noCache?: boolean | undefined;
-  fresh?: boolean | undefined;
-  cacheDir?: string | undefined;
-  verbose?: boolean | undefined;
-  lang?: SupportedLanguage | undefined;
 }
 
 export interface ProcessSummaryResult {
@@ -1392,98 +1434,42 @@ export async function processSummaryPipeline(
   options: ProcessSummaryOptions,
 ): Promise<ProcessSummaryResult> {
   const startTime = Date.now();
-  const verbose = Boolean(options.verbose);
-  const isStdout = Boolean(options.stdout || options.output === "-");
-  const lang = options.lang || "en";
-  const i18n = getI18n(lang);
-  const sm = i18n.summarize;
-
-  const resolvedInput = path.resolve(options.inputFile);
-  if (!fs.existsSync(resolvedInput)) {
-    throw new Error(i18n.pipeline.mediaNotFound(resolvedInput));
-  }
-
-  const format = options.format || "md";
-  const rawConfig = getConfig(undefined, lang);
-  const { config: resolvedConfig, stt } = resolveSttSettings(
-    rawConfig,
-    {
-      sttProvider: options.sttProvider,
-      sttModel: options.sttModel,
-      groqModel: options.groqModel,
-    },
-    lang,
-  );
-  const { config: resolvedLlmConfig, llm } = resolveLlmSettings(
-    resolvedConfig,
-    {
-      llmProvider: options.llmProvider,
-      llmModel: options.llmModel,
-      geminiModel: options.geminiModel,
-    },
-    lang,
-  );
-  const targetLang = resolveTargetLang(options.targetLang, resolvedLlmConfig.targetLang);
-  const transcriptionContext = resolveTranscriptionContext(resolvedConfig, stt, {
-    whisperPrompt: options.whisperPrompt,
+  const sm = getI18n(options.lang || "en").summarize;
+  const prepared = await prepareTextTask(options, {
+    defaultFormat: "md",
+    outputSuffix: "summary",
+    extension: (format) => (format === "json" ? "json" : format === "txt" ? "txt" : "md"),
+    icon: "📝",
+    started: sm.started,
   });
-
-  let outputPath: string | undefined;
-  if (!isStdout) {
-    if (options.output) {
-      outputPath = path.resolve(process.cwd(), options.output);
-    } else {
-      const parsed = path.parse(resolvedInput);
-      const ext = format === "json" ? "json" : format === "txt" ? "txt" : "md";
-      outputPath = path.join(parsed.dir, `${parsed.name}.summary.${ext}`);
-    }
-
-    const safetyCheck = await ensureWritableTargets([outputPath], {
-      overwrite: options.overwrite,
-      backup: options.backup,
-      lang,
-    });
-    if (!safetyCheck.proceed) {
-      throw new Error(i18n.pipeline.conflictAbort);
-    }
-  }
-
-  if (!isStdout) {
-    console.log(`\n📝 ${pc.bold(sm.started(pc.cyan(path.basename(resolvedInput))))}`);
-  }
-
-  const spinner = createSpinner("", { isSilent: verbose || isStdout });
-
-  // Check summary cache
-  const useCache = !options.noCache && !options.fresh;
-  const isSrt = resolvedInput.toLowerCase().endsWith(".srt");
-  const mediaCache = useCache && !isSrt ? loadMediaCache(resolvedInput, options.cacheDir) : null;
+  const {
+    verbose,
+    lang,
+    resolvedInput,
+    format,
+    llm,
+    targetLang,
+    outputPath,
+    spinner,
+    useCache,
+    isSrt,
+    mediaCache,
+    cachedSourceEntries,
+    generatedCacheContext,
+  } = prepared;
   const cachedSummary = mediaCache?.summaries?.[targetLang.toLowerCase()];
 
-  const isTranscriptionValid =
-    !isSrt && isTranscriptionCacheValid(mediaCache?.transcription, transcriptionContext);
   const isSummaryValid =
     useCache &&
-    isTranscriptionValid &&
-    mediaCache?.transcription &&
-    isSummaryCacheValid(cachedSummary, {
-      sourceEntries: mediaCache.transcription.entries,
-      provider: llm.provider,
-      prompt: options.prompt,
-      model: llm.model,
-    });
+    cachedSourceEntries &&
+    isSummaryCacheValid(cachedSummary, generatedCacheContext(cachedSourceEntries));
 
   if (isSummaryValid && cachedSummary) {
     const summary = cachedSummary.summary;
     spinner.succeed(sm.step2Cached);
 
     const formattedOutput = formatSummary(summary, format);
-    if (isStdout) {
-      process.stdout.write(formattedOutput);
-    } else if (outputPath) {
-      fs.writeFileSync(outputPath, formattedOutput, "utf-8");
-      spinner.succeed(sm.step3Saved(pc.cyan(path.basename(outputPath))));
-    }
+    writeTextTaskOutput(formattedOutput, prepared, sm, false);
 
     return {
       inputFile: resolvedInput,
@@ -1496,36 +1482,7 @@ export async function processSummaryPipeline(
     };
   }
 
-  // Ensure Text Model API Key
-  const config = await ensureApiKeys(resolvedLlmConfig, {
-    requireGemini: llm.provider === "gemini",
-    requireOpenRouter: llm.provider === "openrouter",
-    requireGroq: false,
-    lang,
-  });
-  const textModel = createTextModel(config, llm, { lang });
-
-  // Step 1: Resolve transcript entries
-  spinner.start(sm.step1Resolve);
-  const transcriptResult = await resolveTranscriptEntries({
-    filePath: resolvedInput,
-    sttProvider: options.sttProvider,
-    sttModel: options.sttModel,
-    groqModel: options.groqModel,
-    whisperPrompt: options.whisperPrompt,
-    noCache: options.noCache,
-    fresh: options.fresh,
-    cacheDir: options.cacheDir,
-    verbose,
-    lang,
-    spinner,
-  });
-
-  if (transcriptResult.entries.length === 0) {
-    spinner.fail(sm.noEntries);
-    throw new Error(sm.noEntries);
-  }
-  spinner.succeed(sm.step1Parsed(transcriptResult.entries.length));
+  const { textModel, transcriptResult } = await resolveTextTaskTranscript(options, prepared, sm);
 
   // Step 2: Generate summary with LLM
   const providerLabel = LLM_PROVIDER_LABELS[llm.provider];
@@ -1543,29 +1500,14 @@ export async function processSummaryPipeline(
     saveSummaryCache(
       resolvedInput,
       targetLang,
-      createCachedSummary(
-        targetLang,
-        {
-          sourceEntries: transcriptResult.entries,
-          provider: llm.provider,
-          prompt: options.prompt,
-          model: llm.model,
-        },
-        summary,
-      ),
+      createCachedSummary(targetLang, generatedCacheContext(transcriptResult.entries), summary),
       options.cacheDir,
     );
   }
 
   // Step 3: Format and save or stdout
   const formattedOutput = formatSummary(summary, format);
-  if (isStdout) {
-    process.stdout.write(formattedOutput);
-  } else if (outputPath) {
-    spinner.start(sm.step3Saving);
-    fs.writeFileSync(outputPath, formattedOutput, "utf-8");
-    spinner.succeed(sm.step3Saved(pc.cyan(path.basename(outputPath))));
-  }
+  writeTextTaskOutput(formattedOutput, prepared, sm);
 
   return {
     inputFile: resolvedInput,

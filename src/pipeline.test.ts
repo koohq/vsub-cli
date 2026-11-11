@@ -2,6 +2,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, type MockInstance, vi } from "vitest";
+import * as cacheModule from "./cache.js";
 import {
   createCachedChapters,
   createCachedSummary,
@@ -15,6 +16,7 @@ import {
 import * as configModule from "./config.js";
 import { DEFAULT_GEMINI_MODEL, DEFAULT_GROQ_MODEL, saveGlobalConfig } from "./config.js";
 import { burnSubtitlesToVideo, embedSubtitlesToVideo, extractAudio } from "./ffmpeg.js";
+import type { ChaptersFormat, SummaryFormat } from "./formatter.js";
 import { type ChapterItem, secondsToTimestamp } from "./formatter.js";
 import { getI18n } from "./i18n/index.js";
 import {
@@ -30,6 +32,7 @@ import {
   resolveTranscriptionContext,
 } from "./pipeline.js";
 import * as safetyModule from "./safety.js";
+import * as srtModule from "./srt.js";
 import { reflowSrtEntries, type SrtEntry } from "./srt.js";
 import { isolateConfigAndEnv } from "./test-support/isolate-config-env.js";
 import { DEFAULT_OPENROUTER_LLM_MODEL } from "./text/openrouter.js";
@@ -548,6 +551,153 @@ describe("pipeline.ts", () => {
       await expect(
         resolveTranscriptEntries({ filePath: path.join(tempDir, "not_found.srt") }),
       ).rejects.toThrow(/File not found/);
+    });
+  });
+
+  describe("chapters and summary shared steps", () => {
+    let inputFile: string;
+    let cacheDir: string;
+
+    beforeEach(() => {
+      inputFile = path.join(tempDir, "sample.mp4");
+      cacheDir = path.join(tempDir, "cache");
+      fs.writeFileSync(inputFile, "test media");
+      vi.clearAllMocks();
+      vi.spyOn(console, "log").mockImplementation(() => {});
+      vi.spyOn(console, "error").mockImplementation(() => {});
+      saveGlobalConfig({ geminiApiKey: "test-key", groqApiKey: "test-key" });
+    });
+
+    type TaskOptions = Omit<Parameters<typeof processChaptersPipeline>[0], "format"> & {
+      format?: string | undefined;
+    };
+    describe.each([
+      {
+        task: "chapters",
+        suffix: "chapters",
+        formats: ["txt", "json", "vtt"],
+        run: (options: TaskOptions) =>
+          processChaptersPipeline({
+            ...options,
+            format: options.format as ChaptersFormat | undefined,
+          }),
+        getGenerator: () => generateChapters,
+      },
+      {
+        task: "summarize",
+        suffix: "summary",
+        formats: ["md", "txt", "json"],
+        run: (options: TaskOptions) =>
+          processSummaryPipeline({
+            ...options,
+            format: options.format as SummaryFormat | undefined,
+          }),
+        getGenerator: () => generateSummary,
+      },
+    ] as const)("$task", ({ task, suffix, formats, run, getGenerator }) => {
+      it.each([undefined, "default", "relative"])("pins output path mode %s", async (mode) => {
+        for (const format of mode === "default" ? formats : [undefined]) {
+          const output =
+            mode === "relative"
+              ? path.relative(process.cwd(), path.join(tempDir, "custom.out"))
+              : undefined;
+          const result = await run({ inputFile, cacheDir, format, output, overwrite: true });
+          expect(result.outputFile).toBe(
+            output
+              ? path.resolve(output)
+              : path.join(tempDir, `sample.${suffix}.${format ?? formats[0]}`),
+          );
+        }
+      });
+
+      it.each(["noCache", "fresh", "srt"] as const)("pins cache mode %s", async (mode) => {
+        await run({ inputFile, cacheDir, overwrite: true });
+        vi.mocked(getGenerator()).mockClear();
+        const loader = vi.spyOn(cacheModule, "loadMediaCache");
+        const saver = vi.spyOn(
+          cacheModule,
+          task === "chapters" ? "saveChaptersCache" : "saveSummaryCache",
+        );
+        if (mode === "srt") {
+          inputFile = path.join(tempDir, "sample.srt");
+          fs.writeFileSync(inputFile, "1\n00:00:00,000 --> 00:02:00,000\nTest transcript\n");
+        }
+        const result = await run({
+          inputFile,
+          cacheDir,
+          overwrite: true,
+          noCache: mode === "noCache",
+          fresh: mode === "fresh",
+        });
+        expect(result.fromCache).toBe(false);
+        expect(getGenerator()).toHaveBeenCalledTimes(1);
+        if (mode === "fresh") {
+          expect(saver).toHaveBeenCalledTimes(1);
+        } else {
+          expect(loader).not.toHaveBeenCalled();
+          expect(saver).not.toHaveBeenCalled();
+        }
+      });
+
+      it("checks keys before resolving the transcript when generated cache is absent", async () => {
+        const keys = vi.spyOn(configModule, "ensureApiKeys");
+        const read = vi.spyOn(fs, "readFileSync");
+        inputFile = path.join(tempDir, "sample.srt");
+        fs.writeFileSync(inputFile, "1\n00:00:00,000 --> 00:02:00,000\nTest transcript\n");
+        await run({ inputFile, cacheDir });
+        const transcriptRead = read.mock.calls.findIndex(([file]) => file === inputFile);
+        expect(transcriptRead).toBeGreaterThanOrEqual(0);
+        expect(keys.mock.invocationCallOrder[0]).toBeLessThan(
+          read.mock.invocationCallOrder[transcriptRead] ?? 0,
+        );
+      });
+
+      it("rejects empty transcripts before generation or saving", async () => {
+        inputFile = path.join(tempDir, "empty.srt");
+        fs.writeFileSync(inputFile, "");
+        const saver = vi.spyOn(
+          cacheModule,
+          task === "chapters" ? "saveChaptersCache" : "saveSummaryCache",
+        );
+        await expect(run({ inputFile, cacheDir })).rejects.toThrow(getI18n("en")[task].noEntries);
+        expect(getGenerator()).not.toHaveBeenCalled();
+        expect(saver).not.toHaveBeenCalled();
+      });
+
+      it("preserves the saving display on generated and cached paths", async () => {
+        const spinner = {
+          start: vi.fn().mockReturnThis(),
+          succeed: vi.fn().mockReturnThis(),
+          fail: vi.fn().mockReturnThis(),
+          warn: vi.fn().mockReturnThis(),
+        };
+        vi.spyOn(ui, "createSpinner").mockReturnValue(
+          spinner as unknown as ReturnType<typeof ui.createSpinner>,
+        );
+        await run({ inputFile, cacheDir, overwrite: true });
+        expect(spinner.start).toHaveBeenCalledWith(getI18n("en")[task].step3Saving);
+        spinner.start.mockClear();
+        await run({ inputFile, cacheDir, overwrite: true });
+        if (task === "chapters")
+          expect(spinner.start).toHaveBeenCalledWith(getI18n("en")[task].step3Saving);
+        else expect(spinner.start).not.toHaveBeenCalled();
+      });
+    });
+
+    it.each(["12.7", "0", "abc", "-1"])("pins main reflow limits %s", async (value) => {
+      saveGlobalConfig({ geminiApiKey: "test-key", groqApiKey: "test-key", maxLength: 42 });
+      const reflow = vi.spyOn(srtModule, "reflowSrtEntries");
+      await processMediaPipeline({
+        mediaFile: inputFile,
+        cacheDir,
+        maxLength: value,
+        maxDuration: value,
+        noCache: true,
+      });
+      expect(reflow).toHaveBeenCalledWith(expect.anything(), {
+        maxLength: value === "12.7" ? 12 : 42,
+        maxDuration: value === "12.7" ? 12 : undefined,
+      });
     });
   });
 

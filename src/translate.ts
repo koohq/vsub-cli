@@ -2,7 +2,7 @@ import fs from "node:fs";
 import path from "node:path";
 import pc from "picocolors";
 import { loadMediaCache } from "./cache.js";
-import { ensureApiKeys, getConfig } from "./config.js";
+import { ensureApiKeys, getConfig, resolveReflowLimits } from "./config.js";
 import { formatEntries, parseOutputFormats } from "./formatter.js";
 import { DEFAULT_LANGUAGE, getI18n, normalizeLanguage } from "./i18n/index.js";
 import { parseTargetLanguages, resolveTargetLang } from "./languages.js";
@@ -176,18 +176,10 @@ export async function runTranslateCommand(
       throw new Error(tm.step1NoEntries(path.basename(resolvedSubtitlePath)));
     }
 
-    const maxLengthVal = options.maxLength !== undefined ? Number(options.maxLength) : undefined;
-    const resolvedMaxLength =
-      maxLengthVal !== undefined && !Number.isNaN(maxLengthVal) && maxLengthVal > 0
-        ? Math.floor(maxLengthVal)
-        : rawConfig.maxLength;
-
-    const maxDurationVal =
-      options.maxDuration !== undefined ? Number(options.maxDuration) : undefined;
-    const resolvedMaxDuration =
-      maxDurationVal !== undefined && !Number.isNaN(maxDurationVal) && maxDurationVal > 0
-        ? Math.floor(maxDurationVal)
-        : undefined;
+    const { maxLength: resolvedMaxLength, maxDuration: resolvedMaxDuration } = resolveReflowLimits(
+      options,
+      rawConfig.maxLength,
+    );
 
     const rawEntriesCount = srtEntries.length;
     if (!options.noReflow && srtEntries.length > 0) {

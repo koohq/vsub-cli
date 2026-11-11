@@ -11,6 +11,21 @@ import {
   type SupportedLanguage,
 } from "./i18n/index.js";
 
+export function parsePositiveInteger(value: unknown): number | undefined {
+  const number = Number(value);
+  return !Number.isNaN(number) && number > 0 ? Math.floor(number) : undefined;
+}
+
+export function resolveReflowLimits(
+  options: { maxLength?: unknown; maxDuration?: unknown },
+  configMaxLength: number | undefined,
+): { maxLength: number | undefined; maxDuration: number | undefined } {
+  return {
+    maxLength: parsePositiveInteger(options.maxLength) ?? configMaxLength,
+    maxDuration: parsePositiveInteger(options.maxDuration),
+  };
+}
+
 // Load only startDir's .env; do not inspect parents to avoid unrelated project keys.
 export function loadEnv(startDir: string = process.cwd()): void {
   const envPath = path.join(startDir, ".env");
@@ -232,16 +247,8 @@ export function getConfig(cliFfmpegPath?: string, cliLang?: string): AppConfig {
   }
 
   const envMaxLength = process.env["VSUB_MAX_LENGTH"]?.trim();
-  let maxLength: number | undefined;
-  if (envMaxLength && !Number.isNaN(Number(envMaxLength)) && Number(envMaxLength) > 0) {
-    maxLength = Math.floor(Number(envMaxLength));
-  } else if (
-    globalConfig.maxLength !== undefined &&
-    !Number.isNaN(Number(globalConfig.maxLength)) &&
-    Number(globalConfig.maxLength) > 0
-  ) {
-    maxLength = Math.floor(Number(globalConfig.maxLength));
-  }
+  const maxLength =
+    parsePositiveInteger(envMaxLength) ?? parsePositiveInteger(globalConfig.maxLength);
 
   const burnPosition =
     process.env["VSUB_BURN_POSITION"]?.trim() || globalConfig.burnPosition?.trim() || undefined;
