@@ -348,6 +348,7 @@ export const ja: typeof en = {
       groqModel: "Groq のモデル",
       openrouterSttModel: "OpenRouter の文字起こしモデル",
       openrouterLlmModel: "OpenRouter の文章生成モデル",
+      concurrency: "並行数",
       maxLength: "字幕の最大文字数",
       burnPosition: "焼き込みの位置",
       burnFontSize: "焼き込みの文字サイズ",

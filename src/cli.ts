@@ -189,7 +189,7 @@ function acceptGlobalOptions(rootCmd: Command): void {
     acceptGlobalOptions(cmd);
   }
 
-  if (rootCmd.commands.length === 0 && rootCmd.options.length > 0) {
+  if (rootCmd.commands.length === 0) {
     const hasLangOption = rootCmd.options.some(
       (opt) => opt.long === "--lang" || opt.short === "-l",
     );
@@ -607,6 +607,10 @@ export function createProgram(): Command {
         [labels.groqModel, resolvedConfig.groqModel || undefined],
         [labels.openrouterSttModel, resolvedConfig.openrouterSttModel || undefined],
         [labels.openrouterLlmModel, resolvedConfig.openrouterLlmModel || undefined],
+        [
+          labels.concurrency,
+          resolvedConfig.concurrency !== undefined ? `${resolvedConfig.concurrency}` : undefined,
+        ],
         [
           labels.maxLength,
           resolvedConfig.maxLength ? m.chars(resolvedConfig.maxLength) : undefined,

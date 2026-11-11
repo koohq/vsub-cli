@@ -349,6 +349,7 @@ export const en = {
       groqModel: "Groq Model",
       openrouterSttModel: "OpenRouter STT Model",
       openrouterLlmModel: "OpenRouter LLM Model",
+      concurrency: "Concurrency",
       maxLength: "Max Length",
       burnPosition: "Burn Position",
       burnFontSize: "Burn Font Size",

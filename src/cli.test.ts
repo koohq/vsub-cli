@@ -1,6 +1,7 @@
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
+import { stripVTControlCharacters } from "node:util";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { runBatchPipeline } from "./batch.js";
 import {
@@ -290,7 +291,9 @@ describe("CLI integration harness", () => {
     });
 
     function output(): string {
-      return logSpy.mock.calls.map(([text]: unknown[]) => String(text)).join("\n");
+      return stripVTControlCharacters(
+        logSpy.mock.calls.map(([text]: unknown[]) => String(text)).join("\n"),
+      );
     }
 
     it.each([true, false])(
@@ -320,7 +323,12 @@ describe("CLI integration harness", () => {
       expect(new Set(rows.map((line) => ui.displayWidth(line.split(" : ")[0] ?? ""))).size).toBe(1);
     }
 
-    it.each([true, false])("localizes config show with explicit language: %s", async (explicit) => {
+    it.each([
+      { args: ["-l", "ja", "config", "show"], explicit: true },
+      { args: ["config", "show", "-l", "ja"], explicit: true },
+      { args: ["config", "show", "--lang", "ja"], explicit: true },
+      { args: ["config", "show"], explicit: false },
+    ])("localizes config show with $args", async ({ args, explicit }) => {
       vi.mocked(getConfig).mockReturnValue({
         ...mockConfig,
         lang: explicit ? "en" : "ja",
@@ -328,7 +336,7 @@ describe("CLI integration harness", () => {
         geminiApiKey: "",
         openrouterApiKey: "",
       });
-      await runCli(...(explicit ? ["-l", "ja"] : []), "config", "show");
+      await runCli(...args);
       for (const text of ["📁 設定ファイル:", "表示言語", "(未設定)", "有効"]) {
         expect(output()).toContain(text);
       }
@@ -345,6 +353,38 @@ describe("CLI integration harness", () => {
       await runCli("-l", "ja", ...args, ...(args[0] === "cache" ? ["--cache-dir", tmpDir] : []));
       expect(output()).toContain(text);
       if (args[1] === "stats") expectAlignedRows();
+    });
+
+    it("localizes config path with a trailing language option", async () => {
+      await runCli("config", "path", "-l", "ja");
+      expect(stripVTControlCharacters(output())).toContain("設定ファイルのパス:");
+    });
+
+    it("accepts hidden global options on every leaf command", () => {
+      function checkLeaves(command: ReturnType<typeof createProgram>): void {
+        if (command.commands.length > 0) {
+          for (const child of command.commands) checkLeaves(child);
+          return;
+        }
+        expect(
+          command.options.map((option) => option.long),
+          command.name(),
+        ).toContain("--lang");
+        expect(
+          command.options.map((option) => option.long),
+          command.name(),
+        ).toContain("--no-update-check");
+      }
+      checkLeaves(createProgram());
+    });
+
+    it("keeps the language option hidden in config show help", () => {
+      const config = createProgram().commands.find((command) => command.name() === "config");
+      const show = config?.commands.find((command) => command.name() === "show");
+      expect(show).toBeDefined();
+      const help = stripVTControlCharacters(show?.helpInformation() ?? "");
+      expect(help).not.toContain("--lang");
+      expect(help).not.toContain("-l,");
     });
 
     it.each(["en", "ja"] as const)("aligns cache stats in %s", async (lang) => {
@@ -1309,6 +1349,7 @@ describe("CLI integration harness", () => {
                   groqModel: "test-groq",
                   openrouterSttModel: "test/stt",
                   openrouterLlmModel: "test/llm",
+                  concurrency: 3,
                   maxLength: 42,
                   burnPosition: "top",
                   burnFontSize: 24,
@@ -1317,14 +1358,54 @@ describe("CLI integration harness", () => {
           });
           await runCli("config", "show");
           const rows: string[] = logSpy.mock.calls
-            .map(([text]: unknown[]) => String(text))
+            .map(([text]: unknown[]) => stripVTControlCharacters(String(text)))
             .filter((line: string) => line.includes(":") && !line.includes("Config File:"));
-          expect(rows.length).toBe(withOptional ? 19 : 9);
+          expect(rows.length).toBe(withOptional ? 20 : 9);
           expect(rows.map((line) => ui.displayWidth(line.slice(0, line.indexOf(":"))))).toEqual(
             rows.map(() => "OpenRouter STT Model".length + 1),
           );
         },
       );
+
+      it.each([
+        { lang: "en", withModel: true },
+        { lang: "en", withModel: false },
+        { lang: "ja", withModel: true },
+        { lang: "ja", withModel: false },
+      ] as const)(
+        "displays concurrency in order ($lang, model: $withModel)",
+        async ({ lang, withModel }) => {
+          vi.mocked(getConfig).mockReturnValue({
+            ...mockConfig,
+            lang,
+            concurrency: 3,
+            groqModel: "test-groq",
+            ...(withModel ? { openrouterLlmModel: "test/llm" } : {}),
+            maxLength: 42,
+          });
+          await runCli("config", "show");
+          const lines = stripVTControlCharacters(logSpy.mock.calls.flat().join("\n")).split("\n");
+          const labels = getI18n(lang).config.showLabels;
+          const index = lines.findIndex((line) =>
+            line.startsWith(lang === "en" ? "Concurrency " : "並行数 "),
+          );
+          expect(index).toBeGreaterThanOrEqual(0);
+          expect(lines[index]?.split(" : ")[1]).toBe("3");
+          expect(lines[index - 1]).toContain(
+            withModel ? labels.openrouterLlmModel : labels.groqModel,
+          );
+          for (const label of [labels.maxLength, labels.updateCheck]) {
+            expect(lines.findIndex((line) => line.startsWith(label))).toBeGreaterThan(index);
+          }
+        },
+      );
+
+      it.each(["en", "ja"] as const)("omits unset concurrency in %s", async (lang) => {
+        vi.mocked(getConfig).mockReturnValue({ ...mockConfig, lang, concurrency: undefined });
+        await runCli("config", "show");
+        const printed = stripVTControlCharacters(logSpy.mock.calls.flat().join("\n"));
+        expect(printed).not.toMatch(/Concurrency|並行数/);
+      });
 
       it("displays Groq auto transcription when only Groq API key is configured", async () => {
         vi.mocked(getConfig).mockReturnValue({
