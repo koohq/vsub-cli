@@ -1313,12 +1313,11 @@ function writeTextTaskOutput(
   formattedOutput: string,
   { isStdout, outputPath, spinner }: TextTaskPreparation,
   texts: Pick<I18nMessages["chapters"], "step3Saving" | "step3Saved">,
-  showSaving = true,
 ): void {
   if (isStdout) {
     process.stdout.write(formattedOutput);
   } else if (outputPath) {
-    if (showSaving) spinner.start(texts.step3Saving);
+    spinner.start(texts.step3Saving);
     fs.writeFileSync(outputPath, formattedOutput, "utf-8");
     spinner.succeed(texts.step3Saved(pc.cyan(path.basename(outputPath))));
   }
@@ -1491,7 +1490,7 @@ export async function processSummaryPipeline(
     spinner.succeed(sm.step2Cached);
 
     const formattedOutput = formatSummary(summary, format);
-    writeTextTaskOutput(formattedOutput, prepared, sm, false);
+    writeTextTaskOutput(formattedOutput, prepared, sm);
 
     return {
       inputFile: resolvedInput,

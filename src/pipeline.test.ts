@@ -803,9 +803,12 @@ describe("pipeline.ts", () => {
         expect(spinner.start).toHaveBeenCalledWith(getI18n("en")[task].step3Saving);
         spinner.start.mockClear();
         await run({ inputFile, cacheDir, overwrite: true });
-        if (task === "chapters")
-          expect(spinner.start).toHaveBeenCalledWith(getI18n("en")[task].step3Saving);
-        else expect(spinner.start).not.toHaveBeenCalled();
+        expect(spinner.start).toHaveBeenCalledWith(getI18n("en")[task].step3Saving);
+        for (const options of [{ stdout: true }, { output: "-" }]) {
+          spinner.start.mockClear();
+          await run({ inputFile, cacheDir, ...options });
+          expect(spinner.start).not.toHaveBeenCalledWith(getI18n("en")[task].step3Saving);
+        }
       });
     });
 
