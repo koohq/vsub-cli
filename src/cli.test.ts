@@ -432,6 +432,28 @@ describe("CLI integration harness", () => {
       expectAlignedRows();
     });
 
+    describe.each(["en", "ja"] as const)("config show widths in %s", (lang) => {
+      it.each([false, true])("uses only displayed labels (long model: %s)", async (longModel) => {
+        vi.mocked(getConfig).mockReturnValue({
+          ...mockConfig,
+          groqApiKey: "",
+          geminiApiKey: "",
+          openrouterApiKey: "",
+          ...(longModel ? { openrouterSttModel: "test-stt-model" } : {}),
+        });
+        await runCli("config", "show", "-l", lang);
+        const rows = output()
+          .split("\n")
+          .filter((line) => line.includes(" : "));
+        const labels = rows.map((line) => line.split(" : ")[0] ?? "");
+        const expected = Math.max(...labels.map((label) => ui.displayWidth(label.trimEnd()))) + 1;
+        expect(labels.length).toBeGreaterThan(1);
+        for (const label of labels) expect(ui.displayWidth(label) + 1).toBe(expected);
+        const modelLabel = getI18n(lang).config.showLabels.openrouterSttModel;
+        expect(output().includes(modelLabel)).toBe(longModel);
+      });
+    });
+
     it.each([
       { args: ["config", "path"], text: "設定ファイルのパス:" },
       { args: ["cache", "path"], text: "キャッシュのフォルダ:" },
@@ -1528,7 +1550,9 @@ describe("CLI integration harness", () => {
             .filter((line: string) => line.includes(":") && !line.includes("Config File:"));
           expect(rows.length).toBe(withOptional ? 21 : 10);
           expect(rows.map((line) => ui.displayWidth(line.slice(0, line.indexOf(":"))))).toEqual(
-            rows.map(() => "OpenRouter STT Model".length + 1),
+            rows.map(
+              () => (withOptional ? "OpenRouter STT Model" : "OpenRouter API Key").length + 1,
+            ),
           );
         },
       );
@@ -1583,8 +1607,8 @@ describe("CLI integration harness", () => {
         await runCli("config", "show");
 
         const logged = logSpy.mock.calls.map((c: unknown[]) => String(c[0])).join("\n");
-        expect(logged).toContain("Transcription        : Groq (whisper-large-v3-turbo) [auto]");
-        expect(logged).toContain("OpenRouter API Key   : (Not configured)");
+        expect(logged).toContain("Transcription      : Groq (whisper-large-v3-turbo) [auto]");
+        expect(logged).toContain("OpenRouter API Key : (Not configured)");
         expect(logged).not.toContain("gsk_testgroqkey12345678");
       });
 
@@ -1614,7 +1638,7 @@ describe("CLI integration harness", () => {
         await runCli("config", "show");
 
         const logged = logSpy.mock.calls.map((c: unknown[]) => String(c[0])).join("\n");
-        expect(logged).toContain('Transcription        : invalid provider "bar"');
+        expect(logged).toContain('Transcription      : invalid provider "bar"');
         expect(exitSpy).not.toHaveBeenCalled();
       });
     });
@@ -1844,7 +1868,7 @@ describe("CLI integration harness", () => {
         await runCli("config", "show");
 
         const logged = logSpy.mock.calls.map((c: unknown[]) => String(c[0])).join("\n");
-        expect(logged).toContain("Text Generation      : Gemini (gemini-3.8-flash) [auto]");
+        expect(logged).toContain("Text Generation    : Gemini (gemini-3.8-flash) [auto]");
       });
 
       it("displays OpenRouter auto text generation when Gemini API key is missing", async () => {
@@ -1858,7 +1882,7 @@ describe("CLI integration harness", () => {
 
         const logged = logSpy.mock.calls.map((c: unknown[]) => String(c[0])).join("\n");
         expect(logged).toContain(
-          "Text Generation      : OpenRouter (google/gemini-3.8-flash) [auto]",
+          "Text Generation    : OpenRouter (google/gemini-3.8-flash) [auto]",
         );
       });
 
@@ -1897,7 +1921,7 @@ describe("CLI integration harness", () => {
         await runCli("config", "show");
 
         const logged = logSpy.mock.calls.map((c: unknown[]) => String(c[0])).join("\n");
-        expect(logged).toContain('Text Generation      : invalid provider "bar"');
+        expect(logged).toContain('Text Generation    : invalid provider "bar"');
         expect(exitSpy).not.toHaveBeenCalled();
       });
     });

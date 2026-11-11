@@ -637,9 +637,10 @@ export function createProgram(): Command {
         ],
         [labels.updateCheck, resolvedConfig.disableUpdateCheck ? m.disabled : m.enabled],
       ];
-      const LABEL_WIDTH = Math.max(...rows.map(([label]) => displayWidth(label)));
-      for (const [label, value] of rows) {
-        if (value !== undefined) console.log(`${padEndToWidth(label, LABEL_WIDTH)} : ${value}`);
+      const visibleRows = rows.filter(([, value]) => value !== undefined);
+      const LABEL_WIDTH = Math.max(...visibleRows.map(([label]) => displayWidth(label)));
+      for (const [label, value] of visibleRows) {
+        console.log(`${padEndToWidth(label, LABEL_WIDTH)} : ${value}`);
       }
       console.log("----------------------------------------\n");
     });
