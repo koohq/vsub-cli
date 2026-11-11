@@ -1,6 +1,7 @@
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
+import { stripVTControlCharacters } from "node:util";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { findMediaFiles, runBatchPipeline } from "./batch.js";
 import * as configModule from "./config.js";
@@ -526,7 +527,9 @@ describe("batch.ts", () => {
           processMediaPipelineSpy.mockRejectedValue(error);
           const output = vi.spyOn(console, "error").mockImplementation(() => {});
           const summary = await runBatchPipeline({ targets: [dummyFile] });
-          const lines = output.mock.calls.flat().map(String).join("\n").split("\n");
+          const lines = stripVTControlCharacters(
+            output.mock.calls.flat().map(String).join("\n"),
+          ).split("\n");
           const failureIndex = lines.findIndex((line) => line.includes("Failed: Unavailable"));
           expect(failureIndex).toBeGreaterThanOrEqual(0);
           if (stopped)
