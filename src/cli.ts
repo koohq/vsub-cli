@@ -19,7 +19,11 @@ import {
 import { parseChaptersFormat, parseSummaryFormat } from "./formatter.js";
 import { getI18n, normalizeLanguage } from "./i18n/index.js";
 import { runInitWizard } from "./init.js";
-import { getLanguageDisplayName, parseTargetLanguages } from "./languages.js";
+import {
+  getLanguageDisplayName,
+  normalizeTargetLangSetting,
+  parseTargetLanguages,
+} from "./languages.js";
 
 import { printLicenses } from "./licenses.js";
 import {
@@ -349,6 +353,7 @@ export function createProgram(): Command {
       }
       const rows: [string, string | undefined][] = [
         [labels.lang, resolvedConfig.lang || "en"],
+        [labels.targetLang, resolvedConfig.targetLang || "ja"],
         [
           labels.groqApiKey,
           resolvedConfig.groqApiKey
@@ -401,9 +406,13 @@ export function createProgram(): Command {
   configCmd
     .command("set")
     .description(
-      "Save API Keys, models, prompts, glossary, concurrency, language, or FFmpeg path to global config",
+      "Save API Keys, models, prompts, glossary, concurrency, language, target language, or FFmpeg path to global config",
     )
     .option("-l, --lang <lang>", "UI display language (en, ja)")
+    .option(
+      "--target-lang <langs>",
+      "Default target language code(s), comma-separated (e.g., ja, en, zh-TW)",
+    )
     .option("--groq-key <key>", "Groq API Key")
     .option("--gemini-key <key>", "Gemini API Key")
     .option("--openrouter-key <key>", "OpenRouter API Key (for transcription and text generation)")
@@ -437,6 +446,7 @@ export function createProgram(): Command {
     .action(
       (options: {
         lang?: string;
+        targetLang?: string;
         groqKey?: string;
         geminiKey?: string;
         openrouterKey?: string;
@@ -485,6 +495,16 @@ export function createProgram(): Command {
           return process.exit(1);
         }
 
+        let targetLangVal: string | undefined;
+        if (options.targetLang !== undefined) {
+          try {
+            targetLangVal = normalizeTargetLangSetting(options.targetLang, normalizedLang);
+          } catch (err) {
+            console.error(pc.red(`\n✖ ${err instanceof Error ? err.message : String(err)}\n`));
+            return process.exit(1);
+          }
+        }
+
         let sttProviderVal: SttProvider | undefined;
         if (options.sttProvider) {
           try {
@@ -527,6 +547,7 @@ export function createProgram(): Command {
 
         if (
           !options.lang &&
+          targetLangVal === undefined &&
           !options.groqKey &&
           !options.geminiKey &&
           !options.openrouterKey &&
@@ -554,6 +575,7 @@ export function createProgram(): Command {
           saveGlobalConfig(
             {
               ...(normalizedLang ? { lang: normalizedLang } : {}),
+              ...(targetLangVal !== undefined ? { targetLang: targetLangVal } : {}),
               ...(options.groqKey ? { groqApiKey: options.groqKey.trim() } : {}),
               ...(options.geminiKey ? { geminiApiKey: options.geminiKey.trim() } : {}),
               ...(options.openrouterKey ? { openrouterApiKey: options.openrouterKey.trim() } : {}),

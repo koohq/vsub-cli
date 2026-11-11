@@ -453,8 +453,9 @@ vsub video.mp4 --no-translate --refine
 # 今の設定を表示する (API キーは伏せて表示)
 vsub config show
 
-# 既定の値を保存する (表示言語、指示、用語集、並列数、分割の文字数、焼き込みの見た目)
+# 既定の値を保存する (表示言語、翻訳先、指示、用語集、並列数、分割の文字数、焼き込みの見た目)
 vsub config set --lang ja --prompt "丁寧な敬体で翻訳" --glossary "./glossary.json" --concurrency 4
+vsub config set --target-lang ja,en
 vsub config set --max-length 32 --burn-position bottom --burn-font-size medium
 vsub config set --stt-provider openrouter --openrouter-key "your_openrouter_key"
 vsub config set --llm-provider openrouter

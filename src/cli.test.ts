@@ -13,6 +13,7 @@ import {
 import { createProgram } from "./cli.js";
 import { DEFAULT_GEMINI_MODEL, getConfig, saveGlobalConfig } from "./config.js";
 import { embedSubtitlesToVideo } from "./ffmpeg.js";
+import { getI18n } from "./i18n/index.js";
 import { runInitWizard } from "./init.js";
 import {
   processChaptersPipeline,
@@ -20,6 +21,7 @@ import {
   processSummaryPipeline,
 } from "./pipeline.js";
 import { parseSrt, reflowSrtEntries } from "./srt.js";
+import { isolateConfigAndEnv } from "./test-support/isolate-config-env.js";
 import { DEFAULT_CONTEXT_WINDOW_SIZE, translateSrtEntries } from "./text/tasks.js";
 import * as ui from "./ui.js";
 import { notifyUpdateIfAvailable } from "./updater.js";
@@ -1189,7 +1191,7 @@ describe("CLI integration harness", () => {
           const rows: string[] = logSpy.mock.calls
             .map(([text]: unknown[]) => String(text))
             .filter((line: string) => line.includes(":") && !line.includes("Config File:"));
-          expect(rows.length).toBe(withOptional ? 18 : 8);
+          expect(rows.length).toBe(withOptional ? 19 : 9);
           expect(rows.map((line) => ui.displayWidth(line.slice(0, line.indexOf(":"))))).toEqual(
             rows.map(() => "OpenRouter STT Model".length + 1),
           );
@@ -1240,6 +1242,100 @@ describe("CLI integration harness", () => {
         expect(logged).toContain('Transcription        : invalid provider "bar"');
         expect(exitSpy).not.toHaveBeenCalled();
       });
+    });
+  });
+
+  describe("config target language settings", () => {
+    const originalEnv = process.env;
+    let configPath: string;
+    let errorSpy: ReturnType<typeof vi.spyOn>;
+
+    beforeEach(async () => {
+      process.env = { ...originalEnv };
+      isolateConfigAndEnv(tmpDir);
+      const actual = await vi.importActual<typeof import("./config.js")>("./config.js");
+      configPath = actual.getGlobalConfigPath();
+      vi.mocked(getConfig).mockImplementation(actual.getConfig);
+      vi.mocked(saveGlobalConfig).mockImplementation(actual.saveGlobalConfig);
+      errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+    });
+
+    afterEach(() => {
+      process.env = originalEnv;
+      vi.mocked(getConfig).mockReset().mockReturnValue(mockConfig);
+      vi.mocked(saveGlobalConfig).mockReset();
+      errorSpy.mockRestore();
+    });
+
+    function placeConfig(config: object): void {
+      fs.mkdirSync(path.dirname(configPath), { recursive: true });
+      fs.writeFileSync(configPath, JSON.stringify(config), "utf8");
+    }
+
+    it("saves normalized target languages alone without showing empty-setting guidance", async () => {
+      placeConfig({ prompt: "test prompt" });
+      await runCli("config", "set", "--target-lang", "EN, ja ,en");
+      expect(JSON.parse(fs.readFileSync(configPath, "utf8"))).toEqual({
+        prompt: "test prompt",
+        targetLang: "en,ja",
+      });
+      const output = logSpy.mock.calls.flat().join("\n");
+      expect(output).toContain(getI18n("en").config.setSaved(""));
+      expect(output).not.toContain(getI18n("en").config.setNothing);
+      expect(exitSpy).not.toHaveBeenCalled();
+    });
+
+    describe.each(["en", "ja"] as const)("%s validation", (lang) => {
+      it.each(["japanese", "ja;en", "", "  ", " , "])(
+        "rejects %j without saving any options",
+        async (input) => {
+          placeConfig({ targetLang: "fr", prompt: "test prompt" });
+          const before = fs.readFileSync(configPath, "utf8");
+          await runCli(
+            "config",
+            "set",
+            "-l",
+            lang,
+            "--target-lang",
+            input,
+            "--prompt",
+            "new prompt",
+          );
+          expect(exitSpy).toHaveBeenCalledWith(1);
+          expect(errorSpy.mock.calls.flat().join("\n")).toContain(
+            getI18n(lang).pipeline.invalidTargetLang(input),
+          );
+          expect(saveGlobalConfig).not.toHaveBeenCalled();
+          expect(fs.readFileSync(configPath, "utf8")).toBe(before);
+        },
+      );
+    });
+
+    describe.each(["en", "ja"] as const)("%s display", (lang) => {
+      it.each([
+        { saved: undefined, env: undefined, expected: "ja" },
+        { saved: "EN, ja ,en", env: undefined, expected: "EN, ja ,en" },
+        { saved: "fr", env: "ZH-TW, en", expected: "ZH-TW, en" },
+      ])(
+        "shows $expected below display language with aligned colons",
+        async ({ saved, env, expected }) => {
+          placeConfig({ lang, targetLang: saved });
+          if (env !== undefined) process.env["VSUB_TARGET_LANG"] = env;
+          await runCli("config", "show");
+          const labels = getI18n(lang).config.showLabels;
+          const rows = logSpy.mock.calls
+            .map(([text]: unknown[]) => String(text))
+            .filter((line: string) => line.includes(" : "));
+          expect(rows[0]?.split(" : ")[0]?.trim()).toBe(labels.lang);
+          expect(rows[1]?.split(" : ")[0]?.trim()).toBe(
+            lang === "en" ? "Target Language" : "翻訳先",
+          );
+          expect(rows[1]?.split(" : ")[1]).toBe(expected);
+          expect(
+            new Set(rows.map((row: string) => ui.displayWidth(row.split(" : ")[0] ?? ""))).size,
+          ).toBe(1);
+        },
+      );
     });
   });
 

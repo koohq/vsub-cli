@@ -12,6 +12,7 @@ import {
   saveGlobalConfig,
 } from "./config.js";
 import { getI18n, normalizeLanguage, type SupportedLanguage } from "./i18n/index.js";
+import { normalizeTargetLangSetting } from "./languages.js";
 import { DEFAULT_OPENROUTER_LLM_MODEL } from "./text/openrouter.js";
 import { type LlmProvider, parseLlmProvider, resolveLlmSettings } from "./text/select.js";
 import { DEFAULT_OPENROUTER_STT_MODEL } from "./transcribe/openrouter.js";
@@ -468,8 +469,18 @@ export async function runInitWizard(options: InitWizardOptions = {}): Promise<vo
     i18n = getI18n(resolvedDisplayLang);
 
     const currentTargetLang = currentConfig.targetLang || "ja";
-    const langAnswer = (await ask(m().promptTargetLang(currentTargetLang))).trim();
-    updatedConfig.targetLang = langAnswer || currentTargetLang;
+    while (true) {
+      const langAnswer = (await ask(m().promptTargetLang(currentTargetLang))).trim();
+      try {
+        updatedConfig.targetLang = normalizeTargetLangSetting(
+          langAnswer || currentTargetLang,
+          effectiveLang,
+        );
+        break;
+      } catch (err) {
+        out(pc.red(`  ✖ ${err instanceof Error ? err.message : String(err)}`));
+      }
+    }
 
     if (chosenLlmProvider === "gemini") {
       const currentGeminiModel = currentConfig.geminiModel || DEFAULT_GEMINI_MODEL;

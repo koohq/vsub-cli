@@ -59,6 +59,21 @@ export function resolveTargetLang(cliValue?: string, configValue?: string): stri
   return cliValue?.trim() || configValue?.trim() || "ja";
 }
 
+/**
+ * Validates a target language setting and returns the normalized form saved in the config file
+ * (lowercase, trimmed, deduplicated, comma-separated, in input order).
+ * @throws Error if the input has no language codes or contains an invalid code
+ */
+export function normalizeTargetLangSetting(
+  input: string,
+  lang?: SupportedLanguage | string,
+): string {
+  if (!input.split(",").some((token) => token.trim())) {
+    throw new Error(getI18n(lang).pipeline.invalidTargetLang(input));
+  }
+  return parseTargetLanguages(input, lang).join(",");
+}
+
 // Common ISO 639-1 to ISO 639-2 (3-letter) mapping for FFmpeg subtitle tracks
 const ISO_639_1_TO_639_2: Record<string, string> = {
   ja: "jpn",

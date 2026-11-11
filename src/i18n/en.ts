@@ -327,6 +327,7 @@ export const en = {
     showHeader: (path: string) => `📁 Config File: ${path}`,
     showLabels: {
       lang: "Display Language",
+      targetLang: "Target Language",
       groqApiKey: "Groq API Key",
       geminiApiKey: "Gemini API Key",
       openrouterApiKey: "OpenRouter API Key",

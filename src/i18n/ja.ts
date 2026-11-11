@@ -326,6 +326,7 @@ export const ja: typeof en = {
     showHeader: (path: string) => `📁 設定ファイル: ${path}`,
     showLabels: {
       lang: "表示言語",
+      targetLang: "翻訳先",
       groqApiKey: "Groq の API キー",
       geminiApiKey: "Gemini の API キー",
       openrouterApiKey: "OpenRouter の API キー",

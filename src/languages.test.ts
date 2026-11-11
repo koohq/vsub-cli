@@ -1,12 +1,41 @@
 import { describe, expect, it } from "vitest";
+import { getI18n } from "./i18n/index.js";
 import {
   getLanguageDisplayName,
+  normalizeTargetLangSetting,
   parseTargetLanguages,
   resolveTargetLang,
   toIso6392,
 } from "./languages.js";
 
 describe("languages.ts", () => {
+  describe("normalizeTargetLangSetting", () => {
+    it.each([
+      ["ja", "ja"],
+      ["EN, ja ,en", "en,ja"],
+      ["zh-TW,pt-BR", "zh-tw,pt-br"],
+    ])("normalizes %j to %j", (input, expected) => {
+      expect(normalizeTargetLangSetting(input)).toBe(expected);
+    });
+
+    describe.each(["en", "ja"] as const)("%s errors", (lang) => {
+      it.each(["japanese", "ja;en"])("reuses parser errors for %j", (input) => {
+        expect(() => normalizeTargetLangSetting(input, lang)).toThrow(
+          getI18n(lang).pipeline.invalidTargetLang(input),
+        );
+        expect(() => parseTargetLanguages(input, lang)).toThrow(
+          getI18n(lang).pipeline.invalidTargetLang(input),
+        );
+      });
+
+      it.each(["", "  ", " , "])("rejects empty codes and preserves %j in errors", (input) => {
+        expect(() => normalizeTargetLangSetting(input, lang)).toThrow(
+          getI18n(lang).pipeline.invalidTargetLang(input),
+        );
+      });
+    });
+  });
+
   describe("parseTargetLanguages", () => {
     it("should return default ['ja'] when input is undefined or empty", () => {
       expect(parseTargetLanguages()).toEqual(["ja"]);

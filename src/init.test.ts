@@ -6,7 +6,7 @@ import { stripVTControlCharacters } from "node:util";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import * as configModule from "./config.js";
 import { type AppConfig, getGlobalConfigPath } from "./config.js";
-import type { SupportedLanguage } from "./i18n/index.js";
+import { getI18n, type SupportedLanguage } from "./i18n/index.js";
 import {
   maskApiKey,
   runInitWizard,
@@ -284,6 +284,7 @@ describe("init.ts", () => {
       lang?: SupportedLanguage | undefined;
       displayLangAnswer?: string;
       targetLangAnswer?: string;
+      targetLangAnswers?: string[];
       ffmpegSuccess?: boolean;
       modelCount?: number | undefined;
     }
@@ -303,7 +304,7 @@ describe("init.ts", () => {
         "gemini-key",
         ...(options.ffmpegSuccess === false ? [""] : []),
         options.displayLangAnswer ?? "",
-        options.targetLangAnswer ?? "",
+        ...(options.targetLangAnswers ?? [options.targetLangAnswer ?? ""]),
         "", // Gemini model
         "", // Groq model
       ];
@@ -770,6 +771,38 @@ describe("init.ts", () => {
         expect(savedConfig.targetLang).toBe(expectedSavedTargetLang);
       },
     );
+
+    describe("target language validation", () => {
+      it.each(["en", "ja"] as const)("retries invalid input in %s", async (lang) => {
+        const { output, prompts, savedConfig } = await runWizard({
+          lang,
+          targetLangAnswers: ["japanese", "EN, ja"],
+        });
+        const error = getI18n(lang).pipeline.invalidTargetLang("japanese");
+        expect(output.split(error)).toHaveLength(2);
+        expect(prompts[5]).toBe(getI18n(lang).init.promptTargetLang("ja"));
+        expect(prompts[6]).toBe(prompts[5]);
+        expect(prompts.filter((prompt) => prompt === prompts[5])).toHaveLength(2);
+        expect(savedConfig.targetLang).toBe("en,ja");
+      });
+
+      it("retries an invalid saved default when Enter is pressed", async () => {
+        placeConfig({ targetLang: "japanese" });
+        const { output, prompts, savedConfig } = await runWizard({
+          lang: "en",
+          targetLangAnswers: ["", "ja"],
+        });
+        expect(output).toContain(getI18n("en").pipeline.invalidTargetLang("japanese"));
+        expect(prompts.filter((prompt) => prompt === prompts[5])).toHaveLength(2);
+        expect(savedConfig.targetLang).toBe("ja");
+      });
+
+      it("normalizes the saved default when Enter is pressed", async () => {
+        placeConfig({ targetLang: "EN, ja ,en" });
+        const { savedConfig } = await runWizard();
+        expect(savedConfig.targetLang).toBe("en,ja");
+      });
+    });
 
     describe("STT provider selection and OpenRouter support in wizard", () => {
       it("defaults to groq when only Groq API key is in config, and saves sttProvider: 'groq' on Enter", async () => {

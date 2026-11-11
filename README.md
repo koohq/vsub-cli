@@ -451,8 +451,9 @@ vsub video.mp4 --no-translate --refine
 # Show current configuration (API keys are masked)
 vsub config show
 
-# Save persistent defaults (display language, prompts, glossary, concurrency, reflow length, burn style)
+# Save persistent defaults (display language, target language, prompts, glossary, concurrency, reflow length, burn style)
 vsub config set --lang ja --prompt "Translate politely" --glossary "./glossary.json" --concurrency 4
+vsub config set --target-lang ja,en
 vsub config set --max-length 32 --burn-position bottom --burn-font-size medium
 vsub config set --stt-provider openrouter --openrouter-key "your_openrouter_key"
 vsub config set --llm-provider openrouter
