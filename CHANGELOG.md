@@ -2,6 +2,14 @@
 
 All notable changes to this project will be documented in this file. See [standard-version](https://github.com/conventional-changelog/standard-version) for commit guidelines.
 
+## [1.8.0](https://github.com/koohq/vsub-cli/compare/vsub-cli-v1.7.2...vsub-cli-v1.8.0) (2026-11-11)
+
+
+### Features
+
+* add --glossary to chapters and summarize ([7b76d3d](https://github.com/koohq/vsub-cli/commit/7b76d3d6c51b786f81bafd60f76ceb5c28bfe0b9))
+* let config and VSUB_REFINE turn --refine on by default ([ddd6210](https://github.com/koohq/vsub-cli/commit/ddd6210ee911d85fe679fd14aa53d49f377daf1a))
+
 ## [1.7.2](https://github.com/koohq/vsub-cli/compare/vsub-cli-v1.7.1...vsub-cli-v1.7.2) (2026-11-11)
 
 
