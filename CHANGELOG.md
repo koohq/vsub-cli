@@ -2,6 +2,14 @@
 
 All notable changes to this project will be documented in this file. See [standard-version](https://github.com/conventional-changelog/standard-version) for commit guidelines.
 
+## [1.6.1](https://github.com/koohq/vsub-cli/compare/vsub-cli-v1.6.0...vsub-cli-v1.6.1) (2026-11-11)
+
+
+### Bug Fixes
+
+* keep PowerShell 7 module paths out of the Expand-Archive fallback ([bdeddfa](https://github.com/koohq/vsub-cli/commit/bdeddfa17b2e216cee6dbbbd91d0fc4820f7ab48))
+* reject transcripts without subtitle timestamps ([1c58e40](https://github.com/koohq/vsub-cli/commit/1c58e40d2036853fd5ce8237c5fa94cc930749d3))
+
 ## [1.6.0](https://github.com/koohq/vsub-cli/compare/vsub-cli-v1.5.1...vsub-cli-v1.6.0) (2026-11-11)
 
 
