@@ -1203,6 +1203,19 @@ describe("CLI integration harness", () => {
   });
 
   describe("init --lang", () => {
+    it.each([false, true])("shows the language option in init help (config alias: %s)", (alias) => {
+      const program = createProgram();
+      const parent = alias
+        ? program.commands.find((command) => command.name() === "config")
+        : program;
+      const init = parent?.commands.find((command) => command.name() === "init");
+      expect(init).toBeDefined();
+      const help = stripVTControlCharacters(init?.helpInformation() ?? "");
+      expect(help).toContain("-l, --lang <lang>");
+      expect(help).toContain("UI display language (en, ja)");
+      expect(help).not.toContain("--no-update-check");
+    });
+
     const initLangCases: Array<{
       name: string;
       args: string[];

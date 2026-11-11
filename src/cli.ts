@@ -155,12 +155,14 @@ function readActionOptions<T>(cmd: Command): T & NormalizedNegativeFlags {
   };
 }
 
-/**
- * Creates a hidden -l/--lang option for commands that accept UI display language
- * without exposing it in their help output.
- */
+/** Creates the shared UI display language option. */
+function createLangOption(): Option {
+  return new Option("-l, --lang <lang>", "UI display language (en, ja)");
+}
+
+/** Hides the UI display language option from command help. */
 function createHiddenLangOption(): Option {
-  return new Option("-l, --lang <lang>", "UI display language (en, ja)").hideHelp();
+  return createLangOption().hideHelp();
 }
 
 /**
@@ -170,7 +172,7 @@ function addInitCommand(parent: Command, description: string): void {
   parent
     .command("init")
     .description(description)
-    .addOption(createHiddenLangOption())
+    .addOption(createLangOption())
     .action(async (_options: unknown, cmd: Command) => {
       const actionOptions = readActionOptions<{ lang?: string }>(cmd);
       try {
