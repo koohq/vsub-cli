@@ -165,6 +165,10 @@ export async function runInitWizard(options: InitWizardOptions = {}): Promise<vo
   let i18n = getI18n(effectiveLang);
   const m = () => i18n.init;
 
+  if (!options.ask && (input as NodeJS.ReadableStream & { isTTY?: boolean }).isTTY !== true) {
+    throw new Error(m().notInteractive);
+  }
+
   const groqVerifier =
     options.groqVerifier || ((k: string) => verifyGroqApiKey(k, { lang: effectiveLang }));
   const openrouterVerifier =

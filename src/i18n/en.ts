@@ -261,6 +261,8 @@ export const en = {
       "Existing target file(s) detected. Please specify --overwrite or --backup to proceed in non-interactive environment.",
   },
   init: {
+    notInteractive:
+      "vsub init is interactive and must be run from a terminal (standard input is not a terminal). To configure without the wizard, use vsub config set (for example, vsub config set --openrouter-key <key>) or environment variables such as VSUB_OPENROUTER_API_KEY.",
     bannerTitle: "🎬 vsub-cli Initial Setup & Verification Wizard",
     configLocation: (path: string) => `Config file location: ${path}`,
     description1:

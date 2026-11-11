@@ -1,6 +1,7 @@
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
+import readline from "node:readline/promises";
 import { PassThrough } from "node:stream";
 import { stripVTControlCharacters } from "node:util";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -279,6 +280,60 @@ describe("init.ts", () => {
       fs.mkdirSync(path.dirname(configPath), { recursive: true });
       fs.writeFileSync(configPath, JSON.stringify(config, null, 2), "utf8");
     }
+
+    function stopAtFirstQuestion() {
+      const question = vi.fn().mockRejectedValue(new Error("test input closed"));
+      const createInterface = vi.spyOn(readline, "createInterface").mockReturnValue({
+        question,
+        close: vi.fn(),
+      } as unknown as readline.Interface);
+      return { question, createInterface };
+    }
+
+    it.each([
+      { lang: "en", configured: false },
+      { lang: "ja", configured: false },
+      { lang: "ja", configured: true },
+    ] as const)(
+      "rejects non-terminal input before output ($lang, configured: $configured)",
+      async ({ lang, configured }) => {
+        if (configured) placeConfig({ lang });
+        const input = new PassThrough();
+        const output = new PassThrough();
+        const write = vi.spyOn(output, "write");
+        const { createInterface } = stopAtFirstQuestion();
+        const expected =
+          lang === "ja"
+            ? "vsub init は対話形式のため、端末から実行してください（標準入力が端末ではありません）。ウィザードを使わずに設定するには、vsub config set（例: vsub config set --openrouter-key <キー>）か、VSUB_OPENROUTER_API_KEY などの環境変数を使ってください。"
+            : "vsub init is interactive and must be run from a terminal (standard input is not a terminal). To configure without the wizard, use vsub config set (for example, vsub config set --openrouter-key <key>) or environment variables such as VSUB_OPENROUTER_API_KEY.";
+        await expect(
+          runInitWizard({ input, output, ...(configured ? {} : { lang }) }),
+        ).rejects.toThrow(new Error(expected));
+        expect(write).not.toHaveBeenCalled();
+        expect(createInterface).not.toHaveBeenCalled();
+        expect(saveSpy).not.toHaveBeenCalled();
+      },
+    );
+
+    it("starts on terminal input even when output is a pipe", async () => {
+      const input = Object.assign(new PassThrough(), { isTTY: true });
+      const output = new PassThrough();
+      let printed = "";
+      output.on("data", (chunk) => {
+        printed += chunk.toString();
+      });
+      const { question } = stopAtFirstQuestion();
+      await expect(runInitWizard({ input, output, lang: "en" })).rejects.toThrow(
+        "test input closed",
+      );
+      expect(stripVTControlCharacters(printed)).toContain(
+        "vsub-cli Initial Setup & Verification Wizard",
+      );
+      expect(question).toHaveBeenCalledExactlyOnceWith(
+        getI18n("en").init.promptSttProvider("openrouter"),
+      );
+      expect(saveSpy).not.toHaveBeenCalled();
+    });
 
     interface RunWizardOptions {
       lang?: SupportedLanguage | undefined;

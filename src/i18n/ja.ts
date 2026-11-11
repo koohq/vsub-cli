@@ -265,6 +265,8 @@ export const ja: typeof en = {
       "出力ファイルが既に存在します。上書きを許可する場合は --overwrite、バックアップを残す場合は --backup を指定してください。",
   },
   init: {
+    notInteractive:
+      "vsub init は対話形式のため、端末から実行してください（標準入力が端末ではありません）。ウィザードを使わずに設定するには、vsub config set（例: vsub config set --openrouter-key <キー>）か、VSUB_OPENROUTER_API_KEY などの環境変数を使ってください。",
     bannerTitle: "🎬 vsub-cli 初期セットアップ & 導通確認ウィザード",
     configLocation: (path: string) => `設定ファイルの保存先: ${path}`,
     description1: "このウィザードでは API キー・FFmpeg の導通確認と初期設定を行います。",
