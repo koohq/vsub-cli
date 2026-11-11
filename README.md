@@ -348,7 +348,7 @@ Control how long speech segments are split and how context is preserved across t
 # Customize maximum characters and duration per subtitle segment
 vsub video.mp4 -t ja --max-length 28 --max-duration 5
 
-# Disable automatic segment splitting to preserve raw Whisper segment boundaries
+# Disable automatic segment splitting to keep the segment boundaries from transcription
 vsub video.mp4 -t ja --no-reflow
 
 # Adjust preceding context lines carried across 50-line translation chunks (default: 5, 0 to disable)
@@ -382,7 +382,7 @@ vsub video.mp4 -t ja,zh --glossary ./glossary.json
 ```
 
 > [!TIP]
-> Even when `--whisper-prompt` is omitted, source terms from `--glossary` (`Large Language Model, Agentic AI`) are automatically passed to Whisper as recognition hints, improving speech recognition accuracy as well.
+> When transcribing with Groq Whisper, source terms from `--glossary` (`Large Language Model, Agentic AI`) are automatically passed to Whisper as recognition hints even when `--whisper-prompt` is omitted, improving speech recognition accuracy as well (they are not sent to OpenRouter).
 
 #### Custom Translation Tone & Instructions
 ```bash
