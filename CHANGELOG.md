@@ -2,6 +2,20 @@
 
 All notable changes to this project will be documented in this file. See [standard-version](https://github.com/conventional-changelog/standard-version) for commit guidelines.
 
+## [1.7.0](https://github.com/koohq/vsub-cli/compare/vsub-cli-v1.6.1...vsub-cli-v1.7.0) (2026-11-11)
+
+
+### Features
+
+* add a default target language to config set and config show ([f443f4e](https://github.com/koohq/vsub-cli/commit/f443f4ee7076263d062ddb972b90dedcabcba971))
+
+
+### Bug Fixes
+
+* correct progress markers and terminal display alignment ([be24cd1](https://github.com/koohq/vsub-cli/commit/be24cd1e4159dae45c5071fa6846e16175df975f))
+* localize config, cache and setup output and stop reading parent .env ([2dbcda8](https://github.com/koohq/vsub-cli/commit/2dbcda8a1dbaadc28e06d990c768f8db66d3535a))
+* merge short chapters so YouTube accepts chapter lists ([dbf8b57](https://github.com/koohq/vsub-cli/commit/dbf8b57b40f9162dd6631512892b44f2ddb5829b))
+
 ## [1.6.1](https://github.com/koohq/vsub-cli/compare/vsub-cli-v1.6.0...vsub-cli-v1.6.1) (2026-11-11)
 
 
