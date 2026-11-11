@@ -27,6 +27,7 @@ import { DEFAULT_CONTEXT_WINDOW_SIZE, translateSrtEntries } from "./text/tasks.j
 import { getTranslationResumeHint, TranslationStoppedError } from "./translation.js";
 import * as ui from "./ui.js";
 import { notifyUpdateIfAvailable } from "./updater.js";
+import { getCurrentVersion } from "./version.js";
 
 const { mockConfig } = vi.hoisted(() => ({
   mockConfig: {
@@ -103,6 +104,7 @@ vi.mock("./updater.js", async (importOriginal) => {
   return {
     ...actual,
     notifyUpdateIfAvailable: vi.fn().mockResolvedValue(undefined),
+    checkUpdate: vi.fn(),
     isStandaloneBinary: vi.fn().mockReturnValue(false),
     performSelfUpdate: vi.fn(),
   };
@@ -313,6 +315,69 @@ describe("CLI integration harness", () => {
         logSpy.mock.calls.map(([text]: unknown[]) => String(text)).join("\n"),
       );
     }
+
+    describe.each([false, true])("update success notices (verbose: %s)", (verbose) => {
+      it.each([
+        { check: true, alreadyLatest: true, lang: "en" },
+        { check: false, alreadyLatest: true, lang: "ja" },
+        { check: false, alreadyLatest: false, lang: "en" },
+      ])(
+        "shows success for $check / $alreadyLatest in $lang",
+        async ({ check, alreadyLatest, lang }) => {
+          const { checkUpdate, isStandaloneBinary, performSelfUpdate } = await import(
+            "./updater.js"
+          );
+          vi.mocked(isStandaloneBinary).mockReturnValueOnce(true);
+          vi.mocked(checkUpdate).mockResolvedValueOnce({
+            updateAvailable: false,
+            currentVersion: getCurrentVersion(),
+            latestVersion: getCurrentVersion(),
+            updateCommand: "vsub update",
+          });
+          vi.mocked(performSelfUpdate).mockResolvedValueOnce({
+            success: true,
+            alreadyLatest,
+            previousVersion: getCurrentVersion(),
+            newVersion: "9.9.9",
+            binaryPath: "vsub.exe",
+            releaseUrl: "https://example.com/release",
+          });
+          const spinner = ui.createSpinner("", { isSilent: true });
+          const succeed = vi.spyOn(spinner, "succeed");
+          const createSpinner = vi.spyOn(ui, "createSpinner").mockReturnValue(spinner);
+          try {
+            await runCli(
+              "update",
+              ...(check ? ["--check"] : []),
+              ...(verbose ? ["--verbose"] : []),
+              "-l",
+              lang,
+            );
+            const messages = getI18n(lang).update;
+            const text = alreadyLatest
+              ? messages.alreadyLatest(getCurrentVersion())
+              : messages.successTitle;
+            if (verbose) {
+              expect(
+                errorSpy.mock.calls.map(([line]: unknown[]) =>
+                  stripVTControlCharacters(String(line)),
+                ),
+              ).toEqual([`✔ ${text}`]);
+              expect(succeed).not.toHaveBeenCalled();
+            } else {
+              expect(succeed).toHaveBeenCalledExactlyOnceWith(text);
+              expect(errorSpy).not.toHaveBeenCalled();
+            }
+            expect(exitSpy).not.toHaveBeenCalled();
+            if (!alreadyLatest) expect(output()).toContain("9.9.9");
+          } finally {
+            createSpinner.mockRestore();
+            vi.mocked(checkUpdate).mockReset();
+            vi.mocked(performSelfUpdate).mockReset();
+          }
+        },
+      );
+    });
 
     describe.each(["en", "ja"] as const)("%s failure notices", (lang) => {
       it.each([false, true])(

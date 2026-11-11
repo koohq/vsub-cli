@@ -504,7 +504,12 @@ export function createProgram(): Command {
             spinner.info(m.checkAvailable(checkResult.latestVersion, checkResult.currentVersion));
             console.log(`\n${formatUpdateNotification(checkResult, lang)}\n`);
           } else {
-            spinner.succeed(m.alreadyLatest(getCurrentVersion()));
+            showSpinnerNotice(
+              spinner,
+              Boolean(options.verbose),
+              "succeed",
+              m.alreadyLatest(getCurrentVersion()),
+            );
           }
           return;
         }
@@ -519,11 +524,16 @@ export function createProgram(): Command {
           });
 
           if (result.alreadyLatest) {
-            spinner.succeed(m.alreadyLatest(result.previousVersion));
+            showSpinnerNotice(
+              spinner,
+              Boolean(options.verbose),
+              "succeed",
+              m.alreadyLatest(result.previousVersion),
+            );
             return;
           }
 
-          spinner.succeed(m.successTitle);
+          showSpinnerNotice(spinner, Boolean(options.verbose), "succeed", m.successTitle);
           console.log(`\n${formatSelfUpdateSummary(result, lang)}\n`);
         } catch (err: unknown) {
           showSpinnerNotice(

@@ -595,22 +595,28 @@ describe("ui module", () => {
   });
 
   describe("showSpinnerNotice", () => {
-    it.each(["info", "warn", "fail"] as const)(
+    it.each(["info", "warn", "fail", "succeed"] as const)(
       "routes %s notices according to verbosity",
       (kind) => {
         const spinner = createSpinner("", { isSilent: true });
         const info = vi.spyOn(spinner, "info");
         const warn = vi.spyOn(spinner, "warn");
         const fail = vi.spyOn(spinner, "fail");
+        const succeed = vi.spyOn(spinner, "succeed");
         const error = vi.spyOn(console, "error").mockImplementation(() => {});
         try {
           showSpinnerNotice(spinner, true, kind, "Test notice");
           expect(error.mock.calls.map(([text]) => stripVTControlCharacters(String(text)))).toEqual([
-            kind === "fail" ? "✖ Test notice" : "Test notice",
+            kind === "fail"
+              ? "✖ Test notice"
+              : kind === "succeed"
+                ? "✔ Test notice"
+                : "Test notice",
           ]);
           expect(info).not.toHaveBeenCalled();
           expect(warn).not.toHaveBeenCalled();
           expect(fail).not.toHaveBeenCalled();
+          expect(succeed).not.toHaveBeenCalled();
           error.mockClear();
           showSpinnerNotice(spinner, false, kind, "Test notice");
           expect(spinner[kind]).toHaveBeenCalledExactlyOnceWith("Test notice");
