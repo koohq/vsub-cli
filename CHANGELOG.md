@@ -2,6 +2,16 @@
 
 All notable changes to this project will be documented in this file. See [standard-version](https://github.com/conventional-changelog/standard-version) for commit guidelines.
 
+## [1.9.1](https://github.com/koohq/vsub-cli/compare/vsub-cli-v1.9.0...vsub-cli-v1.9.1) (2026-11-12)
+
+
+### Bug Fixes
+
+* localize FFmpeg errors for the Japanese display language ([66cd4e7](https://github.com/koohq/vsub-cli/commit/66cd4e735941bed598fbdbdc484af6247ab4281e))
+* localize missing-key errors when creating text and transcription models ([f40e4a6](https://github.com/koohq/vsub-cli/commit/f40e4a6bcf78b7541299628f80977a99af373991))
+* localize self-update errors for the Japanese display language ([2dd996d](https://github.com/koohq/vsub-cli/commit/2dd996dea0a3a8a6c243676648df75fb278e7f7c))
+* remove extracted audio when transcription fails ([a9dfd3a](https://github.com/koohq/vsub-cli/commit/a9dfd3a971f4dfc02daa62b3807c8a8cc79a19ba))
+
 ## [1.9.0](https://github.com/koohq/vsub-cli/compare/vsub-cli-v1.8.1...vsub-cli-v1.9.0) (2026-11-12)
 
 
