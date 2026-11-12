@@ -52,11 +52,12 @@ jobs:
       - name: Setup pnpm
         uses: pnpm/action-setup@73e46992e05b19abd31f2f3c20e0e7370d762115 # v6.1.1
 
-      - name: Setup Node.js (with registry url)
+      # No registry-url here: setup-node would write an .npmrc with a token
+      # placeholder, which can take precedence over OIDC trusted publishing.
+      - name: Setup Node.js
         uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version-file: .node-version
-          registry-url: "https://registry.npmjs.org"
           cache: "pnpm"
 
       - name: Install dependencies
@@ -65,12 +66,10 @@ jobs:
       - name: Build package
         run: pnpm build
 
+      # Authenticates through npm trusted publishing (OIDC via id-token: write);
+      # the trusted publisher on npmjs.com is bound to this workflow file.
       - name: Publish to npm
-        if: env.NPM_TOKEN != ''
         run: pnpm publish --access public --provenance --no-git-checks
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
-          NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
 
   build-binaries:
     name: Build Binary
