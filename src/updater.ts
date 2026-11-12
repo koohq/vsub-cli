@@ -291,10 +291,11 @@ export async function downloadFile(
   url: string,
   destPath: string,
   fetcher: (url: string, init?: RequestInit) => Promise<Response> = fetch,
+  lang?: SupportedLanguage | string | undefined,
 ): Promise<void> {
   const res = await fetcher(url);
   if (!res.ok) {
-    throw new Error(`Failed to download ${url}: HTTP ${res.status} ${res.statusText}`);
+    throw new Error(getI18n(lang).update.downloadFailed(url, res.status, res.statusText));
   }
   const arrayBuffer = await res.arrayBuffer();
   fs.writeFileSync(destPath, Buffer.from(arrayBuffer));
@@ -325,7 +326,9 @@ export async function extractArchive(
   archivePath: string,
   destDir: string,
   platform: NodeJS.Platform | string = process.platform,
+  lang?: SupportedLanguage | string | undefined,
 ): Promise<string> {
+  const m = getI18n(lang).update;
   if (!fs.existsSync(destDir)) {
     fs.mkdirSync(destDir, { recursive: true });
   }
@@ -355,7 +358,7 @@ export async function extractArchive(
       );
     } else {
       throw new Error(
-        `Failed to extract archive ${archivePath}: ${err instanceof Error ? err.message : String(err)}`,
+        m.extractFailed(archivePath, err instanceof Error ? err.message : String(err)),
       );
     }
   }
@@ -364,7 +367,7 @@ export async function extractArchive(
   const binaryPath = path.join(destDir, binaryName);
 
   if (!fs.existsSync(binaryPath)) {
-    throw new Error(`Extracted archive did not contain expected binary: ${binaryName}`);
+    throw new Error(m.binaryNotInArchive(binaryName));
   }
 
   return binaryPath;
@@ -428,8 +431,10 @@ export function replaceBinarySafely(options: {
   newBinaryPath: string;
   targetBinaryPath: string;
   platform?: string | undefined;
+  lang?: SupportedLanguage | string | undefined;
 }): void {
   const platform = options.platform || process.platform;
+  const m = getI18n(options.lang).update;
 
   // Clean any old leftover backup files
   cleanOldBinaries(options.targetBinaryPath, platform);
@@ -454,9 +459,7 @@ export function replaceBinarySafely(options: {
       } catch (err: unknown) {
         const error = err as { code?: string };
         if (error.code === "EACCES" || error.code === "EPERM") {
-          throw new Error(
-            `Permission denied renaming ${options.targetBinaryPath}. Please re-run with Administrator privileges.`,
-          );
+          throw new Error(m.renamePermissionDenied(options.targetBinaryPath));
         }
         throw err;
       }
@@ -476,9 +479,7 @@ export function replaceBinarySafely(options: {
       }
       const error = copyErr as { code?: string };
       if (error.code === "EACCES" || error.code === "EPERM") {
-        throw new Error(
-          `Permission denied placing new binary at ${options.targetBinaryPath}. Please re-run with Administrator privileges.`,
-        );
+        throw new Error(m.placePermissionDenied(options.targetBinaryPath));
       }
       throw copyErr;
     }
@@ -515,9 +516,7 @@ export function replaceBinarySafely(options: {
 
       const error = err as { code?: string };
       if (error.code === "EACCES" || error.code === "EPERM") {
-        throw new Error(
-          `Permission denied writing to ${options.targetBinaryPath}. Please re-run with sudo.`,
-        );
+        throw new Error(m.writePermissionDenied(options.targetBinaryPath));
       }
       throw err;
     }
@@ -686,7 +685,7 @@ export async function performSelfUpdate(
 
   const release = await fetchReleaseDetails(options.fetcher, currentVersion);
   if (!release) {
-    throw new Error("Failed to retrieve latest release information from GitHub.");
+    throw new Error(m.releaseInfoFailed);
   }
 
   if (!options.force && !isNewerVersion(currentVersion, release.version)) {
@@ -706,9 +705,7 @@ export async function performSelfUpdate(
 
   const archiveAsset = release.assets.find((a) => a.name === targetArchiveName);
   if (!archiveAsset) {
-    throw new Error(
-      `No standalone binary release asset found for platform '${platform}' and architecture '${arch}' (${targetArchiveName}).\nPlease visit: ${release.releaseUrl}`,
-    );
+    throw new Error(m.noReleaseAsset(platform, arch, targetArchiveName, release.releaseUrl));
   }
 
   const checksumAsset = release.assets.find((a) => a.name === "SHA256SUMS.txt");
@@ -720,11 +717,11 @@ export async function performSelfUpdate(
 
   try {
     const archiveDest = path.join(tempDir, targetArchiveName);
-    await downloadFile(archiveAsset.browser_download_url, archiveDest, options.fetcher);
+    await downloadFile(archiveAsset.browser_download_url, archiveDest, options.fetcher, lang);
 
     // Verify SHA-256 Checksum
     const checksumDest = path.join(tempDir, "SHA256SUMS.txt");
-    await downloadFile(checksumAsset.browser_download_url, checksumDest, options.fetcher);
+    await downloadFile(checksumAsset.browser_download_url, checksumDest, options.fetcher, lang);
     const checksumContent = fs.readFileSync(checksumDest, "utf-8");
     const checksumMap = parseChecksumFile(checksumContent);
     const expectedHash = checksumMap.get(targetArchiveName);
@@ -740,13 +737,14 @@ export async function performSelfUpdate(
 
     // Extract archive
     const extractDir = path.join(tempDir, "extracted");
-    const extractedBinary = await extractArchive(archiveDest, extractDir, platform);
+    const extractedBinary = await extractArchive(archiveDest, extractDir, platform, lang);
 
     // Replace binary safely
     replaceBinarySafely({
       newBinaryPath: extractedBinary,
       targetBinaryPath: targetBinary,
       platform,
+      lang,
     });
 
     // Update update-cache.json with the new version so checkUpdate knows we are up to date

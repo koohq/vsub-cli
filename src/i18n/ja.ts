@@ -479,6 +479,21 @@ export const ja: typeof en = {
       "※ 全文テキストは `vsub licenses --full` または配布同梱の `THIRD_PARTY_LICENSES.txt` で確認できます。",
   },
   update: {
+    downloadFailed: (url: string, status: number, statusText: string) =>
+      `${url} をダウンロードできませんでした: HTTP ${status} ${statusText}`,
+    extractFailed: (archivePath: string, detail: string) =>
+      `アーカイブ ${archivePath} を展開できませんでした: ${detail}`,
+    binaryNotInArchive: (binaryName: string) =>
+      `展開したアーカイブに実行ファイル ${binaryName} がありませんでした。`,
+    renamePermissionDenied: (path: string) =>
+      `${path} の名前を変える権限がありません。管理者として実行し直してください。`,
+    placePermissionDenied: (path: string) =>
+      `新しい実行ファイルを ${path} に置く権限がありません。管理者として実行し直してください。`,
+    writePermissionDenied: (path: string) =>
+      `${path} に書き込む権限がありません。sudo を付けて実行し直してください。`,
+    releaseInfoFailed: "GitHub から最新のリリースの情報を取得できませんでした。",
+    noReleaseAsset: (platform: string, arch: string, asset: string, url: string) =>
+      `プラットフォーム '${platform}'・アーキテクチャ '${arch}' 向けの実行ファイル（${asset}）がリリースにありません。\n次を参照してください: ${url}`,
     checkAvailable: (latest: string, current: string) =>
       `v${latest} が利用できます (現在: v${current})`,
     available: (current: string, latest: string) =>

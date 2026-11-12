@@ -478,6 +478,21 @@ export const en = {
       "* Full license text is available via `vsub licenses --full` or in the bundled `THIRD_PARTY_LICENSES.txt`.",
   },
   update: {
+    downloadFailed: (url: string, status: number, statusText: string) =>
+      `Failed to download ${url}: HTTP ${status} ${statusText}`,
+    extractFailed: (archivePath: string, detail: string) =>
+      `Failed to extract archive ${archivePath}: ${detail}`,
+    binaryNotInArchive: (binaryName: string) =>
+      `Extracted archive did not contain expected binary: ${binaryName}`,
+    renamePermissionDenied: (path: string) =>
+      `Permission denied renaming ${path}. Please re-run with Administrator privileges.`,
+    placePermissionDenied: (path: string) =>
+      `Permission denied placing new binary at ${path}. Please re-run with Administrator privileges.`,
+    writePermissionDenied: (path: string) =>
+      `Permission denied writing to ${path}. Please re-run with sudo.`,
+    releaseInfoFailed: "Failed to retrieve latest release information from GitHub.",
+    noReleaseAsset: (platform: string, arch: string, asset: string, url: string) =>
+      `No standalone binary release asset found for platform '${platform}' and architecture '${arch}' (${asset}).\nPlease visit: ${url}`,
     checkAvailable: (latest: string, current: string) =>
       `v${latest} available (current: v${current})`,
     available: (current: string, latest: string) => `Update available: v${current} ➔ v${latest}`,

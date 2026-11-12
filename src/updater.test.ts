@@ -255,6 +255,158 @@ e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855  vsub-windows-x
     });
   });
 
+  describe("localized update errors", () => {
+    it.each(["ja", "en"])("preserves HTTP status and text (%s)", async (lang) => {
+      const url = "https://example.invalid/archive.zip";
+      const fetcher = vi
+        .fn()
+        .mockResolvedValue({ ok: false, status: 503, statusText: "Service Unavailable" });
+      const message =
+        lang === "ja"
+          ? `${url} をダウンロードできませんでした: HTTP 503 Service Unavailable`
+          : `Failed to download ${url}: HTTP 503 Service Unavailable`;
+      await expect(
+        downloadFile(url, path.join(tempDir, "archive.zip"), fetcher, lang),
+      ).rejects.toEqual(new Error(message));
+    });
+
+    it.each(["ja", "en"])("localizes release lookup failures (%s)", async (lang) => {
+      await expect(
+        performSelfUpdate({
+          isBinary: true,
+          lang,
+          fetcher: vi.fn().mockRejectedValue(new Error("offline")),
+        }),
+      ).rejects.toEqual(
+        new Error(
+          lang === "ja"
+            ? "GitHub から最新のリリースの情報を取得できませんでした。"
+            : "Failed to retrieve latest release information from GitHub.",
+        ),
+      );
+    });
+
+    it.each(["ja", "en"])("localizes missing release assets (%s)", async (lang) => {
+      const url = "https://example.invalid/releases/v2";
+      await expect(
+        performSelfUpdate({
+          isBinary: true,
+          currentVersion: "1.0.0",
+          platform: "linux",
+          arch: "arm64",
+          lang,
+          fetcher: createReleaseFetcher({ assets: [], releaseUrl: url }),
+        }),
+      ).rejects.toEqual(
+        new Error(
+          lang === "ja"
+            ? `プラットフォーム 'linux'・アーキテクチャ 'arm64' 向けの実行ファイル（vsub-linux-arm64.tar.gz）がリリースにありません。\n次を参照してください: ${url}`
+            : `No standalone binary release asset found for platform 'linux' and architecture 'arm64' (vsub-linux-arm64.tar.gz).\nPlease visit: ${url}`,
+        ),
+      );
+    });
+
+    it.each(["tar", "binary"])("localizes archive %s failures", async (failure) => {
+      const archive = path.join(tempDir, "archive.tar.gz");
+      mockExeca.mockReset();
+      if (failure === "tar")
+        mockExeca.mockRejectedValueOnce(new Error("raw tar detail\ninvalid header"));
+      else mockExeca.mockResolvedValueOnce({});
+      await expect(
+        extractArchive(archive, path.join(tempDir, "extracted"), "linux", "ja"),
+      ).rejects.toEqual(
+        new Error(
+          failure === "tar"
+            ? `アーカイブ ${archive} を展開できませんでした: raw tar detail\ninvalid header`
+            : "展開したアーカイブに実行ファイル vsub がありませんでした。",
+        ),
+      );
+    });
+
+    it.each(["rename", "place", "write"] as const)("localizes %s permission errors", (stage) => {
+      const target = path.join(tempDir, "vsub");
+      const source = path.join(tempDir, "new-vsub");
+      fs.writeFileSync(target, "old binary");
+      fs.writeFileSync(source, "new binary");
+      const operation = stage === "rename" ? "renameSync" : "copyFileSync";
+      const spy = vi.spyOn(fs, operation).mockImplementation(() => {
+        throw Object.assign(new Error("permission"), { code: "EPERM" });
+      });
+      try {
+        expect(() =>
+          replaceBinarySafely({
+            newBinaryPath: source,
+            targetBinaryPath: target,
+            platform: stage === "write" ? "linux" : "win32",
+            lang: "ja",
+          }),
+        ).toThrow(
+          stage === "rename"
+            ? `${target} の名前を変える権限がありません。管理者として実行し直してください。`
+            : stage === "place"
+              ? `新しい実行ファイルを ${target} に置く権限がありません。管理者として実行し直してください。`
+              : `${target} に書き込む権限がありません。sudo を付けて実行し直してください。`,
+        );
+        expect(fs.readFileSync(target, "utf8")).toBe("old binary");
+      } finally {
+        spy.mockRestore();
+      }
+    });
+
+    it.each(["download", "extract", "replace"])(
+      "passes Japanese through self-update %s",
+      async (stage) => {
+        const target = path.join(tempDir, "vsub");
+        fs.writeFileSync(target, "old binary");
+        const releaseFetcher = createReleaseFetcher({ archiveName: "vsub-linux-x64.tar.gz" });
+        const fetcher = vi.fn(async (url: string) =>
+          stage === "download" && url.endsWith(".tar.gz")
+            ? ({ ok: false, status: 403, statusText: "Forbidden" } as Response)
+            : releaseFetcher(url),
+        );
+        mockExeca.mockReset();
+        let archive = "";
+        mockExeca.mockImplementation(async (_cmd: unknown, args: string[]) => {
+          archive = args[1] as string;
+          if (stage === "extract") throw new Error("raw tar failure");
+          fs.writeFileSync(path.join(args[3] as string, "vsub"), "new binary");
+          return {};
+        });
+        const copySpy =
+          stage === "replace"
+            ? vi.spyOn(fs, "copyFileSync").mockImplementation(() => {
+                throw Object.assign(new Error("permission"), { code: "EACCES" });
+              })
+            : undefined;
+        try {
+          const error = await performSelfUpdate({
+            isBinary: true,
+            currentVersion: "1.0.0",
+            platform: "linux",
+            arch: "x64",
+            targetBinaryPath: target,
+            cachePath: testCachePath,
+            fetcher,
+            lang: "ja",
+          }).catch((error: unknown) => error);
+          expect(error).toEqual(
+            new Error(
+              stage === "download"
+                ? "https://github.com/download/vsub-linux-x64.tar.gz をダウンロードできませんでした: HTTP 403 Forbidden"
+                : stage === "extract"
+                  ? `アーカイブ ${archive} を展開できませんでした: raw tar failure`
+                  : `${target} に書き込む権限がありません。sudo を付けて実行し直してください。`,
+            ),
+          );
+          expect(fs.readFileSync(target, "utf8")).toBe("old binary");
+          if (archive) expect(fs.existsSync(path.dirname(archive))).toBe(false);
+        } finally {
+          copySpy?.mockRestore();
+        }
+      },
+    );
+  });
+
   describe("downloadFile", () => {
     it("should download content and write to file", async () => {
       const dest = path.join(tempDir, "downloaded.txt");
