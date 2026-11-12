@@ -567,7 +567,7 @@ export async function processMediaPipeline(
       });
       assertSttSettingsReady(stt, lang);
       rawConfig = config;
-      await checkFfmpeg(config.ffmpegPath);
+      await checkFfmpeg(config.ffmpegPath, lang);
 
       if (stt.source === "auto" && stt.provider === "groq" && !isStdout && !options.silentSttHint) {
         showSpinnerNotice(spinner, verbose, "info", `${prefix}${m.sttGroqAutoHint}`);
@@ -582,6 +582,7 @@ export async function processMediaPipeline(
         config.ffmpegPath,
         transcriber.limits,
         verbose,
+        lang,
       );
       audioPaths = extractResult.audioPaths;
       cleanupAudio = extractResult.cleanup;
@@ -954,6 +955,7 @@ export async function processMediaPipeline(
             await embedSubtitlesToVideo(resolvedMediaPath, subtitleTracks, embeddedVideoPath, {
               ffmpegPath: rawConfig.ffmpegPath,
               verbose,
+              lang,
             });
 
             outputFiles.push(embeddedVideoPath);
@@ -1114,7 +1116,7 @@ export async function resolveTranscriptEntries(
     lang,
   });
   assertSttSettingsReady(stt, lang);
-  await checkFfmpeg(config.ffmpegPath);
+  await checkFfmpeg(config.ffmpegPath, lang);
 
   const verbose = Boolean(options.verbose);
   const transcriber = createTranscriber(config, stt, lang);
@@ -1123,6 +1125,7 @@ export async function resolveTranscriptEntries(
     config.ffmpegPath,
     transcriber.limits,
     verbose,
+    lang,
   );
   const audioPaths = extractResult.audioPaths;
 

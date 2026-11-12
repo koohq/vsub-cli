@@ -224,6 +224,27 @@ export const en = {
     step3Saved: (path: string) => `Saved summary to ${path}`,
     noEntries: "No subtitle entries found to generate summary.",
   },
+  ffmpeg: {
+    notFound: (ffmpegPath: string) =>
+      `ffmpeg executable not found (specified path: "${ffmpegPath}").\nPlease install ffmpeg and add it to your PATH, or set VSUB_FFMPEG_PATH in environment / CLI option --ffmpeg-path.`,
+    mediaNotFound: (path: string) => `Specified media file not found: ${path}`,
+    extractNoOutput: "Failed to extract audio. Temporary file was not created.",
+    videoNotFound: (path: string) => `Specified video file not found: ${path}`,
+    subtitleNotFound: (path: string) => `Specified subtitle file not found: ${path}`,
+    burnNotVideo: (name: string, supported: string) =>
+      `Cannot burn subtitles into a non-video file: ${name} (supported video formats: ${supported})`,
+    burnFailed: (detail: string) => `Failed to burn subtitles into video with FFmpeg: ${detail}`,
+    burnNoOutput: (path: string) =>
+      `Failed to burn subtitles: Output file was not created at ${path}`,
+    unsupportedContainer: (ext: string, supported: string) =>
+      `Unsupported video container for soft subtitles: ${ext || "(none)"}. Supported containers: ${supported}`,
+    embedNotVideo: (name: string, supported: string) =>
+      `Cannot embed subtitles into a non-video file: ${name} (supported video formats: ${supported})`,
+    embedNoSubtitles: "At least one subtitle track is required to embed into video",
+    embedFailed: (detail: string) => `Failed to embed subtitles into video with FFmpeg: ${detail}`,
+    embedNoOutput: (path: string) =>
+      `Failed to embed subtitles: Output file was not created at ${path}`,
+  },
   burn: {
     started: (video: string, sub: string) =>
       `vsub-cli burn - Subtitle burn-in started: ${video} + ${sub}`,

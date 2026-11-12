@@ -230,6 +230,27 @@ export const ja: typeof en = {
     step3Saved: (path: string) => `要約ファイルを保存完了: ${path}`,
     noEntries: "要約生成対象の字幕データが見つかりませんでした。",
   },
+  ffmpeg: {
+    notFound: (ffmpegPath: string) =>
+      `ffmpeg の実行ファイルが見つかりません（指定されたパス: "${ffmpegPath}"）。\nffmpeg をインストールして PATH に追加するか、環境変数 VSUB_FFMPEG_PATH または CLI オプション --ffmpeg-path で場所を指定してください。`,
+    mediaNotFound: (path: string) => `指定されたメディアファイルが見つかりません: ${path}`,
+    extractNoOutput: "音声を取り出せませんでした。一時ファイルが作られませんでした。",
+    videoNotFound: (path: string) => `指定された動画ファイルが見つかりません: ${path}`,
+    subtitleNotFound: (path: string) => `指定された字幕ファイルが見つかりません: ${path}`,
+    burnNotVideo: (name: string, supported: string) =>
+      `動画ファイル以外の形式には字幕を焼き込めません: ${name}（対応する動画の形式: ${supported}）`,
+    burnFailed: (detail: string) => `FFmpeg で動画に字幕を焼き込めませんでした: ${detail}`,
+    burnNoOutput: (path: string) =>
+      `字幕を焼き込めませんでした: 出力ファイルが作られませんでした（${path}）`,
+    unsupportedContainer: (ext: string, supported: string) =>
+      `ソフトサブに対応していない動画のコンテナです: ${ext || "（拡張子なし）"}。対応するコンテナ: ${supported}`,
+    embedNotVideo: (name: string, supported: string) =>
+      `動画ファイル以外の形式には字幕トラックを埋め込めません: ${name}（対応する動画の形式: ${supported}）`,
+    embedNoSubtitles: "動画に埋め込む字幕トラックが 1 つ以上必要です。",
+    embedFailed: (detail: string) => `FFmpeg で動画に字幕トラックを埋め込めませんでした: ${detail}`,
+    embedNoOutput: (path: string) =>
+      `字幕トラックを埋め込めませんでした: 出力ファイルが作られませんでした（${path}）`,
+  },
   burn: {
     started: (video: string, sub: string) => `vsub-cli burn - 字幕焼き込み開始: ${video} + ${sub}`,
     videoNotFound: (path: string) => `動画ファイルが見つかりません: ${path}`,

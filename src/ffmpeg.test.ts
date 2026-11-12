@@ -137,6 +137,19 @@ describe("ffmpeg.ts", () => {
   });
 
   describe("checkFfmpeg", () => {
+    it.each([
+      [
+        "ja",
+        'ffmpeg の実行ファイルが見つかりません（指定されたパス: "test-ffmpeg"）。\nffmpeg をインストールして PATH に追加するか、環境変数 VSUB_FFMPEG_PATH または CLI オプション --ffmpeg-path で場所を指定してください。',
+      ],
+      [
+        "en",
+        'ffmpeg executable not found (specified path: "test-ffmpeg").\nPlease install ffmpeg and add it to your PATH, or set VSUB_FFMPEG_PATH in environment / CLI option --ffmpeg-path.',
+      ],
+    ])("localizes the missing executable error (%s)", async (lang, message) => {
+      mockExeca.mockRejectedValueOnce(new Error("ENOENT"));
+      await expect(checkFfmpeg("test-ffmpeg", lang)).rejects.toEqual(new Error(message));
+    });
     it("should succeed when ffmpeg executes with -version", async () => {
       mockExeca.mockResolvedValueOnce({ stdout: "ffmpeg version 6.0" });
       await expect(checkFfmpeg("ffmpeg")).resolves.toBeUndefined();
@@ -219,6 +232,17 @@ describe("ffmpeg.ts", () => {
       expect(splitCall).toBeDefined();
       return splitCall?.[1] as string[];
     }
+
+    it("localizes missing media and extraction output", async () => {
+      const missing = path.join(workDir, "missing.mp4");
+      await expect(extractAudio(missing, "ffmpeg", TEST_LIMITS, false, "ja")).rejects.toEqual(
+        new Error(`指定されたメディアファイルが見つかりません: ${missing}`),
+      );
+      mockFfmpegWithExtractedSize(0, 0, undefined, { missingExtractedFile: true });
+      await expect(extractAudio(inputPath, "ffmpeg", TEST_LIMITS, false, "ja")).rejects.toEqual(
+        new Error("音声を取り出せませんでした。一時ファイルが作られませんでした。"),
+      );
+    });
 
     it("should throw error if input media file does not exist", async () => {
       await expect(
@@ -576,6 +600,81 @@ describe("ffmpeg.ts", () => {
       },
     ])("should $description ($input)", ({ input, expected }) => {
       expect(escapeFfmpegFilterPath(input)).toBe(expected);
+    });
+  });
+
+  describe("localized subtitle errors", () => {
+    const supported = ".mp4, .mkv, .mov, .avi, .webm, .flv, .wmv, .m4v, .ts, .mts, .3gp, .ogv";
+
+    beforeEach(() => {
+      mockExeca.mockReset();
+      vi.spyOn(fs, "existsSync").mockReturnValue(true);
+    });
+    afterEach(() => vi.restoreAllMocks());
+
+    describe.each(["burn", "embed"] as const)("%s", (mode) => {
+      const run = (video: string, subtitle: string, lang: string) =>
+        mode === "burn"
+          ? burnSubtitlesToVideo(video, subtitle, "out.mp4", { lang })
+          : embedSubtitlesToVideo(video, [{ path: subtitle }], "out.mp4", { lang });
+
+      it.each(["ja", "en"])("preserves external failure details (%s)", async (lang) => {
+        const detail = "test codec failed: invalid stream\nraw detail";
+        mockExeca.mockRejectedValueOnce(new Error(detail));
+        const prefix =
+          lang === "en"
+            ? `Failed to ${mode} subtitles into video with FFmpeg: `
+            : mode === "burn"
+              ? "FFmpeg で動画に字幕を焼き込めませんでした: "
+              : "FFmpeg で動画に字幕トラックを埋め込めませんでした: ";
+        await expect(run("video.mp4", "sub.srt", lang)).rejects.toEqual(new Error(prefix + detail));
+      });
+
+      it.each(["video", "subtitle", "format", "output"])(
+        "localizes %s validation",
+        async (failure) => {
+          vi.mocked(fs.existsSync).mockImplementation((file) => {
+            const name = path.basename(String(file));
+            return !(
+              (failure === "video" && name === "video.mp4") ||
+              (failure === "subtitle" && name === "sub.srt") ||
+              (failure === "output" && name === "out.mp4")
+            );
+          });
+          mockExeca.mockResolvedValue({ stdout: "" });
+          const message =
+            failure === "video"
+              ? "指定された動画ファイルが見つかりません: video.mp4"
+              : failure === "subtitle"
+                ? "指定された字幕ファイルが見つかりません: sub.srt"
+                : failure === "format"
+                  ? `動画ファイル以外の形式には${mode === "burn" ? "字幕を焼き込めません" : "字幕トラックを埋め込めません"}: audio.mp3（対応する動画の形式: ${supported}）`
+                  : `${mode === "burn" ? "字幕を焼き込めませんでした" : "字幕トラックを埋め込めませんでした"}: 出力ファイルが作られませんでした（${path.resolve("out.mp4")}）`;
+          await expect(
+            run(failure === "format" ? "audio.mp3" : "video.mp4", "sub.srt", "ja"),
+          ).rejects.toEqual(new Error(message));
+        },
+      );
+    });
+
+    it("localizes empty tracks", async () => {
+      await expect(
+        embedSubtitlesToVideo("video.mp4", [], "out.mp4", { lang: "ja" }),
+      ).rejects.toEqual(new Error("動画に埋め込む字幕トラックが 1 つ以上必要です。"));
+    });
+
+    it.each([".avi", ""])("localizes unsupported containers (%s)", (ext) => {
+      expect(() => resolveSubtitleCodec(ext, "ja")).toThrow(
+        `ソフトサブに対応していない動画のコンテナです: ${ext || "（拡張子なし）"}。対応するコンテナ: .mp4, .m4v, .mov, .mkv, .webm`,
+      );
+    });
+
+    it("passes the embedding language to codec validation", async () => {
+      await expect(
+        embedSubtitlesToVideo("video.mp4", [{ path: "sub.srt" }], "out.avi", { lang: "ja" }),
+      ).rejects.toThrow(
+        "ソフトサブに対応していない動画のコンテナです: .avi。対応するコンテナ: .mp4, .m4v, .mov, .mkv, .webm",
+      );
     });
   });
 

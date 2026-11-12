@@ -170,6 +170,38 @@ describe("pipeline.ts", () => {
     vi.restoreAllMocks();
   });
 
+  it.each(["media", "chapters", "summarize"] as const)(
+    "passes Japanese to %s FFmpeg calls",
+    async (task) => {
+      vi.clearAllMocks();
+      vi.spyOn(console, "log").mockImplementation(() => {});
+      const mediaFile = path.join(tempDir, "video.mp4");
+      fs.writeFileSync(mediaFile, "dummy media");
+      const options = { mediaFile, lang: "ja" as const, noCache: true, sttProvider: "groq" };
+      if (task === "media") {
+        await processMediaPipeline({ ...options, embed: true, targetLang: "ja" });
+        expect(embedSubtitlesToVideo).toHaveBeenCalledWith(
+          mediaFile,
+          expect.anything(),
+          expect.anything(),
+          expect.objectContaining({ lang: "ja" }),
+        );
+      } else if (task === "chapters") {
+        await processChaptersPipeline({ ...options, inputFile: mediaFile });
+      } else {
+        await processSummaryPipeline({ ...options, inputFile: mediaFile });
+      }
+      expect(checkFfmpeg).toHaveBeenCalledWith("ffmpeg", "ja");
+      expect(extractAudio).toHaveBeenCalledWith(
+        mediaFile,
+        "ffmpeg",
+        expect.anything(),
+        false,
+        "ja",
+      );
+    },
+  );
+
   describe("OpenAI-compatible transcription", () => {
     function spyOnSpinnerStart() {
       const spinner = ui.createSpinner("", { isSilent: true });

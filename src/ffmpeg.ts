@@ -85,13 +85,11 @@ export async function getMediaDurationInSeconds(
 /**
  * Checks if the ffmpeg binary is available and executable.
  */
-export async function checkFfmpeg(ffmpegPath: string): Promise<void> {
+export async function checkFfmpeg(ffmpegPath: string, lang?: string | undefined): Promise<void> {
   try {
     await execa(ffmpegPath, ["-version"]);
   } catch (_error) {
-    throw new Error(
-      `ffmpeg executable not found (specified path: "${ffmpegPath}").\nPlease install ffmpeg and add it to your PATH, or set VSUB_FFMPEG_PATH in environment / CLI option --ffmpeg-path.`,
-    );
+    throw new Error(getI18n(lang).ffmpeg.notFound(ffmpegPath));
   }
 }
 
@@ -221,9 +219,11 @@ export async function extractAudio(
   ffmpegPath: string,
   splitLimits: TranscriberLimits,
   verbose = false,
+  lang?: string | undefined,
 ): Promise<ExtractedAudioResult> {
+  const m = getI18n(lang).ffmpeg;
   if (!fs.existsSync(mediaPath)) {
-    throw new Error(`Specified media file not found: ${mediaPath}`);
+    throw new Error(m.mediaNotFound(mediaPath));
   }
 
   const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "vsub-"));
@@ -252,7 +252,7 @@ export async function extractAudio(
     await execa(ffmpegPath, ffmpegArgs);
 
     if (!fs.existsSync(tempAudioFile)) {
-      throw new Error("Failed to extract audio. Temporary file was not created.");
+      throw new Error(m.extractNoOutput);
     }
 
     const stats = fs.statSync(tempAudioFile);
@@ -553,21 +553,22 @@ export async function burnSubtitlesToVideo(
 ): Promise<string> {
   const ffmpegPath = options?.ffmpegPath ?? "ffmpeg";
   const verbose = Boolean(options?.verbose);
+  const m = getI18n(options?.lang).ffmpeg;
 
   const resolvedVideo = path.resolve(videoPath);
   const resolvedSubtitle = path.resolve(subtitlePath);
   const resolvedOutput = path.resolve(outputPath);
 
   if (!fs.existsSync(resolvedVideo)) {
-    throw new Error(`Specified video file not found: ${videoPath}`);
+    throw new Error(m.videoNotFound(videoPath));
   }
   if (!isVideoFile(resolvedVideo)) {
     throw new Error(
-      `Cannot burn subtitles into a non-video file: ${path.basename(videoPath)} (supported video formats: ${Array.from(SUPPORTED_VIDEO_EXTENSIONS).join(", ")})`,
+      m.burnNotVideo(path.basename(videoPath), Array.from(SUPPORTED_VIDEO_EXTENSIONS).join(", ")),
     );
   }
   if (!fs.existsSync(resolvedSubtitle)) {
-    throw new Error(`Specified subtitle file not found: ${subtitlePath}`);
+    throw new Error(m.subtitleNotFound(subtitlePath));
   }
 
   const outDir = path.dirname(resolvedOutput);
@@ -608,11 +609,11 @@ export async function burnSubtitlesToVideo(
     await execa(ffmpegPath, ffmpegArgs);
   } catch (error) {
     const errMessage = error instanceof Error ? error.message : String(error);
-    throw new Error(`Failed to burn subtitles into video with FFmpeg: ${errMessage}`);
+    throw new Error(m.burnFailed(errMessage));
   }
 
   if (!fs.existsSync(resolvedOutput)) {
-    throw new Error(`Failed to burn subtitles: Output file was not created at ${resolvedOutput}`);
+    throw new Error(m.burnNoOutput(resolvedOutput));
   }
 
   return resolvedOutput;
@@ -627,6 +628,7 @@ export interface SubtitleTrackInput {
 export interface EmbedSubtitlesOptions {
   ffmpegPath?: string | undefined;
   verbose?: boolean | undefined;
+  lang?: string | undefined;
 }
 
 /**
@@ -659,14 +661,12 @@ export function listSoftSubtitleContainers(): string {
  * Resolves the appropriate subtitle codec for a given video file extension.
  * Throws an error if the container is not supported for soft subtitle embedding.
  */
-export function resolveSubtitleCodec(extOrPath: string): string {
+export function resolveSubtitleCodec(extOrPath: string, lang?: string | undefined): string {
   const ext = (path.extname(extOrPath) || extOrPath).toLowerCase();
   const codec = CONTAINER_SUBTITLE_CODECS[ext];
   if (!codec) {
     const supported = Object.keys(CONTAINER_SUBTITLE_CODECS).join(", ");
-    throw new Error(
-      `Unsupported video container for soft subtitles: ${ext || "(none)"}. Supported containers: ${supported}`,
-    );
+    throw new Error(getI18n(lang).ffmpeg.unsupportedContainer(ext, supported));
   }
   return codec;
 }
@@ -683,27 +683,28 @@ export async function embedSubtitlesToVideo(
 ): Promise<string> {
   const ffmpegPath = options?.ffmpegPath ?? "ffmpeg";
   const verbose = Boolean(options?.verbose);
+  const m = getI18n(options?.lang).ffmpeg;
 
   const resolvedVideo = path.resolve(videoPath);
   const resolvedOutput = path.resolve(outputPath);
 
   if (!fs.existsSync(resolvedVideo)) {
-    throw new Error(`Specified video file not found: ${videoPath}`);
+    throw new Error(m.videoNotFound(videoPath));
   }
   if (!isVideoFile(resolvedVideo)) {
     throw new Error(
-      `Cannot embed subtitles into a non-video file: ${path.basename(videoPath)} (supported video formats: ${Array.from(SUPPORTED_VIDEO_EXTENSIONS).join(", ")})`,
+      m.embedNotVideo(path.basename(videoPath), Array.from(SUPPORTED_VIDEO_EXTENSIONS).join(", ")),
     );
   }
   if (!subtitles || subtitles.length === 0) {
-    throw new Error("At least one subtitle track is required to embed into video");
+    throw new Error(m.embedNoSubtitles);
   }
 
   // Validate that all subtitle files exist
   for (const sub of subtitles) {
     const resolvedSub = path.resolve(sub.path);
     if (!fs.existsSync(resolvedSub)) {
-      throw new Error(`Specified subtitle file not found: ${sub.path}`);
+      throw new Error(m.subtitleNotFound(sub.path));
     }
   }
 
@@ -713,7 +714,7 @@ export async function embedSubtitlesToVideo(
   }
 
   const outExt = path.extname(resolvedOutput);
-  const subtitleCodec = resolveSubtitleCodec(outExt);
+  const subtitleCodec = resolveSubtitleCodec(outExt, options?.lang);
 
   const ffmpegArgs: string[] = ["-i", resolvedVideo];
 
@@ -759,11 +760,11 @@ export async function embedSubtitlesToVideo(
     await execa(ffmpegPath, ffmpegArgs);
   } catch (error) {
     const errMessage = error instanceof Error ? error.message : String(error);
-    throw new Error(`Failed to embed subtitles into video with FFmpeg: ${errMessage}`);
+    throw new Error(m.embedFailed(errMessage));
   }
 
   if (!fs.existsSync(resolvedOutput)) {
-    throw new Error(`Failed to embed subtitles: Output file was not created at ${resolvedOutput}`);
+    throw new Error(m.embedNoOutput(resolvedOutput));
   }
 
   return resolvedOutput;

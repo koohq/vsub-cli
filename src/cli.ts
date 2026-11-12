@@ -1185,7 +1185,7 @@ export function createProgram(): Command {
             throw new Error(bm.subtitleNotFound(resolvedSubtitlePath));
           }
 
-          await checkFfmpeg(rawConfig.ffmpegPath);
+          await checkFfmpeg(rawConfig.ffmpegPath, lang);
 
           let resolvedOutputPath: string;
           if (options.output) {
@@ -1353,7 +1353,7 @@ export function createProgram(): Command {
             resolvedSubtitlePaths.push(resolvedSub);
           }
 
-          await checkFfmpeg(rawConfig.ffmpegPath);
+          await checkFfmpeg(rawConfig.ffmpegPath, lang);
 
           let resolvedOutputPath: string;
           if (options.output) {
@@ -1416,6 +1416,7 @@ export function createProgram(): Command {
           await embedSubtitlesToVideo(resolvedVideoPath, tracks, resolvedOutputPath, {
             ffmpegPath: rawConfig.ffmpegPath,
             verbose,
+            lang,
           });
           spinner.succeed(em.stepSaved(path.basename(resolvedOutputPath)));
 

@@ -199,7 +199,7 @@ export async function runBatchPipeline(options: BatchPipelineOptions): Promise<B
   });
   if (needsTranscription) assertSttSettingsReady(stt, options.lang ?? config.lang);
   if (needsLlm) assertLlmSettingsReady(llm, options.lang ?? config.lang);
-  await checkFfmpeg(config.ffmpegPath);
+  await checkFfmpeg(config.ffmpegPath, lang);
 
   if (needsTranscription && stt.source === "auto" && stt.provider === "groq") {
     console.log(i18n.pipeline.sttGroqAutoHint);

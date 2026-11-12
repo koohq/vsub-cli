@@ -429,6 +429,20 @@ describe("batch.ts", () => {
           });
       });
 
+      it.each(["option", "config"])("passes Japanese from %s to FFmpeg", async (source) => {
+        vi.mocked(configModule.getConfig).mockReturnValue({
+          ...configModule.getConfig(),
+          lang: source === "config" ? "ja" : "en",
+        });
+        await runBatchPipeline({
+          targets: [dummyFile],
+          noTranslate: true,
+          noCache: true,
+          ...(source === "option" ? { lang: "ja" as const } : {}),
+        });
+        expect(checkFfmpegSpy).toHaveBeenCalledWith("ffmpeg", "ja");
+      });
+
       function cacheTranscription(
         file = dummyFile,
         options: Partial<BatchPipelineOptions> = {},

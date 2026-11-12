@@ -13,7 +13,7 @@ import {
 } from "./cache.js";
 import { createProgram } from "./cli.js";
 import { DEFAULT_GEMINI_MODEL, getConfig, saveGlobalConfig } from "./config.js";
-import { embedSubtitlesToVideo } from "./ffmpeg.js";
+import { checkFfmpeg, embedSubtitlesToVideo } from "./ffmpeg.js";
 import { getI18n } from "./i18n/index.js";
 import { runInitWizard } from "./init.js";
 import {
@@ -172,6 +172,31 @@ describe("CLI integration harness", () => {
     const program = createProgram();
     await program.parseAsync(["node", "vsub", ...args]);
   }
+
+  it.each(["burn", "embed"])("passes explicit Japanese to %s FFmpeg calls", async (command) => {
+    await runCli("-l", "ja", command, dummyVideoPath, dummySrtPath);
+    expect(checkFfmpeg).toHaveBeenCalledWith("ffmpeg", "ja");
+    if (command === "embed") {
+      expect(embedSubtitlesToVideo).toHaveBeenCalledWith(
+        dummyVideoPath,
+        expect.anything(),
+        expect.anything(),
+        expect.objectContaining({ lang: "ja" }),
+      );
+    }
+  });
+
+  it("passes the configured display language to FFmpeg", async () => {
+    vi.mocked(getConfig).mockReturnValueOnce({ ...mockConfig, lang: "ja" });
+    await runCli("embed", dummyVideoPath, dummySrtPath);
+    expect(checkFfmpeg).toHaveBeenCalledWith("ffmpeg", "ja");
+    expect(embedSubtitlesToVideo).toHaveBeenCalledWith(
+      dummyVideoPath,
+      expect.anything(),
+      expect.anything(),
+      expect.objectContaining({ lang: "ja" }),
+    );
+  });
 
   describe("OpenAI-compatible config", () => {
     afterEach(() => {
