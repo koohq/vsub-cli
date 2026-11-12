@@ -54,6 +54,40 @@ vi.mock("@google/genai", () => {
 });
 
 describe("src/text/tasks.ts", () => {
+  it("passes speakers only to translation, including preceding context, and preserves them", async () => {
+    const entries = makeEntries(51).map((entry, i) =>
+      i === 49 ? { ...entry, speaker: "speaker_0" } : entry,
+    );
+    mockGenerateContent.mockImplementation(async ({ contents }: { contents: string }) => ({
+      text: JSON.stringify(readInput(contents).map((item) => ({ id: item.id, text: "Changed" }))),
+    }));
+    const refined = await refineSrtEntries(entries, defaultModel);
+    expect(refined.entries[49]?.speaker).toBe("speaker_0");
+    for (const [call] of mockGenerateContent.mock.calls)
+      expect(call.contents).not.toContain("speaker_0");
+    mockGenerateContent.mockClear();
+    const translated = await translateSrtEntries(
+      refined.entries,
+      "ja",
+      defaultModel,
+      false,
+      undefined,
+      { prompt: "Instructions", contextNotes: "Notes" },
+    );
+    expect(translated[49]?.speaker).toBe("speaker_0");
+    const first = String(mockGenerateContent.mock.calls[0]?.[0].contents);
+    const second = String(mockGenerateContent.mock.calls[1]?.[0].contents);
+    expect(first).toContain('"id": 50,\n    "speaker": "speaker_0",\n    "text": "Changed"');
+    expect(second).toContain('"speaker": "speaker_0"');
+    expect(second).toContain('"text": "Changed"');
+    for (const prompt of [first, second]) {
+      expect(prompt.indexOf("ADDITIONAL TRANSLATION INSTRUCTIONS")).toBeLessThan(
+        prompt.indexOf("SPEAKER LABELS:"),
+      );
+      expect(prompt.indexOf("SPEAKER LABELS:")).toBeLessThan(prompt.indexOf("BACKGROUND NOTES"));
+    }
+    expect(buildTranslationPrompt(textItems(["Hello"]), "ja")).not.toContain("SPEAKER LABELS:");
+  });
   beforeEach(() => {
     vi.clearAllMocks();
     mockGenerateContent.mockReset();

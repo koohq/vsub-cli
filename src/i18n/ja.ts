@@ -20,6 +20,8 @@ export const ja: typeof en = {
     cacheHitBadge: " [キャッシュ利用 ⚡]",
     cachedBadge: "キャッシュ利用 ⚡",
     whisperPrompt: "認識ヒント",
+    speakers: "話者",
+    speakerLabels: (count: number) => `ラベル ${count} 個`,
     detectedLanguage: "検出言語",
     outputLanguages: "出力言語",
     skippedBadge: " (スキップ)",
@@ -53,6 +55,8 @@ export const ja: typeof en = {
     skippedBadge: "(スキップ)",
   },
   pipeline: {
+    diarizeUnsupported: (model: string) =>
+      `話者の判別（--diarize）は、OpenRouter の elevenlabs/scribe のモデルにだけ頼みます。「${model}」には頼みません。`,
     translationSaved: (lang: string, saved: number, total: number) =>
       `ℹ️ ${lang} の翻訳は ${total} チャンクのうち ${saved} を保存しました。同じコマンドをもう一度実行すると、続きから翻訳します。`,
     translationResuming: (lang: string, saved: number, total: number) =>
@@ -370,6 +374,7 @@ export const ja: typeof en = {
       transcription: "文字起こし",
       textGeneration: "文章の生成",
       refine: "文字起こしの修正",
+      diarize: "話者の判別",
       ffmpegPath: "FFmpeg のパス",
       whisperPrompt: "認識ヒント",
       prompt: "翻訳指示",
@@ -402,6 +407,8 @@ export const ja: typeof en = {
       `表示言語が正しくありません: "${value}"。対応している言語: "en", "ja"`,
     invalidOpenAICompatibleUrl: (flag: string, value: string, example: string) =>
       `${flag} の URL が正しくありません: "${value}"。${example} のような http:// か https:// の URL を指定してください。`,
+    invalidDiarize: (value: string) =>
+      `--diarize の値が正しくありません: "${value}"。true か false を指定してください。`,
     invalidRefine: (value: string) =>
       `--refine の値が正しくありません: "${value}"。true か false を指定してください。`,
     setSaved: (path: string) => `✅ 設定を保存しました: ${path}`,

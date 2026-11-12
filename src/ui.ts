@@ -86,6 +86,7 @@ export function formatFileSize(bytes: number): string {
 }
 
 export interface SummaryData {
+  speakersCount?: number | undefined;
   mediaFile?: string | undefined;
   videoFile?: string | undefined;
   mediaType?: "video" | "audio" | "subtitle" | undefined;
@@ -177,6 +178,10 @@ export function formatSummaryBox(data: SummaryData, lang?: SupportedLanguage | s
     const truncatedPrompt =
       data.whisperPrompt.length > 25 ? `${data.whisperPrompt.slice(0, 25)}...` : data.whisperPrompt;
     addRow(m.whisperPrompt, pc.dim(`"${truncatedPrompt}"`));
+  }
+
+  if (data.speakersCount) {
+    addRow(m.speakers, m.speakerLabels(data.speakersCount));
   }
 
   if (data.detectedLanguage) {

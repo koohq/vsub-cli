@@ -1,4 +1,5 @@
 export interface SrtEntry {
+  speaker?: string | undefined;
   id: number;
   startTime: string;
   endTime: string;

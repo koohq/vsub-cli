@@ -20,6 +20,42 @@ function jsonResponse(status: number, body: unknown): Response {
 }
 
 describe("openrouter.ts", () => {
+  it.each([false, true])("requests and reads speakers only when enabled (%s)", async (diarize) => {
+    const raw = [
+      { speaker_label: " custom ", speaker: 3 },
+      { speaker: 0 },
+      { speaker: " label " },
+      {},
+      { speaker: 1.5 },
+      { speaker_label: " ", speaker: 2 },
+    ];
+    const fetch = vi.fn().mockImplementation(async () =>
+      jsonResponse(200, {
+        words: raw.map((speaker, i) => ({ word: "Hello", start: i, end: i + 0.5, ...speaker })),
+      }),
+    );
+    const error = vi.spyOn(console, "error").mockImplementation(() => {});
+    const transcriber = createOpenRouterTranscriber("test-key", { fetch });
+    const result = await transcribeAudioSegments(
+      [audioPathA, audioPathB],
+      transcriber,
+      true,
+      undefined,
+      { diarize },
+    );
+    for (const [, init] of fetch.mock.calls)
+      expect((init.body as FormData).get("diarize")).toBe(diarize ? "true" : null);
+    expect(result.wordChunks?.[0]?.words.map((word) => word.speaker)).toEqual(
+      diarize
+        ? ["custom", "speaker_0", "label", undefined, undefined, "speaker_2"]
+        : raw.map(() => undefined),
+    );
+    expect(
+      error.mock.calls.filter(([line]) =>
+        String(line).includes("Requesting speaker labels (diarize)."),
+      ),
+    ).toHaveLength(diarize ? 1 : 0);
+  });
   let tempDir: string;
   let audioPathA: string;
   let audioPathB: string;

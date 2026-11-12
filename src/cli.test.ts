@@ -174,6 +174,35 @@ describe("CLI integration harness", () => {
     await program.parseAsync(["node", "vsub", ...args]);
   }
 
+  describe.each([
+    { command: "main", args: ["video.mp4"], run: () => processMediaPipeline },
+    { command: "batch", args: ["batch", "videos"], run: () => runBatchPipeline },
+    { command: "chapters", args: ["chapters", "video.mp4"], run: () => processChaptersPipeline },
+    { command: "summarize", args: ["summarize", "video.mp4"], run: () => processSummaryPipeline },
+  ])("$command speaker flags", ({ command, args, run }) => {
+    it.each([
+      { flags: [], expected: undefined },
+      { flags: ["--diarize"], expected: true },
+      { flags: ["--no-diarize"], expected: false },
+      { flags: ["--diarize", "--no-diarize"], expected: false },
+      { flags: ["--no-diarize", "--diarize"], expected: true },
+    ])("forwards $flags as $expected", async ({ flags, expected }) => {
+      const program = createProgram();
+      const cmd =
+        command === "main" ? program : program.commands.find((cmd) => cmd.name() === command);
+      expect(cmd?.options.some((option) => option.long === "--diarize")).toBe(true);
+      expect(cmd?.options.some((option) => option.long === "--no-diarize")).toBe(true);
+      await runCli(...args, ...flags);
+      expect(vi.mocked(run()).mock.calls[0]?.[0].diarize).toBe(expected);
+      expect(exitSpy).not.toHaveBeenCalled();
+    });
+  });
+
+  it.each(["translate", "burn", "embed"])("does not add speaker flags to %s", (name) => {
+    const command = createProgram().commands.find((cmd) => cmd.name() === name);
+    expect(command?.options.some((option) => option.long?.includes("diarize"))).toBe(false);
+  });
+
   it.each(["en", "ja"])(
     "stops translate before safety and keys on unreadable context (%s)",
     async (lang) => {
@@ -2062,7 +2091,7 @@ describe("CLI integration harness", () => {
           const rows: string[] = logSpy.mock.calls
             .map(([text]: unknown[]) => stripVTControlCharacters(String(text)))
             .filter((line: string) => line.includes(":") && !line.includes("Config File:"));
-          expect(rows.length).toBe(withOptional ? 21 : 10);
+          expect(rows.length).toBe(withOptional ? 22 : 11);
           expect(rows.map((line) => ui.displayWidth(line.slice(0, line.indexOf(":"))))).toEqual(
             rows.map(
               () => (withOptional ? "OpenRouter STT Model" : "OpenRouter API Key").length + 1,
@@ -2184,6 +2213,41 @@ describe("CLI integration harness", () => {
       fs.mkdirSync(path.dirname(configPath), { recursive: true });
       fs.writeFileSync(configPath, JSON.stringify(config), "utf8");
     }
+
+    it.each(["true", "false"])("saves speaker default %s without other options", async (value) => {
+      placeConfig({ prompt: "test prompt" });
+      await runCli("config", "set", "--diarize", value);
+      expect(JSON.parse(fs.readFileSync(configPath, "utf8"))).toEqual({
+        prompt: "test prompt",
+        diarize: value === "true",
+      });
+      expect(exitSpy).not.toHaveBeenCalled();
+    });
+
+    describe.each(["en", "ja"] as const)("%s speaker settings", (lang) => {
+      it("rejects invalid values without saving", async () => {
+        placeConfig({ lang, diarize: true });
+        const before = fs.readFileSync(configPath, "utf8");
+        await runCli("config", "set", "--diarize", "yes", "--prompt", "Changed");
+        expect(exitSpy).toHaveBeenCalledWith(1);
+        expect(stripVTControlCharacters(errorSpy.mock.calls.flat().join("\n"))).toContain(
+          getI18n(lang).config.invalidDiarize("yes"),
+        );
+        expect(fs.readFileSync(configPath, "utf8")).toBe(before);
+        expect(saveGlobalConfig).not.toHaveBeenCalled();
+      });
+      it.each([true, false])("shows speaker default %s next to refinement", async (diarize) => {
+        placeConfig({ lang, diarize });
+        await runCli("config", "show");
+        const rows = stripVTControlCharacters(logSpy.mock.calls.flat().join("\n")).split("\n");
+        const m = getI18n(lang).config;
+        const index = rows.findIndex((line) => line.includes(m.showLabels.refine));
+        expect(rows[index + 1]?.split(" : ").map((part) => part.trim())).toEqual([
+          m.showLabels.diarize,
+          diarize ? m.enabled : m.disabled,
+        ]);
+      });
+    });
 
     it.each([
       { input: "TRUE", expected: true },

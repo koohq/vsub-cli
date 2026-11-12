@@ -18,6 +18,8 @@ export const en = {
     cacheHitBadge: " [Cached ⚡]",
     cachedBadge: "Cached ⚡",
     whisperPrompt: "Whisper Hint",
+    speakers: "Speakers",
+    speakerLabels: (count: number) => `${count} labels`,
     detectedLanguage: "Detected Lang",
     outputLanguages: "Output Lang",
     skippedBadge: " (skipped)",
@@ -51,6 +53,8 @@ export const en = {
     skippedBadge: "(skipped)",
   },
   pipeline: {
+    diarizeUnsupported: (model: string) =>
+      `Speaker labels (--diarize) are only requested from OpenRouter's elevenlabs/scribe models; not requested for "${model}".`,
     translationSaved: (lang: string, saved: number, total: number) =>
       `ℹ️ Saved ${saved}/${total} chunks of the ${lang} translation. Run the same command again to continue from there.`,
     translationResuming: (lang: string, saved: number, total: number) =>
@@ -368,6 +372,7 @@ export const en = {
       transcription: "Transcription",
       textGeneration: "Text Generation",
       refine: "Refine Transcript",
+      diarize: "Speaker Labels",
       ffmpegPath: "FFmpeg Path",
       whisperPrompt: "Whisper Prompt",
       prompt: "Translate Prompt",
@@ -401,6 +406,8 @@ export const en = {
     invalidOpenAICompatibleUrl: (flag: string, value: string, example: string) =>
       `Invalid URL for ${flag}: "${value}". Use an http:// or https:// URL such as ${example}.`,
     invalidRefine: (value: string) => `Invalid value for --refine: "${value}". Use true or false.`,
+    invalidDiarize: (value: string) =>
+      `Invalid value for --diarize: "${value}". Use true or false.`,
     setSaved: (path: string) => `✅ Configuration updated and saved: ${path}`,
     missingKeysHeader: "\n🔑 API keys missing. Starting interactive setup.",
     requiredKeysMissing: (items: string[]) =>

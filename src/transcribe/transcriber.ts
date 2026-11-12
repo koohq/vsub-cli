@@ -3,6 +3,7 @@ import { buildEntriesFromWords, type WordChunk } from "./words.js";
 
 /** A span of recognized text. Times are seconds relative to the start of the audio chunk. */
 export interface TimedText {
+  speaker?: string | undefined;
   start: number;
   end: number;
   text: string;
@@ -21,6 +22,7 @@ export interface ChunkTranscription {
 }
 
 export interface TranscribeChunkOptions {
+  diarize?: boolean | undefined;
   prompt?: string | undefined;
   model?: string | undefined;
   verbose?: boolean | undefined;
@@ -117,6 +119,7 @@ export function normalizeLanguageCode(lang?: string): string | undefined {
 }
 
 export interface TranscribeAudioSegmentsOptions {
+  diarize?: boolean | undefined;
   prompt?: string | undefined;
   model?: string | undefined;
   durations?: number[] | undefined;
@@ -152,6 +155,7 @@ export async function transcribeAudioSegments(
     }
 
     const chunk = await transcriber.transcribe(audioPath, {
+      ...(options?.diarize ? { diarize: true } : {}),
       prompt: options?.prompt,
       model: options?.model,
       verbose,

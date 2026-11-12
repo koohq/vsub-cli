@@ -59,6 +59,8 @@ function defaultSleep(ms: number): Promise<void> {
 }
 
 interface RawTimedItem {
+  speaker?: unknown;
+  speaker_label?: unknown;
   start?: unknown;
   end?: unknown;
   text?: unknown;
@@ -82,12 +84,17 @@ export function createOpenAICompatibleTranscriber(
   deps?: OpenAICompatibleDeps,
 ): Transcriber {
   let hasWarnedPrompt = false;
+  let hasLoggedDiarize = false;
 
   return {
     logLabel: profile.logLabel,
     limits: profile.limits,
     async transcribe(audioPath, options) {
       const model = options?.model || profile.defaultModel || "";
+      if (options?.diarize && options.verbose && !hasLoggedDiarize) {
+        hasLoggedDiarize = true;
+        console.error(`[${profile.logLabel}] Requesting speaker labels (diarize).`);
+      }
 
       if (profile.promptField === "none" && options?.prompt) {
         if (options.verbose && !hasWarnedPrompt) {
@@ -118,6 +125,7 @@ export function createOpenAICompatibleTranscriber(
         formData.append("response_format", "verbose_json");
         formData.append("timestamp_granularities[]", "segment");
         formData.append("timestamp_granularities[]", "word");
+        if (options?.diarize) formData.append("diarize", "true");
         if (profile.promptField === "prompt" && options?.prompt) {
           formData.append("prompt", options.prompt);
         }
@@ -204,10 +212,27 @@ export function createOpenAICompatibleTranscriber(
                   Number.isFinite(w.end) &&
                   typeof w.word === "string"
                 ) {
+                  let speaker: string | undefined;
+                  if (options?.diarize) {
+                    speaker =
+                      typeof w.speaker_label === "string" ? w.speaker_label.trim() : undefined;
+                    if (!speaker) {
+                      if (
+                        typeof w.speaker === "number" &&
+                        Number.isFinite(w.speaker) &&
+                        Number.isInteger(w.speaker)
+                      ) {
+                        speaker = `speaker_${w.speaker}`;
+                      } else if (typeof w.speaker === "string") {
+                        speaker = w.speaker.trim();
+                      }
+                    }
+                  }
                   parsedWords.push({
                     start: w.start,
                     end: w.end,
                     text: w.word,
+                    ...(speaker ? { speaker } : {}),
                   });
                 }
               }

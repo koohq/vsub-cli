@@ -42,6 +42,27 @@ import { DEFAULT_CONTEXT_WINDOW_SIZE } from "./text/tasks.js";
 import { DEFAULT_OPENROUTER_STT_MODEL } from "./transcribe/openrouter.js";
 
 describe("cache module", () => {
+  it("matches diarize symmetrically while preserving legacy hashes and cache shape", () => {
+    const entry = { id: 1, startTime: "00:00:00,000", endTime: "00:00:01,000", text: "Hello" };
+    const old = createCachedTranscription({}, [entry]);
+    const enabled = createCachedTranscription({ diarize: true }, [entry]);
+    expect(old).not.toHaveProperty("diarize");
+    expect(createCachedTranscription({ diarize: false }, [entry])).not.toHaveProperty("diarize");
+    expect(enabled.diarize).toBe(true);
+    expect(isTranscriptionCacheValid(old, {})).toBe(true);
+    expect(isTranscriptionCacheValid(old, { diarize: true })).toBe(false);
+    expect(isTranscriptionCacheValid(enabled, {})).toBe(false);
+    expect(isTranscriptionCacheValid(enabled, { diarize: true })).toBe(true);
+    const legacy = crypto
+      .createHash("sha256")
+      .update(JSON.stringify([[entry.id, entry.startTime, entry.endTime, entry.text]]))
+      .digest("hex");
+    expect(computeEntriesHash([entry])).toBe(legacy);
+    expect(computeEntriesHash([{ ...entry, speaker: "speaker_0" }])).not.toBe(legacy);
+    expect(computeEntriesHash([{ ...entry, speaker: "speaker_0" }])).not.toBe(
+      computeEntriesHash([{ ...entry, speaker: "speaker_1" }]),
+    );
+  });
   let tempDir: string;
   let testMediaFile: string;
   let customCacheDir: string;

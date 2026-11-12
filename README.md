@@ -303,6 +303,8 @@ Options:
   --save-original               Save original transcription subtitle file alongside the result (default: false)
   --refine                      Correct speech recognition errors in the transcript with the text generation model before translation (default: VSUB_REFINE, config, or off; uses --glossary, --prompt, and --context; timing and line count are kept)
   --no-refine                   Do not refine the transcript, even if VSUB_REFINE or the config turns it on
+  --diarize                     Ask OpenRouter's elevenlabs/scribe models for speaker labels and pass them to translation; subtitles are also cut where the speaker changes (default: VSUB_DIARIZE, config, or off)
+  --no-diarize                  Do not ask for speaker labels, even if VSUB_DIARIZE or the config turns them on
   --force-translate             Force translation even if detected language matches target language (default: false)
   --no-update-check             Disable checking for new version updates (default: false)
   --verbose                     Output detailed log messages (API requests, etc.) (default: false)
@@ -452,6 +454,20 @@ Sam speaks politely to Alex. Alex calls Sam by their first name.
 
 Use `--prompt` for translation instructions and `--context` for background about the speakers, their relationships, and the setting; these notes are passed as context only, not as instructions. Keep the notes short; an existing file is read as UTF-8, otherwise the value is used as inline text. This is separate from `--context-window`, which controls how many preceding subtitle lines are supplied to each translation chunk.
 
+#### Speaker Labels (`--diarize`)
+
+Speaker detection is opt-in: use `--diarize` (main command and `vsub batch`), `VSUB_DIARIZE=true`, or `vsub config set --diarize true`; `--no-diarize` turns it off for one run. Priority is `--diarize` / `--no-diarize` → environment → config → off. Only OpenRouter's `elevenlabs/scribe` models receive the request; other OpenRouter models show a warning when transcribing, while Groq and `openai-compatible` continue without speaker labels.
+
+Subtitles also split where the speaker changes. Labels help translation keep each person's tone and forms of address consistent; they are never written to SRT, VTT, TXT, or JSON subtitle files. `--refine` preserves labels for translation without including them in its prompt. Automatic detection can be wrong.
+
+Audio longer than five minutes is sent in five-minute parts. With multiple parts, labels include the part number, such as `2/speaker_0`; `1/speaker_0` and `2/speaker_0` may be different people. With one part, labels remain `speaker_0`. Combine labels with background notes when you know who is speaking:
+
+```bash
+vsub talk.mp4 -t ja --diarize --context "speaker_0 is Alex, the store manager. speaker_1 is Sam, a new part-timer who speaks politely to Alex."
+```
+
+Changing `--diarize` invalidates the transcription cache. `chapters` and `summarize` accept the same flags to share the main command's transcription cache; their prompts do not use speaker labels.
+
 ### 9. AI Chapters & Video Summary (`vsub chapters` & `vsub summarize`)
 Generate YouTube chapters or structured Markdown summaries from any video, audio, or existing `.srt` file. Chapters and summaries are written in one language: if several target languages are given (for example, with `vsub config set --target-lang ja,en`), only the first one is used. When the media has already been processed by `vsub`, it automatically reuses the transcription cache and finishes in seconds:
 ```bash
@@ -521,6 +537,7 @@ vsub config show
 vsub config set --lang ja --prompt "Translate politely" --glossary "./glossary.json" --concurrency 4
 vsub config set --target-lang ja,en
 vsub config set --refine true
+vsub config set --diarize true
 vsub config set --max-length 32 --burn-position bottom --burn-font-size medium
 vsub config set --stt-provider openrouter --openrouter-key "your_openrouter_key"
 vsub config set --llm-provider openrouter

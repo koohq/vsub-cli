@@ -89,6 +89,20 @@ describe("transcriber.ts", () => {
   });
 
   describe("transcribeAudioSegments", () => {
+    it.each([true, false])(
+      "forwards diarize=%s to every chunk only when enabled",
+      async (diarize) => {
+        const transcriber = createFakeTranscriber([{}, {}]);
+        await transcribeAudioSegments(["a.m4a", "b.m4a"], transcriber, false, undefined, {
+          diarize,
+        });
+        expect(transcriber.transcribe).toHaveBeenCalledTimes(2);
+        for (const [, options] of transcriber.transcribe.mock.calls) {
+          if (diarize) expect(options).toMatchObject({ diarize: true });
+          else expect(options).not.toHaveProperty("diarize");
+        }
+      },
+    );
     it("should convert chunk segments to SrtEntry array", async () => {
       const transcriber = createFakeTranscriber([
         {

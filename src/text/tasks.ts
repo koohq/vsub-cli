@@ -13,9 +13,12 @@ export const DEFAULT_CHUNK_SIZE = 50;
 export const DEFAULT_CONTEXT_WINDOW_SIZE = 5;
 
 interface TextItem {
+  speaker?: string | undefined;
   id: number;
   text: string;
 }
+
+type ContextTexts = string[] | Array<{ speaker?: string | undefined; text: string }>;
 
 type TextMatch =
   | { kind: "matched"; texts: string[] }
@@ -185,7 +188,7 @@ export function buildTranslationPrompt(
   texts: TextItem[],
   targetLang: string,
   options?: TranslateOptions,
-  contextTexts?: string[],
+  contextTexts?: ContextTexts,
 ): string {
   const customPrompt = options?.prompt?.trim();
   const glossaryRules = options?.glossary ? formatGlossaryPrompt(options.glossary) : "";
@@ -206,6 +209,13 @@ STRICT RULES:
 
   if (customPrompt) {
     prompt += `\n\nADDITIONAL TRANSLATION INSTRUCTIONS:\n${customPrompt}`;
+  }
+
+  if (
+    texts.some((item) => item.speaker) ||
+    contextTexts?.some((item) => typeof item !== "string" && item.speaker)
+  ) {
+    prompt += `\n\nSPEAKER LABELS:\nSome items have a "speaker" label from automatic speaker detection, which can be wrong. Items with the same label are probably spoken by the same person. Use the labels to keep each person's tone, politeness level, first-person pronouns, and forms of address consistent, and to tell who is talking to whom. A label with a part number, such as "2/speaker_0", is only valid within that part of the audio: "1/speaker_0" and "2/speaker_0" may be different people. Do NOT output the labels; each output object has only "id" and "text".`;
   }
 
   const contextNotes = options?.contextNotes?.trim();
@@ -233,17 +243,31 @@ function splitIntoChunks<T>(items: T[], chunkSize: number): T[][] {
   return chunks;
 }
 
+function getPrecedingContextTexts<IncludeSpeakers extends boolean>(
+  entries: SrtEntry[],
+  chunkIdx: number,
+  chunkSize: number,
+  contextWindowSize: number,
+  includeSpeakers: IncludeSpeakers,
+): (IncludeSpeakers extends true ? ContextTexts : string[]) | undefined;
 function getPrecedingContextTexts(
   entries: SrtEntry[],
   chunkIdx: number,
   chunkSize: number,
   contextWindowSize: number,
-): string[] | undefined {
+  includeSpeakers: boolean,
+): ContextTexts | undefined {
   const startIdx = chunkIdx * chunkSize;
   if (contextWindowSize <= 0 || startIdx <= 0) {
     return undefined;
   }
-  return entries.slice(Math.max(0, startIdx - contextWindowSize), startIdx).map((e) => e.text);
+  const context = entries.slice(Math.max(0, startIdx - contextWindowSize), startIdx);
+  return includeSpeakers && context.some((entry) => entry.speaker)
+    ? context.map((entry) => ({
+        ...(entry.speaker ? { speaker: entry.speaker } : {}),
+        text: entry.text,
+      }))
+    : context.map((entry) => entry.text);
 }
 
 function logChunkVerbose(
@@ -252,7 +276,7 @@ function logChunkVerbose(
   chunkIndex: number,
   totalChunks: number,
   itemCount: number,
-  contextTexts: string[] | undefined,
+  contextTexts: ContextTexts | undefined,
 ): void {
   const ctxInfo =
     contextTexts && contextTexts.length > 0 ? ` [context: ${contextTexts.length} lines]` : "";
@@ -261,10 +285,11 @@ function logChunkVerbose(
   );
 }
 
-async function runChunkedTextTransform(
+async function runChunkedTextTransform<IncludeSpeakers extends boolean>(
   entries: SrtEntry[],
   model: TextModel,
   options: {
+    includeSpeakers: IncludeSpeakers;
     concurrency?: number | undefined;
     contextWindowSize: number;
     verbose: boolean;
@@ -276,7 +301,7 @@ async function runChunkedTextTransform(
       chunkIndex: number;
       totalChunks: number;
       items: TextItem[];
-      contextTexts: string[] | undefined;
+      contextTexts: (IncludeSpeakers extends true ? ContextTexts : string[]) | undefined;
     }) => Promise<string[]>;
   },
 ): Promise<{ entries: SrtEntry[]; totalChunks: number }> {
@@ -296,6 +321,7 @@ async function runChunkedTextTransform(
     const chunkIndex = chunkIdx + 1;
     const items = chunk.map((entry, index) => ({
       id: chunkIdx * DEFAULT_CHUNK_SIZE + index + 1,
+      ...(options.includeSpeakers && entry.speaker ? { speaker: entry.speaker } : {}),
       text: entry.text,
     }));
     const contextTexts = getPrecedingContextTexts(
@@ -303,6 +329,7 @@ async function runChunkedTextTransform(
       chunkIdx,
       DEFAULT_CHUNK_SIZE,
       options.contextWindowSize,
+      options.includeSpeakers,
     );
 
     if (options.verbose) {
@@ -331,9 +358,7 @@ async function runChunkedTextTransform(
 
   const chunkResults = chunks.map((chunk, chunkIdx) =>
     chunk.map((item, j) => ({
-      id: item.id,
-      startTime: item.startTime,
-      endTime: item.endTime,
+      ...item,
       text: textsByChunk[chunkIdx]?.[j] ?? item.text,
     })),
   );
@@ -360,6 +385,7 @@ export async function translateSrtEntries(
       : DEFAULT_CONTEXT_WINDOW_SIZE;
 
   const { entries: translated } = await runChunkedTextTransform(entries, model, {
+    includeSpeakers: true,
     concurrency: options?.concurrency,
     contextWindowSize,
     verbose,
@@ -471,6 +497,7 @@ export async function refineSrtEntries(
   let fallbackChunks = 0;
 
   const { entries: refinedEntries, totalChunks } = await runChunkedTextTransform(entries, model, {
+    includeSpeakers: false,
     concurrency: options?.concurrency,
     contextWindowSize: DEFAULT_CONTEXT_WINDOW_SIZE,
     verbose,

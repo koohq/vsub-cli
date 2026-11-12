@@ -72,6 +72,8 @@ export function resolveRefine(
   return cliRefine ?? configRefine ?? false;
 }
 
+export const resolveDiarize = resolveRefine;
+
 export function resolveReflowLimits(
   options: { maxLength?: unknown; maxDuration?: unknown },
   configMaxLength: number | undefined,
@@ -110,6 +112,8 @@ export interface AppConfig {
   maxLength?: number | undefined;
   /** Transcript refinement: VSUB_REFINE, then the config file. */
   refine?: boolean | undefined;
+  /** Speaker detection: VSUB_DIARIZE, then the config file; only sent to OpenRouter Scribe. */
+  diarize?: boolean | undefined;
   burnPosition?: string | undefined;
   burnFontSize?: string | number | undefined;
   /** vsub-specific OpenRouter key: VSUB_OPENROUTER_API_KEY, then the config file. */
@@ -324,6 +328,9 @@ export function getConfig(cliFfmpegPath?: string, cliLang?: string): AppConfig {
     (typeof globalConfig.refine === "boolean" ? globalConfig.refine : undefined);
   const maxLength =
     parsePositiveInteger(envMaxLength) ?? parsePositiveInteger(globalConfig.maxLength);
+  const diarize =
+    parseBooleanSetting(process.env["VSUB_DIARIZE"]) ??
+    (typeof globalConfig.diarize === "boolean" ? globalConfig.diarize : undefined);
 
   const burnPosition =
     process.env["VSUB_BURN_POSITION"]?.trim() || globalConfig.burnPosition?.trim() || undefined;
@@ -398,6 +405,7 @@ export function getConfig(cliFfmpegPath?: string, cliLang?: string): AppConfig {
     disableUpdateCheck,
     maxLength,
     refine,
+    diarize,
     burnPosition,
     burnFontSize,
     openrouterApiKey,

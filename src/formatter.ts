@@ -362,7 +362,11 @@ export function stringifyTxt(entries: SrtEntry[]): string {
  * Converts structured SrtEntry objects into formatted JSON string.
  */
 export function stringifyJson(entries: SrtEntry[]): string {
-  return `${JSON.stringify(entries, null, 2)}\n`;
+  return `${JSON.stringify(
+    entries.map(({ id, startTime, endTime, text }) => ({ id, startTime, endTime, text })),
+    null,
+    2,
+  )}\n`;
 }
 
 /**

@@ -12,6 +12,13 @@ import {
 } from "./ui.js";
 
 describe("ui module", () => {
+  it.each(["en", "ja"] as const)("shows speaker counts only when present in %s", (lang) => {
+    const data = { durationMs: 0, entriesCount: 1, outputFiles: [] };
+    const box = stripVTControlCharacters(formatSummaryBox({ ...data, speakersCount: 2 }, lang));
+    expect(box).toContain(lang === "ja" ? "話者" : "Speakers");
+    expect(box).toContain(lang === "ja" ? "ラベル 2 個" : "2 labels");
+    expect(formatSummaryBox(data, lang)).not.toContain(lang === "ja" ? "話者" : "Speakers");
+  });
   it.each([
     ["abc", 3],
     ["処理", 4],

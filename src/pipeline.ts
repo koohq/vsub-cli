@@ -20,6 +20,7 @@ import {
   type AppConfig,
   ensureApiKeys,
   getConfig,
+  resolveDiarize,
   resolveRefine,
   resolveReflowLimits,
 } from "./config.js";
@@ -216,6 +217,7 @@ export function findOutputPathConflict(
 }
 
 export interface ProcessMediaOptions {
+  diarize?: boolean | undefined;
   mediaFile: string;
   targetLang?: string | undefined;
   format?: string | undefined;
@@ -262,6 +264,7 @@ export interface ProcessMediaOptions {
 }
 
 export interface ProcessMediaResult {
+  speakersCount?: number | undefined;
   mediaFile: string;
   mediaType: "video" | "audio";
   durationMs: number;
@@ -303,15 +306,25 @@ export interface ProcessMediaResult {
  * Resolves transcription cache context according to CLI options, raw config, and glossary hints.
  */
 export function resolveTranscriptionContext(
-  rawConfig: Pick<AppConfig, "whisperPrompt" | "glossary">,
+  rawConfig: Pick<AppConfig, "whisperPrompt" | "glossary" | "diarize">,
   stt: SttSettings,
   overrides?: {
+    diarize?: boolean | undefined;
     whisperPrompt?: string | undefined;
     glossary?: string | undefined;
   },
   lang?: SupportedLanguage | string,
-): TranscriptionCacheContext {
+): TranscriptionCacheContext & { diarizeWarning?: string | undefined } {
   let whisperPrompt: string | undefined;
+  let diarize = false;
+  let diarizeWarning: string | undefined;
+  if (stt.provider === "openrouter" && resolveDiarize(overrides?.diarize, rawConfig.diarize)) {
+    if (stt.model.trim().toLowerCase().startsWith("elevenlabs/scribe")) {
+      diarize = true;
+    } else {
+      diarizeWarning = getI18n(lang).pipeline.diarizeUnsupported(stt.model);
+    }
+  }
   if (stt.provider !== "openrouter") {
     const glossaryInput = overrides?.glossary?.trim() || rawConfig.glossary;
     whisperPrompt = overrides?.whisperPrompt?.trim() || rawConfig.whisperPrompt;
@@ -324,6 +337,8 @@ export function resolveTranscriptionContext(
     baseUrl: stt.baseUrl,
     model: stt.model,
     prompt: whisperPrompt,
+    ...(diarize ? { diarize: true } : {}),
+    ...(diarizeWarning ? { diarizeWarning } : {}),
   };
 }
 
@@ -521,7 +536,7 @@ export async function processMediaPipeline(
   const transcriptionContext = resolveTranscriptionContext(
     rawConfig,
     stt,
-    { whisperPrompt: options.whisperPrompt, glossary: glossaryInput },
+    { whisperPrompt: options.whisperPrompt, glossary: glossaryInput, diarize: options.diarize },
     lang,
   );
 
@@ -608,6 +623,14 @@ export async function processMediaPipeline(
       spinner.succeed(`${prefix}${audioDoneMsg}`);
 
       // 2. Transcription
+      if (transcriptionContext.diarizeWarning) {
+        showSpinnerNotice(
+          spinner,
+          verbose,
+          "warn",
+          `${prefix}${transcriptionContext.diarizeWarning}`,
+        );
+      }
       const providerLabel = STT_PROVIDER_LABELS[stt.provider];
       const initialText = `${prefix}${m.step2Transcribing(
         providerLabel,
@@ -630,6 +653,7 @@ export async function processMediaPipeline(
         },
         {
           model: stt.model,
+          ...(transcriptionContext.diarize ? { diarize: true } : {}),
           ...(transcriptionContext.prompt ? { prompt: transcriptionContext.prompt } : {}),
           ...(extractResult.durations ? { durations: extractResult.durations } : {}),
         },
@@ -1003,6 +1027,13 @@ export async function processMediaPipeline(
       stdoutContent,
       skippedTranslation: skippedLanguages.length === targetLanguages.length,
       whisperPrompt: transcriptionContext.prompt,
+      ...(srtEntries.some((entry) => entry.speaker)
+        ? {
+            speakersCount: new Set(
+              srtEntries.flatMap((entry) => (entry.speaker ? [entry.speaker] : [])),
+            ).size,
+          }
+        : {}),
       prompt: translationPrompt,
       glossaryTermsCount: totalGlossaryTerms > 0 ? totalGlossaryTerms : undefined,
       sttProvider: stt.provider,
@@ -1041,6 +1072,8 @@ export async function processMediaPipeline(
 }
 
 export interface ResolveTranscriptOptions {
+  diarize?: boolean | undefined;
+  stdout?: boolean | undefined;
   filePath: string;
   sttProvider?: string | undefined;
   sttModel?: string | undefined;
@@ -1100,7 +1133,7 @@ export async function resolveTranscriptEntries(
   const transcriptionContext = resolveTranscriptionContext(
     resolvedConfig,
     stt,
-    { whisperPrompt: options.whisperPrompt, glossary: options.glossary },
+    { whisperPrompt: options.whisperPrompt, glossary: options.glossary, diarize: options.diarize },
     lang,
   );
 
@@ -1140,6 +1173,14 @@ export async function resolveTranscriptEntries(
   const audioPaths = extractResult.audioPaths;
 
   try {
+    if (transcriptionContext.diarizeWarning) {
+      showSpinnerNotice(
+        options.spinner ?? createSpinner("", { isSilent: verbose }),
+        verbose || Boolean(options.stdout),
+        "warn",
+        `${options.prefix ?? ""}${transcriptionContext.diarizeWarning}`,
+      );
+    }
     const transcriptResult = await transcribeAudioSegments(
       audioPaths,
       transcriber,
@@ -1147,6 +1188,7 @@ export async function resolveTranscriptEntries(
       undefined,
       {
         model: stt.model,
+        ...(transcriptionContext.diarize ? { diarize: true } : {}),
         ...(transcriptionContext.prompt ? { prompt: transcriptionContext.prompt } : {}),
         ...(extractResult.durations ? { durations: extractResult.durations } : {}),
       },
@@ -1179,6 +1221,7 @@ export async function resolveTranscriptEntries(
 }
 
 interface TextTaskOptions {
+  diarize?: boolean | undefined;
   inputFile: string;
   targetLang?: string | undefined;
   output?: string | undefined;
@@ -1264,7 +1307,7 @@ async function prepareTextTask<Format extends string>(
   const transcriptionContext = resolveTranscriptionContext(
     resolvedConfig,
     stt,
-    { whisperPrompt: options.whisperPrompt, glossary: options.glossary },
+    { whisperPrompt: options.whisperPrompt, glossary: options.glossary, diarize: options.diarize },
     lang,
   );
 
@@ -1363,10 +1406,12 @@ async function resolveTextTaskTranscript(
   spinner.start(texts.step1Resolve);
   const transcriptResult = await resolveTranscriptEntries({
     filePath: resolvedInput,
+    stdout: options.stdout || options.output === "-",
     sttProvider: options.sttProvider,
     sttModel: options.sttModel,
     groqModel: options.groqModel,
     whisperPrompt: options.whisperPrompt,
+    diarize: options.diarize,
     glossary: options.glossary,
     noCache: options.noCache,
     fresh: options.fresh,

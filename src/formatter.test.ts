@@ -20,6 +20,12 @@ import {
 import type { SrtEntry } from "./srt.js";
 
 describe("formatter.ts", () => {
+  it.each(["srt", "vtt", "txt", "json"] as const)("omits speakers from %s files", (format) => {
+    const entry = { id: 1, startTime: "00:00:00,000", endTime: "00:00:01,000", text: "Hello" };
+    expect(formatEntries([{ ...entry, speaker: "private-label" }], format)).toBe(
+      formatEntries([entry], format),
+    );
+  });
   describe("normalizeChapters", () => {
     function chapters(items: [number, string][]): ChapterItem[] {
       return items.map(([seconds, title]) => ({

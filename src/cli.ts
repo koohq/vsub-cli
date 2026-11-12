@@ -258,6 +258,14 @@ function addTextTaskOptions(command: Command, texts: TextTaskOptionTexts): Comma
 
   return addLlmProviderOptions(command)
     .option(
+      "--diarize",
+      "Ask OpenRouter's elevenlabs/scribe models for speaker labels, so the transcript cache matches the main command (labels are not used for chapters or summaries)",
+    )
+    .option(
+      "--no-diarize",
+      "Do not ask for speaker labels, even if VSUB_DIARIZE or the config turns them on",
+    )
+    .option(
       "--stt-provider <provider>",
       "Transcription provider: openrouter, groq, or openai-compatible (default: VSUB_STT_PROVIDER, config, or chosen from your API keys)",
     )
@@ -282,6 +290,7 @@ function addTextTaskOptions(command: Command, texts: TextTaskOptionTexts): Comma
 }
 
 interface TextTaskActionOptions {
+  diarize?: boolean | undefined;
   targetLang?: string;
   format?: string;
   output?: string;
@@ -320,6 +329,7 @@ function createTextTaskAction<Format>(
       const format = parseFormat(options.format, lang);
       await run({
         inputFile: file,
+        diarize: options.diarize,
         targetLang: options.targetLang,
         format,
         output: options.output,
@@ -358,6 +368,14 @@ function createTextTaskAction<Format>(
 
 function addMediaOptions(command: Command): Command {
   command
+    .option(
+      "--diarize",
+      "Ask OpenRouter's elevenlabs/scribe models for speaker labels and pass them to translation; subtitles are also cut where the speaker changes (default: VSUB_DIARIZE, config, or off)",
+    )
+    .option(
+      "--no-diarize",
+      "Do not ask for speaker labels, even if VSUB_DIARIZE or the config turns them on",
+    )
     .option("-w, --overwrite", "Overwrite existing output files without confirmation prompt", false)
     .option("--backup", "Create backup (.bak) of existing output files before overwriting", false)
     .option(
@@ -632,6 +650,7 @@ export function createProgram(): Command {
         [labels.transcription, transcriptionText],
         [labels.textGeneration, textGenText],
         [labels.refine, resolvedConfig.refine === true ? m.enabled : m.disabled],
+        [labels.diarize, resolvedConfig.diarize === true ? m.enabled : m.disabled],
         [labels.ffmpegPath, `${resolvedConfig.ffmpegPath}`],
         [
           labels.whisperPrompt,
@@ -689,7 +708,7 @@ export function createProgram(): Command {
   configCmd
     .command("set")
     .description(
-      "Save API Keys, models, OpenAI-compatible endpoints, prompts, glossary, concurrency, language, target language, transcript refinement, or FFmpeg path to global config",
+      "Save API Keys, models, OpenAI-compatible endpoints, prompts, glossary, concurrency, language, target language, transcript refinement, speaker labels, or FFmpeg path to global config",
     )
     .option("-l, --lang <lang>", "UI display language (en, ja)")
     .option(
@@ -758,6 +777,10 @@ export function createProgram(): Command {
       "--refine <boolean>",
       "Refine the transcript with the text generation model by default in the main command and batch (true/false)",
     )
+    .option(
+      "--diarize <boolean>",
+      "Ask OpenRouter's elevenlabs/scribe models for speaker labels by default in the main command, batch, chapters, and summarize (true/false)",
+    )
     .option("--max-length <chars>", "Default max characters per subtitle entry (e.g. 60)")
     .option("--burn-position <position>", "Default subtitle burn position (bottom, top, center)")
     .option(
@@ -791,6 +814,7 @@ export function createProgram(): Command {
         concurrency?: string;
         disableUpdateCheck?: string;
         refine?: string;
+        diarize?: string;
         maxLength?: string;
         burnPosition?: string;
         burnFontSize?: string;
@@ -819,6 +843,11 @@ export function createProgram(): Command {
         }
 
         const refineVal = parseBooleanSetting(options.refine);
+        const diarizeVal = parseBooleanSetting(options.diarize);
+        if (options.diarize !== undefined && diarizeVal === undefined) {
+          console.error(pc.red(`\n✖ ${m.invalidDiarize(options.diarize)}\n`));
+          return process.exit(1);
+        }
         if (options.refine !== undefined && refineVal === undefined) {
           console.error(pc.red(`\n✖ ${m.invalidRefine(options.refine)}\n`));
           return process.exit(1);
@@ -924,6 +953,7 @@ export function createProgram(): Command {
           concurrencyNum === undefined &&
           disableUpdateCheckVal === undefined &&
           refineVal === undefined &&
+          diarizeVal === undefined &&
           maxLengthNum === undefined &&
           burnPositionVal === undefined &&
           burnFontSizeVal === undefined
@@ -938,6 +968,7 @@ export function createProgram(): Command {
               ...compatibleConfig,
               ...(normalizedLang ? { lang: normalizedLang } : {}),
               ...(refineVal !== undefined ? { refine: refineVal } : {}),
+              ...(diarizeVal !== undefined ? { diarize: diarizeVal } : {}),
               ...(targetLangVal !== undefined ? { targetLang: targetLangVal } : {}),
               ...(options.groqKey ? { groqApiKey: options.groqKey.trim() } : {}),
               ...(options.geminiKey ? { geminiApiKey: options.geminiKey.trim() } : {}),

@@ -173,7 +173,7 @@ export async function runBatchPipeline(options: BatchPipelineOptions): Promise<B
   const transcriptionContext = resolveTranscriptionContext(
     resolvedLlmConfig,
     stt,
-    { whisperPrompt: options.whisperPrompt, glossary: options.glossary },
+    { whisperPrompt: options.whisperPrompt, glossary: options.glossary, diarize: options.diarize },
     lang,
   );
   const needsTranscription =

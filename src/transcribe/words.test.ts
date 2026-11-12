@@ -5,6 +5,44 @@ import { buildEntriesFromWords, type WordChunk, type WordSegmentationOptions } f
 
 const KANA = "あいうえおかきくけこさしすせそたちつてとなにぬねのはひふへほ";
 
+describe("speaker segmentation", () => {
+  it.each([false, true])("cuts speaker changes with noLimits=%s", (noLimits) => {
+    const words = [
+      { ...w(0, 0.4, "Hello"), speaker: "speaker_0" },
+      { ...w(0.4, 0.8, "there"), speaker: "speaker_1" },
+    ];
+    expect(build(words, { noLimits }).map((e) => [e.text, e.speaker])).toEqual([
+      ["Hello", "speaker_0"],
+      ["there", "speaker_1"],
+    ]);
+    expect(buildEntriesFromWords([chunk(words), chunk(words, 300)]).map((e) => e.speaker)).toEqual([
+      "1/speaker_0",
+      "1/speaker_1",
+      "2/speaker_0",
+      "2/speaker_1",
+    ]);
+    expect(words[0]?.speaker).toBe("speaker_0");
+  });
+  it("keeps unknown speakers together and retains the first known speaker", () => {
+    const result = build([
+      w(0, 0.2, "Hello"),
+      { ...w(0.2, 0.4, "there"), speaker: "speaker_1" },
+      w(0.4, 0.6, "friend"),
+    ]);
+    expect(result).toHaveLength(1);
+    expect(result[0]?.speaker).toBe("speaker_1");
+    expect(build([w(0, 0.3, "Hello")])[0]).not.toHaveProperty("speaker");
+  });
+  it("keeps the destination speaker when attaching punctuation", () => {
+    const result = build([
+      { ...w(0, 0.1, "「"), speaker: "other" },
+      { ...w(0.1, 0.3, "Hello"), speaker: "speaker_0" },
+      { ...w(0.3, 0.4, "!"), speaker: "other" },
+    ]);
+    expect(result[0]).toMatchObject({ text: "「Hello!", speaker: "speaker_0" });
+  });
+});
+
 /** Builds one word: `[start-end] text` in seconds. */
 function w(start: number, end: number, text: string): TimedText {
   return { start, end, text };

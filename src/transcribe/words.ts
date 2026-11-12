@@ -50,6 +50,7 @@ const CJK_FULLWIDTH_REGEX =
 
 /** A cleaned-up word with integer millisecond times (relative to its chunk). */
 interface Word {
+  speaker: string | undefined;
   text: string;
   startMs: number;
   endMs: number;
@@ -83,7 +84,7 @@ function prepareWords(rawWords: TimedText[]): Word[] {
 
     const startMs = toMs(raw.start);
     const endMs = Math.min(Math.max(toMs(raw.end), startMs), startMs + MAX_WORD_MS);
-    words.push({ text: pendingPrefix + text, startMs, endMs });
+    words.push({ text: pendingPrefix + text, startMs, endMs, speaker: raw.speaker });
     pendingPrefix = "";
   }
 
@@ -117,7 +118,9 @@ function cutIntoGroups(words: Word[]): Group[] {
     const previous = current[current.length - 1];
     if (
       previous &&
-      (gapBetween(previous, word) >= CUT_GAP_MS || SENTENCE_END_REGEX.test(previous.text))
+      (gapBetween(previous, word) >= CUT_GAP_MS ||
+        SENTENCE_END_REGEX.test(previous.text) ||
+        (previous.speaker && word.speaker && previous.speaker !== word.speaker))
     ) {
       groups.push(current);
       current = [];
@@ -191,6 +194,7 @@ function splitToLimits(group: Group, limits: Limits): Group[] {
 }
 
 interface TimedGroup {
+  speaker?: string | undefined;
   startMs: number;
   endMs: number;
   text: string;
@@ -234,14 +238,18 @@ export function buildEntriesFromWords(
   };
 
   const timedGroups: TimedGroup[] = [];
-  for (const chunk of chunks) {
+  for (const [chunkIndex, chunk] of chunks.entries()) {
     const offsetMs = toMs(chunk.offsetSeconds);
     for (const cut of cutIntoGroups(prepareWords(chunk.words))) {
       const groups = options?.noLimits ? [cut] : splitToLimits(cut, limits);
       for (const group of groups) {
         const first = group[0] as Word;
         const last = group[group.length - 1] as Word;
+        const speaker = group.find((word) => word.speaker)?.speaker;
         timedGroups.push({
+          ...(speaker
+            ? { speaker: chunks.length > 1 ? `${chunkIndex + 1}/${speaker}` : speaker }
+            : {}),
           startMs: first.startMs + offsetMs,
           endMs: last.endMs + offsetMs,
           text: joinTexts(group.map((w) => w.text)),
@@ -256,5 +264,6 @@ export function buildEntriesFromWords(
     startTime: formatSrtTimeMs(group.startMs),
     endTime: formatSrtTimeMs(group.endMs),
     text: group.text,
+    ...(group.speaker ? { speaker: group.speaker } : {}),
   }));
 }

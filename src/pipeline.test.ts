@@ -113,6 +113,146 @@ vi.mock("./transcribe/transcriber.js", async (importOriginal) => {
 });
 
 describe("pipeline.ts", () => {
+  it.each(["groq", "openrouter", "openai-compatible"] as const)(
+    "gates speaker requests for %s",
+    (provider) => {
+      const stt = { provider, model: " ElevenLabs/Scribe-v2 ", source: "option" } as const;
+      const enabled = resolveTranscriptionContext({ diarize: true }, stt);
+      expect(enabled.diarize).toBe(provider === "openrouter" ? true : undefined);
+      expect(
+        resolveTranscriptionContext({ diarize: true }, stt, { diarize: false }),
+      ).not.toHaveProperty("diarize");
+      const unsupported = resolveTranscriptionContext(
+        { diarize: true },
+        { ...stt, model: "other" },
+        undefined,
+        "en",
+      );
+      expect(unsupported.diarizeWarning).toEqual(
+        provider === "openrouter" ? expect.stringContaining("not requested") : undefined,
+      );
+    },
+  );
+  describe("speaker labels through pipelines", () => {
+    function setupSpeakers() {
+      vi.clearAllMocks();
+      vi.spyOn(console, "log").mockImplementation(() => {});
+      const notice = vi.spyOn(ui, "showSpinnerNotice");
+      const file = path.join(tempDir, "talk.mp4");
+      fs.writeFileSync(file, "dummy media");
+      process.env["VSUB_OPENROUTER_API_KEY"] = "test-key";
+      const words = [
+        { start: 0, end: 0.4, text: "Hello", speaker: "speaker_0" },
+        { start: 0.4, end: 0.8, text: "there", speaker: "speaker_1" },
+      ];
+      const wordChunks = [{ offsetSeconds: 0, words }];
+      const entries = buildEntriesFromWords(wordChunks);
+      const options = {
+        mediaFile: file,
+        inputFile: file,
+        filePath: file,
+        cacheDir: path.join(tempDir, "cache"),
+        overwrite: true,
+        targetLang: "ja",
+        lang: "en" as const,
+        silentSummary: true,
+        diarize: true,
+        sttProvider: "openrouter",
+        llmProvider: "gemini",
+      };
+      return { file, options, wordChunks, entries, notice };
+    }
+
+    it("rebuilds labeled subtitles from cache, preserves them through refinement, and shares the cache with text tasks", async () => {
+      const { file, options, entries, wordChunks } = setupSpeakers();
+      vi.mocked(transcribeAudioSegments).mockResolvedValueOnce({
+        entries,
+        wordChunks,
+        detectedLanguage: "en",
+      });
+      const first = await processMediaPipeline({
+        ...options,
+        refine: true,
+        saveOriginal: true,
+        format: "json",
+      });
+      expect(first.speakersCount).toBe(2);
+      expect(transcribeAudioSegments).toHaveBeenCalledWith(
+        expect.anything(),
+        expect.anything(),
+        false,
+        expect.any(Function),
+        expect.objectContaining({ diarize: true }),
+      );
+      expect(vi.mocked(refineSrtEntries).mock.calls[0]?.[0]).toEqual(entries);
+      expect(vi.mocked(translateSrtEntries).mock.calls[0]?.[0]).toEqual(entries);
+      const cache = loadMediaCache(file, options.cacheDir)?.transcription;
+      expect(cache).toMatchObject({ diarize: true, wordChunks });
+      for (const output of first.outputFiles)
+        expect(fs.readFileSync(output, "utf8")).not.toContain('"speaker"');
+      const second = await processMediaPipeline({ ...options, refine: true, maxLength: 4 });
+      expect(second.speakersCount).toBe(2);
+      await processChaptersPipeline(options);
+      await processSummaryPipeline(options);
+      expect(transcribeAudioSegments).toHaveBeenCalledTimes(1);
+      expect(vi.mocked(generateChapters).mock.calls[0]?.[0]).toEqual(entries);
+      expect(vi.mocked(generateSummary).mock.calls[0]?.[0]).toEqual(entries);
+      vi.mocked(transcribeAudioSegments).mockResolvedValueOnce({
+        entries: entries.map(({ speaker: _speaker, ...entry }) => entry),
+        detectedLanguage: "en",
+      });
+      await processMediaPipeline({ ...options, diarize: false });
+      expect(transcribeAudioSegments).toHaveBeenCalledTimes(2);
+      expect(loadMediaCache(file, options.cacheDir)?.transcription).not.toHaveProperty("diarize");
+    });
+
+    it.each(["media", "chapters", "summarize"] as const)(
+      "warns only when %s actually transcribes an unsupported OpenRouter model",
+      async (task) => {
+        const { options, notice } = setupSpeakers();
+        const run =
+          task === "media"
+            ? processMediaPipeline
+            : task === "chapters"
+              ? processChaptersPipeline
+              : processSummaryPipeline;
+        const opts = { ...options, sttModel: "other-model" };
+        await run(opts);
+        expect(
+          notice.mock.calls.filter(
+            (call) => call[2] === "warn" && String(call[3]).includes("--diarize"),
+          ),
+        ).toHaveLength(1);
+        expect(vi.mocked(transcribeAudioSegments).mock.calls[0]?.[4]).not.toHaveProperty("diarize");
+        notice.mockClear();
+        await run(opts);
+        expect(
+          notice.mock.calls.filter(
+            (call) => call[2] === "warn" && String(call[3]).includes("--diarize"),
+          ),
+        ).toHaveLength(0);
+        expect(transcribeAudioSegments).toHaveBeenCalledTimes(1);
+      },
+    );
+
+    it.each(["groq", "openai-compatible"] as const)(
+      "does not request speakers or warn for %s",
+      async (sttProvider) => {
+        const { options, notice } = setupSpeakers();
+        saveGlobalConfig({
+          openaiCompatibleSttBaseUrl: "http://localhost:8000/v1",
+          openaiCompatibleSttModel: "test-stt",
+        });
+        await processMediaPipeline({ ...options, sttProvider });
+        expect(vi.mocked(transcribeAudioSegments).mock.calls[0]?.[4]).not.toHaveProperty("diarize");
+        expect(
+          notice.mock.calls.filter(
+            (call) => call[2] === "warn" && String(call[3]).includes("--diarize"),
+          ),
+        ).toHaveLength(0);
+      },
+    );
+  });
   describe("glossary transcription hints", () => {
     const glossary = Array.from({ length: 100 }, (_, i) => `用語${i}=訳語${i}`).join(", ");
     const stt = { provider: "groq", model: "test-whisper", source: "option" } as const;

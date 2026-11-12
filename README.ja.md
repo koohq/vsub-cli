@@ -305,6 +305,8 @@ Options:
   --save-original               翻訳した字幕と一緒に、文字起こしした原文の字幕も保存する (既定: false)
   --refine                      翻訳の前に、文章の生成モデルで文字起こしの認識の誤りを直す (既定: VSUB_REFINE、設定ファイル、または無効。--glossary、--prompt、--context を使う。時刻と行数は変えない)
   --no-refine                   VSUB_REFINE や設定ファイルで有効になっていても、文字起こしを修正しない
+  --diarize                     OpenRouter の elevenlabs/scribe のモデルに話者の判別を頼み、翻訳に渡す。話者が変わる所でも字幕を切る (既定: VSUB_DIARIZE、設定ファイル、または無効)
+  --no-diarize                  VSUB_DIARIZE や設定ファイルで有効になっていても、話者の判別を頼まない
   --force-translate             検出した言語が翻訳先と同じでも翻訳する (既定: false)
   --no-update-check             新しいバージョンの確認をしない (既定: false)
   --verbose                     詳しいログ (API リクエストなど) を出す (既定: false)
@@ -454,7 +456,22 @@ Sam は Alex に敬語で話す。Alex は Sam を呼び捨てにする。
 
 `--prompt` には訳し方の指示を、`--context` には話者・関係・場面の背景を書きます（指示としては扱いません）。背景メモは短く書くと効果的で、存在するファイルなら UTF-8 の中身を、そうでなければ指定した文字列を使います。直前の字幕を何行渡すかを決める `--context-window` とは別の指定です。
 
+#### 話者の判別（`--diarize`）
+
+話者の判別は、`--diarize`（メインと `vsub batch`）、`VSUB_DIARIZE=true`、または `vsub config set --diarize true` で有効にします。1 回だけ外すときは `--no-diarize` を使います。優先順位は `--diarize` / `--no-diarize` → 環境変数 → 設定ファイル → 無効です。OpenRouter の `elevenlabs/scribe` のモデルだけに頼みます。OpenRouter のほかのモデルでは文字起こし時に警告を出して頼まず、Groq と `openai-compatible` は話者なしで処理します。
+
+話者が変わる所でも字幕を切り、翻訳で口調・一人称・呼び方をそろえるためにラベルを使います。SRT・VTT・TXT・JSON の字幕ファイルには話者を出しません。`--refine` の依頼文にも入れず、修正後もラベルを保って翻訳に渡します。自動の判別なので、間違えることがあります。
+
+5 分を超える音声は 5 分ずつに分けて送ります。区切りが複数なら `2/speaker_0` のように番号が付き、`1/speaker_0` と `2/speaker_0` は別の人かもしれません。区切りが 1 つなら `speaker_0` のままです。話者が分かっている場合は背景メモを組み合わせられます。
+
+```bash
+vsub talk.mp4 -t ja --diarize --context "speaker_0 は店長のアレックス。speaker_1 は新人アルバイトのサムで、アレックスには敬語で話す。"
+```
+
+有効・無効を切り替えると文字起こしのキャッシュを作り直します。`chapters` と `summarize` にも同じフラグを付けると、メインと同じ文字起こしのキャッシュを使えます。その依頼文には話者を使いません。
+
 ### 9. AI によるチャプターと要約（`vsub chapters` と `vsub summarize`）
+
 動画・音声・既存の `.srt` ファイルから、YouTube 用のチャプターや、構造化した Markdown の要約を作ります。チャプターと要約は 1 つの言語で作ります。翻訳先が複数あるとき（たとえば `vsub config set --target-lang ja,en`）は、先頭の言語だけを使います。すでに `vsub` で処理したメディアなら、文字起こしのキャッシュを使うので数秒で終わります。
 ```bash
 # YouTube にそのまま使えるチャプターを作る (00:00 タイトルの形式。[名前].chapters.txt に保存)
@@ -523,6 +540,7 @@ vsub config show
 vsub config set --lang ja --prompt "丁寧な敬体で翻訳" --glossary "./glossary.json" --concurrency 4
 vsub config set --target-lang ja,en
 vsub config set --refine true
+vsub config set --diarize true
 vsub config set --max-length 32 --burn-position bottom --burn-font-size medium
 vsub config set --stt-provider openrouter --openrouter-key "your_openrouter_key"
 vsub config set --llm-provider openrouter

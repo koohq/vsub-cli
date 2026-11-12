@@ -516,6 +516,39 @@ describe("batch.ts", () => {
           expect(result.succeededCount).toBe(2);
         });
 
+        it.each([
+          { cached: true, requested: true },
+          { cached: false, requested: false },
+          { cached: true, requested: false },
+          { cached: false, requested: true },
+        ])(
+          "checks diarize before requesting keys ($cached -> $requested)",
+          async ({ cached, requested }) => {
+            cacheTranscription(dummyFile, { ...options, diarize: cached });
+            vi.mocked(configModule.getConfig).mockReturnValue({
+              ffmpegPath: "ffmpeg",
+              groqApiKey: "",
+              geminiApiKey: "",
+            });
+            const run = runBatchPipeline({ ...options, diarize: requested });
+            if (sttProvider === "openrouter" && cached !== requested) {
+              await expect(run).rejects.toThrow("VSUB_OPENROUTER_API_KEY");
+              expect(processMediaPipelineSpy).not.toHaveBeenCalled();
+            } else {
+              await expect(run).resolves.toMatchObject({ succeededCount: 1 });
+              expect(processMediaPipelineSpy).toHaveBeenCalledWith(
+                expect.objectContaining({ diarize: requested }),
+              );
+            }
+            expect(ensureApiKeysSpy).toHaveBeenCalledWith(
+              expect.anything(),
+              expect.objectContaining({
+                requireOpenRouter: sttProvider === "openrouter" && cached !== requested,
+              }),
+            );
+          },
+        );
+
         it.each(["partial", "fresh", "noCache", "provider", "model", "hint"] as const)(
           "requires the transcription key for %s cache misses",
           async (mode) => {

@@ -7,6 +7,7 @@ import {
   getGlobalConfigPath,
   parseBooleanSetting,
   parsePositiveInteger,
+  resolveDiarize,
   resolveRefine,
   resolveReflowLimits,
   validateApiKeys,
@@ -28,6 +29,28 @@ vi.mock("node:fs", async (importOriginal) => {
 });
 
 describe("config.ts", () => {
+  it.each([
+    [true, false, true],
+    [false, true, false],
+    [undefined, true, true],
+    [undefined, undefined, false],
+  ])("resolves diarize CLI %s before config %s", (cli, config, expected) => {
+    expect(resolveDiarize(cli, config)).toBe(expected);
+  });
+  it.each([
+    [true, undefined, true],
+    [false, "true", true],
+    [true, "false", false],
+    [true, "invalid", true],
+    ["true", undefined, undefined],
+  ])("resolves diarize config %s and env %s", (saved, env, expected) => {
+    vi.mocked(fs.existsSync).mockReturnValue(true);
+    vi.mocked(fs.readFileSync).mockReturnValue(JSON.stringify({ diarize: saved }));
+    if (env === undefined) delete process.env["VSUB_DIARIZE"];
+    else process.env["VSUB_DIARIZE"] = String(env);
+    expect(getConfig().diarize).toBe(expected);
+    delete process.env["VSUB_DIARIZE"];
+  });
   describe("refine settings", () => {
     it.each([
       { value: "true", expected: true },

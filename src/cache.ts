@@ -12,6 +12,7 @@ import type { SttProvider } from "./transcribe/providers.js";
 import type { WordChunk } from "./transcribe/words.js";
 
 export interface CachedTranscription {
+  diarize?: true | undefined;
   detectedLanguage?: string | undefined;
   provider?: SttProvider | undefined;
   entries: SrtEntry[];
@@ -79,6 +80,7 @@ export interface CachedSummary {
 }
 
 export interface TranscriptionCacheContext {
+  diarize?: boolean | undefined;
   provider?: SttProvider | undefined;
   prompt?: string | undefined;
   model?: string | undefined;
@@ -111,6 +113,7 @@ export function isTranscriptionCacheValid(
   context: TranscriptionCacheContext,
 ): boolean {
   if (!cached) return false;
+  if (Boolean(cached.diarize) !== Boolean(context.diarize)) return false;
   if (normalizeCacheString(cached.prompt) !== normalizeCacheString(context.prompt)) {
     return false;
   }
@@ -150,15 +153,18 @@ export function createCachedTranscription(
     prompt: context.prompt,
     entries,
     ...(wordChunks ? { wordChunks } : {}),
+    ...(context.diarize ? { diarize: true } : {}),
     createdAt: Date.now(),
   };
 }
 
 /**
- * Computes a sha256 hash representing the subtitle entries (id, startTime, endTime, text).
+ * Computes a sha256 hash of subtitle entries, including speaker labels only when present.
  */
 export function computeEntriesHash(entries: SrtEntry[]): string {
-  const payload = JSON.stringify(entries.map((e) => [e.id, e.startTime, e.endTime, e.text]));
+  const payload = JSON.stringify(
+    entries.map((e) => [e.id, e.startTime, e.endTime, e.text, ...(e.speaker ? [e.speaker] : [])]),
+  );
   return crypto.createHash("sha256").update(payload).digest("hex");
 }
 
