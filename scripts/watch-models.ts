@@ -2,13 +2,9 @@ import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { GoogleGenAI } from "@google/genai";
-import dotenv from "dotenv";
 import { execa } from "execa";
 import Groq from "groq-sdk";
 import { DEFAULT_GEMINI_MODEL, DEFAULT_GROQ_MODEL } from "../src/config.js";
-
-// Load .env for local/test execution
-dotenv.config();
 
 export interface ModelMetadata {
   id: string;

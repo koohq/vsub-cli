@@ -1,4 +1,5 @@
 import fs from "node:fs";
+import path from "node:path";
 import { describe, expect, it, vi } from "vitest";
 import {
   buildIssueContent,
@@ -13,6 +14,40 @@ import {
 } from "./watch-models.js";
 
 describe("watch-models.ts", () => {
+  it("loads local env silently when importing the module", async () => {
+    const tempDir = fs.mkdtempSync(path.join(process.cwd(), "watch-models-env-test-"));
+    const cwdSpy = vi.spyOn(process, "cwd").mockReturnValue(tempDir);
+    const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+    const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+    vi.stubEnv("DUMMY_KEY", undefined);
+    for (const name of [
+      "DOTENV_PATH",
+      "DOTENV_CONFIG_PATH",
+      "DOTENV_QUIET",
+      "DOTENV_CONFIG_QUIET",
+      "DOTENV_DEBUG",
+      "DOTENV_CONFIG_DEBUG",
+    ]) {
+      vi.stubEnv(name, undefined);
+    }
+
+    try {
+      fs.writeFileSync(path.join(tempDir, ".env"), "DUMMY_KEY=dummy\n");
+      vi.resetModules();
+      await import("./watch-models.js");
+
+      expect(process.env["DUMMY_KEY"]).toBe("dummy");
+      expect(logSpy).not.toHaveBeenCalled();
+      expect(errorSpy).not.toHaveBeenCalled();
+    } finally {
+      cwdSpy.mockRestore();
+      logSpy.mockRestore();
+      errorSpy.mockRestore();
+      vi.unstubAllEnvs();
+      fs.rmSync(tempDir, { recursive: true, force: true });
+    }
+  });
+
   describe("normalizeModelId", () => {
     it("should strip 'models/' prefix if present", () => {
       expect(normalizeModelId("models/gemini-2.5-flash")).toBe("gemini-2.5-flash");
