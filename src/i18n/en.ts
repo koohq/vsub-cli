@@ -124,6 +124,7 @@ export const en = {
       `🌐 [3/4] ${provider} translation complete (${langs}) - ${count} lines${cached ? " [⚡ Cached]" : ""}`,
     step3SkippedSameLang: (detected: string, target: string) =>
       `🌐 [3/4] Skipped translation because detected language matches target language (${detected} -> ${target})`,
+    step3SkippedNoTranslate: (target: string) => `🌐 [3/4] [--no-translate] ${target}`,
     step4Saving: "💾 [4/4] Saving subtitle files...",
     step4Saved: (formats: string) => `💾 [4/4] Subtitle files saved successfully (${formats})`,
     burnStarting: "🎬 Burning subtitles into video with FFmpeg (libx264)...",

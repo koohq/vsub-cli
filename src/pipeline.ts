@@ -810,7 +810,7 @@ export async function processMediaPipeline(
               spinner,
               verbose,
               "info",
-              `${prefix}🌐 [3/4] [--no-translate] ${targetL.toUpperCase()}`,
+              `${prefix}${m.step3SkippedNoTranslate(targetL.toUpperCase())}`,
             );
           } else if (isSameLanguage) {
             showSpinnerNotice(

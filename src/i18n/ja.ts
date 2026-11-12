@@ -127,6 +127,8 @@ export const ja: typeof en = {
       `🌐 [3/4] ${provider} 翻訳完了 (${langs}) - ${count} 行${cached ? " [⚡ キャッシュ利用]" : ""}`,
     step3SkippedSameLang: (detected: string, target: string) =>
       `🌐 [3/4] 検出言語と出力言語が同一のため翻訳をスキップ (${detected} -> ${target})`,
+    step3SkippedNoTranslate: (target: string) =>
+      `🌐 [3/4] [--no-translate] 翻訳をスキップ: ${target}`,
     step4Saving: "💾 [4/4] 字幕ファイルを保存中...",
     step4Saved: (formats: string) => `💾 [4/4] 字幕ファイルを保存完了 (${formats})`,
     burnStarting: "🎬 FFmpeg で字幕を動画に焼き込み中 (libx264)...",

@@ -349,6 +349,10 @@ describe("pipeline.ts", () => {
   describe("verbose pipeline notices", () => {
     describe.each(["en", "ja"] as const)("%s", (lang) => {
       const m = getI18n(lang).pipeline;
+      const noTranslateMessage =
+        lang === "ja"
+          ? "🌐 [3/4] [--no-translate] 翻訳をスキップ: EN"
+          : "🌐 [3/4] [--no-translate] EN";
 
       it.each(["", "[1/3]"])(
         "keeps cached and skipped notices visible with prefix %j",
@@ -387,7 +391,7 @@ describe("pipeline.ts", () => {
             expect(lines.join("\n")).not.toContain(m.step4Saved("SRT"));
             expect(lines).toEqual([
               `${prefix}${m.step1SkipCache}`,
-              `${prefix}${noTranslate ? "🌐 [3/4] [--no-translate] EN" : m.step3SkippedSameLang("EN", "EN")}`,
+              `${prefix}${noTranslate ? noTranslateMessage : m.step3SkippedSameLang("EN", "EN")}`,
             ]);
           }
         },
@@ -3332,13 +3336,24 @@ describe("pipeline.ts", () => {
     });
 
     it.each([
-      { targetLang: "en", noTranslate: false, expected: "🌐 [3/4] Skipped translation" },
-      { targetLang: "ja", noTranslate: true, expected: "🌐 [3/4] [--no-translate] JA" },
-    ])(
-      "emits one translation step marker when skipping $targetLang ($noTranslate)",
-      async ({ targetLang, noTranslate, expected }) => {
+      {
+        lang: "en",
+        targetLang: "en",
+        noTranslate: false,
+        expected: "🌐 [3/4] Skipped translation",
+      },
+      { lang: "en", targetLang: "ja", noTranslate: true, expected: "🌐 [3/4] [--no-translate] JA" },
+      {
+        lang: "ja",
+        targetLang: "ja",
+        noTranslate: true,
+        expected: "🌐 [3/4] [--no-translate] 翻訳をスキップ: JA",
+      },
+    ] as const)(
+      "emits one translation step marker when skipping $targetLang ($noTranslate, $lang)",
+      async ({ lang, targetLang, noTranslate, expected }) => {
         const { spinnerInfoSpy } = mockSpinner();
-        await processMediaPipeline({ mediaFile, cacheDir, targetLang, noTranslate });
+        await processMediaPipeline({ mediaFile, cacheDir, targetLang, noTranslate, lang });
         const message = spinnerInfoSpy.mock.calls.find(([text]) =>
           String(text).includes("[3/4]"),
         )?.[0] as string;
