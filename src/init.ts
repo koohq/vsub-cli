@@ -337,6 +337,8 @@ export async function runInitWizard(options: InitWizardOptions = {}): Promise<vo
           updatedConfig.groqApiKey = k;
         },
       });
+    } else if (chosenProvider === "openai-compatible") {
+      out(m().openaiCompatibleSttNotice);
     } else {
       await promptAndVerifyKey(getOpenRouterKeyConfig());
     }
@@ -409,6 +411,8 @@ export async function runInitWizard(options: InitWizardOptions = {}): Promise<vo
           }
         }
       }
+    } else if (chosenLlmProvider === "openai-compatible") {
+      out(m().openaiCompatibleLlmNotice);
     } else {
       if (chosenProvider === "openrouter") {
         out(m().usingOpenRouterFromStep1);
@@ -490,7 +494,7 @@ export async function runInitWizard(options: InitWizardOptions = {}): Promise<vo
       const currentGeminiModel = currentConfig.geminiModel || DEFAULT_GEMINI_MODEL;
       const geminiModelAnswer = (await ask(m().promptGeminiModel(currentGeminiModel))).trim();
       updatedConfig.geminiModel = geminiModelAnswer || currentGeminiModel;
-    } else {
+    } else if (chosenLlmProvider === "openrouter") {
       const currentOpenRouterLlmModel =
         currentConfig.openrouterLlmModel || DEFAULT_OPENROUTER_LLM_MODEL;
       const openrouterLlmModelAnswer = (
@@ -503,7 +507,7 @@ export async function runInitWizard(options: InitWizardOptions = {}): Promise<vo
       const currentGroqModel = currentConfig.groqModel || DEFAULT_GROQ_MODEL;
       const groqModelAnswer = (await ask(m().promptGroqModel(currentGroqModel))).trim();
       updatedConfig.groqModel = groqModelAnswer || currentGroqModel;
-    } else {
+    } else if (chosenProvider === "openrouter") {
       const currentOpenRouterModel =
         currentConfig.openrouterSttModel || DEFAULT_OPENROUTER_STT_MODEL;
       const openrouterModelAnswer = (

@@ -10,8 +10,8 @@ import {
   processMediaPipeline,
   resolveTranscriptionContext,
 } from "./pipeline.js";
-import { resolveLlmSettings } from "./text/select.js";
-import { resolveSttSettings } from "./transcribe/select.js";
+import { assertLlmSettingsReady, resolveLlmSettings } from "./text/select.js";
+import { assertSttSettingsReady, resolveSttSettings } from "./transcribe/select.js";
 import { getTranslationResumeHint } from "./translation.js";
 import { type BatchSummaryData, type BatchSummaryItem, formatBatchSummaryBox } from "./ui.js";
 
@@ -197,6 +197,8 @@ export async function runBatchPipeline(options: BatchPipelineOptions): Promise<B
     requireGemini: requiresGemini,
     lang: options.lang,
   });
+  if (needsTranscription) assertSttSettingsReady(stt, options.lang ?? config.lang);
+  if (needsLlm) assertLlmSettingsReady(llm, options.lang ?? config.lang);
   await checkFfmpeg(config.ffmpegPath);
 
   if (needsTranscription && stt.source === "auto" && stt.provider === "groq") {

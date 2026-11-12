@@ -98,6 +98,47 @@ describe("src/translation.ts", () => {
       };
     }
 
+    it("binds translation cache reads and writes to the configured server", async () => {
+      const llm = {
+        provider: "openai-compatible",
+        model: "test-llm",
+        baseUrl: "http://localhost:11434/v1",
+      } as const;
+      const cached = cacheModule.createCachedTranslation(
+        "ja",
+        { sourceEntries: sampleEntries, contextWindowSize: 5, ...llm },
+        sampleEntries,
+      );
+      const params = createParams({
+        llm,
+        mediaCache: {
+          version: 2,
+          mediaPath: "dummy.mp4",
+          mediaSize: 1,
+          createdAt: 0,
+          updatedAt: 0,
+          translations: { ja: cached },
+        },
+      });
+      const save = vi.spyOn(cacheModule, "saveTranslationCache").mockImplementation(() => {});
+      const task = vi.spyOn(tasksModule, "translateSrtEntries").mockResolvedValue(sampleEntries);
+      try {
+        expect((await translateToTargets(params)).cachedLanguages).toEqual(["ja"]);
+        expect(params.getTextModel).not.toHaveBeenCalled();
+        const other = { ...llm, baseUrl: "https://example.invalid/v1" };
+        expect((await translateToTargets({ ...params, llm: other })).cachedLanguages).toEqual([]);
+        expect(task).toHaveBeenCalledOnce();
+        expect(save).toHaveBeenCalledWith(
+          "dummy.mp4",
+          "ja",
+          expect.objectContaining({ baseUrl: other.baseUrl }),
+          undefined,
+        );
+      } finally {
+        vi.restoreAllMocks();
+      }
+    });
+
     describe("persisted translation checkpoints", () => {
       let tempDir: string;
       let params: TranslateToTargetsParams;

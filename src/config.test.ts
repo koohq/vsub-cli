@@ -149,6 +149,48 @@ describe("config.ts", () => {
     process.env = originalEnv;
   });
 
+  describe("OpenAI-compatible configuration", () => {
+    const fields = [
+      [
+        "openaiCompatibleSttBaseUrl",
+        "VSUB_OPENAI_COMPATIBLE_STT_BASE_URL",
+        "http://localhost:8000/v1",
+      ],
+      ["openaiCompatibleSttApiKey", "VSUB_OPENAI_COMPATIBLE_STT_API_KEY", "test-key-1234"],
+      ["openaiCompatibleSttModel", "VSUB_OPENAI_COMPATIBLE_STT_MODEL", "test-stt"],
+      [
+        "openaiCompatibleLlmBaseUrl",
+        "VSUB_OPENAI_COMPATIBLE_LLM_BASE_URL",
+        "http://localhost:11434/v1",
+      ],
+      ["openaiCompatibleLlmApiKey", "VSUB_OPENAI_COMPATIBLE_LLM_API_KEY", "test-key-5678"],
+      ["openaiCompatibleLlmModel", "VSUB_OPENAI_COMPATIBLE_LLM_MODEL", "test-llm"],
+    ] as const;
+    it.each(fields)("reads %s from environment before config", (key, env, value) => {
+      vi.mocked(fs.existsSync).mockReturnValue(true);
+      vi.mocked(fs.readFileSync).mockReturnValue(
+        JSON.stringify({ [key]: ` ${value}${key.endsWith("BaseUrl") ? "///" : ""} ` }),
+      );
+      process.env[env] = " ";
+      expect(getConfig()[key]).toBe(value);
+      process.env[env] = ` ${value}-env${key.endsWith("BaseUrl") ? "///" : ""} `;
+      expect(getConfig()[key]).toBe(`${value}-env`);
+      vi.mocked(fs.readFileSync).mockReturnValue(JSON.stringify({ [key]: " " }));
+      process.env[env] = " ";
+      expect(getConfig()[key]).toBeUndefined();
+    });
+    it("ignores generic OpenAI credentials and keeps STT and LLM separate", () => {
+      process.env["OPENAI_API_KEY"] = "test-key-1234";
+      process.env["OPENAI_BASE_URL"] = "https://example.invalid/v1";
+      for (const [key, env] of fields) {
+        delete process.env[env];
+        expect(getConfig()[key]).toBeUndefined();
+      }
+      process.env["VSUB_OPENAI_COMPATIBLE_STT_API_KEY"] = "test-key-1234";
+      expect(getConfig().openaiCompatibleLlmApiKey).toBeUndefined();
+    });
+  });
+
   describe("getGlobalConfigPath", () => {
     it("should return AppData path on Windows when APPDATA is set", () => {
       const originalPlatform = process.platform;

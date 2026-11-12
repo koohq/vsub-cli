@@ -1,11 +1,24 @@
-import { type AppConfig, DEFAULT_GEMINI_MODEL } from "../config.js";
+import {
+  type AppConfig,
+  assertOpenAICompatibleSettingsReady,
+  DEFAULT_GEMINI_MODEL,
+  normalizeBaseUrl,
+} from "../config.js";
 import { getI18n, type SupportedLanguage } from "../i18n/index.js";
 import { createGeminiTextModel } from "./gemini.js";
 import type { TextModel } from "./model.js";
+import { createGenericOpenAICompatibleTextModel } from "./openai-compatible-provider.js";
 import { createOpenRouterTextModel, DEFAULT_OPENROUTER_LLM_MODEL } from "./openrouter.js";
 import { LLM_PROVIDER_LABELS, LLM_PROVIDERS, type LlmProvider } from "./providers.js";
 
 export { LLM_PROVIDER_LABELS, LLM_PROVIDERS, type LlmProvider };
+
+export function assertLlmSettingsReady(
+  settings: LlmSettings,
+  lang?: SupportedLanguage | string,
+): void {
+  assertOpenAICompatibleSettingsReady(settings, "llm", lang);
+}
 
 export interface LlmSettings {
   provider: LlmProvider;
@@ -13,6 +26,7 @@ export interface LlmSettings {
   source: "option" | "setting" | "auto";
   /** Model sent to the provider. */
   model: string;
+  baseUrl?: string | undefined;
 }
 
 export function parseLlmProvider(
@@ -66,7 +80,9 @@ export function resolveLlmSettings(
   }
 
   let model: string;
-  if (provider === "gemini") {
+  if (provider === "openai-compatible") {
+    model = overrides.llmModel?.trim() || config.openaiCompatibleLlmModel?.trim() || "";
+  } else if (provider === "gemini") {
     model =
       overrides.llmModel?.trim() ||
       overrides.geminiModel?.trim() ||
@@ -85,15 +101,30 @@ export function resolveLlmSettings(
       provider,
       source,
       model,
+      ...(provider === "openai-compatible"
+        ? { baseUrl: normalizeBaseUrl(config.openaiCompatibleLlmBaseUrl) }
+        : {}),
     },
   };
 }
 
 export function createTextModel(
-  config: { geminiApiKey?: string | undefined; openrouterApiKey?: string | undefined },
+  config: Partial<
+    Pick<AppConfig, "geminiApiKey" | "openrouterApiKey" | "openaiCompatibleLlmApiKey">
+  >,
   llm: LlmSettings,
   deps?: { fetch?: typeof fetch | undefined; lang?: SupportedLanguage | undefined },
 ): TextModel {
+  if (llm.provider === "openai-compatible") {
+    assertLlmSettingsReady(llm, deps?.lang);
+    return createGenericOpenAICompatibleTextModel(
+      llm.baseUrl?.trim() ?? "",
+      config.openaiCompatibleLlmApiKey?.trim() || "",
+      llm.model,
+      deps,
+    );
+  }
+
   if (llm.provider === "gemini") {
     if (!config.geminiApiKey) {
       throw new Error("Gemini API key is required for Gemini text generation.");

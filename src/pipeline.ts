@@ -318,6 +318,7 @@ export function resolveTranscriptionContext(
   }
   return {
     provider: stt.provider,
+    baseUrl: stt.baseUrl,
     model: stt.model,
     prompt: whisperPrompt,
   };
@@ -572,7 +573,7 @@ export async function processMediaPipeline(
     // 1. Audio extraction / optimization
     const audioStartMsg = isAudio ? m.step1Optimizing : m.step1Extracting;
     spinner.start(`${prefix}${audioStartMsg}`);
-    const transcriber = createTranscriber(config, stt.provider);
+    const transcriber = createTranscriber(config, stt, lang);
     const extractResult = await extractAudio(
       resolvedMediaPath,
       config.ffmpegPath,
@@ -698,6 +699,7 @@ export async function processMediaPipeline(
         concurrency: resolvedConcurrency,
         llm: {
           provider: llm.provider,
+          baseUrl: llm.baseUrl,
           model: llm.model,
         },
         getTextModel,
@@ -783,6 +785,7 @@ export async function processMediaPipeline(
       concurrency: resolvedConcurrency,
       llm: {
         provider: llm.provider,
+        baseUrl: llm.baseUrl,
         model: llm.model,
       },
       getTextModel,
@@ -1106,7 +1109,7 @@ export async function resolveTranscriptEntries(
   await checkFfmpeg(config.ffmpegPath);
 
   const verbose = Boolean(options.verbose);
-  const transcriber = createTranscriber(config, stt.provider);
+  const transcriber = createTranscriber(config, stt, lang);
   const extractResult = await extractAudio(
     resolvedPath,
     config.ffmpegPath,
@@ -1291,6 +1294,7 @@ async function prepareTextTask<Format extends string>(
     return {
       sourceEntries,
       provider: llm.provider,
+      baseUrl: llm.baseUrl,
       prompt: options.prompt,
       model: llm.model,
       glossaryHash,

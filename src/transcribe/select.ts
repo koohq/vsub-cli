@@ -1,11 +1,24 @@
-import { type AppConfig, DEFAULT_GROQ_MODEL } from "../config.js";
+import {
+  type AppConfig,
+  assertOpenAICompatibleSettingsReady,
+  DEFAULT_GROQ_MODEL,
+  normalizeBaseUrl,
+} from "../config.js";
 import { getI18n, type SupportedLanguage } from "../i18n/index.js";
 import { createGroqTranscriber } from "./groq.js";
+import { createGenericOpenAICompatibleTranscriber } from "./openai-compatible-provider.js";
 import { createOpenRouterTranscriber, DEFAULT_OPENROUTER_STT_MODEL } from "./openrouter.js";
 import { STT_PROVIDER_LABELS, STT_PROVIDERS, type SttProvider } from "./providers.js";
 import type { Transcriber } from "./transcriber.js";
 
 export { STT_PROVIDER_LABELS, STT_PROVIDERS, type SttProvider };
+
+export function assertSttSettingsReady(
+  settings: SttSettings,
+  lang?: SupportedLanguage | string,
+): void {
+  assertOpenAICompatibleSettingsReady(settings, "stt", lang);
+}
 
 export interface SttSettings {
   provider: SttProvider;
@@ -13,6 +26,7 @@ export interface SttSettings {
   source: "option" | "setting" | "auto";
   /** Model sent to the provider. */
   model: string;
+  baseUrl?: string | undefined;
 }
 
 export function parseSttProvider(
@@ -68,7 +82,9 @@ export function resolveSttSettings(
   }
 
   let model: string;
-  if (provider === "groq") {
+  if (provider === "openai-compatible") {
+    model = overrides.sttModel?.trim() || config.openaiCompatibleSttModel?.trim() || "";
+  } else if (provider === "groq") {
     model =
       overrides.sttModel?.trim() ||
       overrides.groqModel?.trim() ||
@@ -87,6 +103,9 @@ export function resolveSttSettings(
       provider,
       source,
       model,
+      ...(provider === "openai-compatible"
+        ? { baseUrl: normalizeBaseUrl(config.openaiCompatibleSttBaseUrl) }
+        : {}),
     },
   };
 }
@@ -95,9 +114,21 @@ export function resolveSttSettings(
  * Picks the transcriber implementation to use.
  */
 export function createTranscriber(
-  config: Pick<AppConfig, "groqApiKey"> & { openrouterApiKey?: string | undefined },
-  provider: SttProvider = "groq",
+  config: Pick<AppConfig, "groqApiKey" | "openrouterApiKey" | "openaiCompatibleSttApiKey">,
+  settings: SttSettings | SttProvider = "groq",
+  lang?: SupportedLanguage | string,
 ): Transcriber {
+  const provider = typeof settings === "string" ? settings : settings.provider;
+  if (provider === "openai-compatible") {
+    const stt =
+      typeof settings === "string" ? { provider, model: "", source: "option" as const } : settings;
+    assertSttSettingsReady(stt, lang);
+    return createGenericOpenAICompatibleTranscriber(
+      stt.baseUrl?.trim() ?? "",
+      config.openaiCompatibleSttApiKey?.trim() || "",
+    );
+  }
+
   if (provider === "openrouter") {
     if (!config.openrouterApiKey) {
       throw new Error("OpenRouter API key is required for OpenRouter transcription.");

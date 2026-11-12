@@ -79,9 +79,9 @@ export const ja: typeof en = {
     invalidTargetLang: (token: string) =>
       `無効なターゲット言語コードです: "${token}". 有効な形式の例: "ja", "en", "zh", "zh-CN", "pt-BR"`,
     invalidSttProvider: (provider: string) =>
-      `サポートされていない文字起こし提供元です: "${provider}". 利用可能な提供元: openrouter, groq`,
+      `サポートされていない文字起こし提供元です: "${provider}". 利用可能な提供元: openrouter, groq, openai-compatible`,
     invalidLlmProvider: (provider: string) =>
-      `サポートされていない文章生成提供元です: "${provider}". 利用可能な提供元: gemini, openrouter`,
+      `サポートされていない文章生成提供元です: "${provider}". 利用可能な提供元: gemini, openrouter, openai-compatible`,
     sttGroqAutoHint:
       "💡 VSUB_OPENROUTER_API_KEY が無いため、Groq で文字起こしします。既定は OpenRouter（elevenlabs/scribe-v2）になりました。Groq を使い続けるなら、VSUB_STT_PROVIDER=groq を設定すると、この表示は消えます。",
     step1SkipCache:
@@ -273,6 +273,10 @@ export const ja: typeof en = {
     configLocation: (path: string) => `設定ファイルの保存先: ${path}`,
     description1: "このウィザードでは API キー・FFmpeg の導通確認と初期設定を行います。",
     description2: "各項目で Enter キーを押すと、角括弧内の値または現在の設定を維持します。",
+    openaiCompatibleSttNotice:
+      "  OpenAI 互換の文字起こしは、vsub config set（--openai-compatible-stt-base-url・--openai-compatible-stt-key・--openai-compatible-stt-model）か、環境変数 VSUB_OPENAI_COMPATIBLE_STT_* の URL・キー・モデルを使います。",
+    openaiCompatibleLlmNotice:
+      "  OpenAI 互換の文章の生成は、vsub config set（--openai-compatible-llm-base-url・--openai-compatible-llm-key・--openai-compatible-llm-model）か、環境変数 VSUB_OPENAI_COMPATIBLE_LLM_* の URL・キー・モデルを使います。",
     step1Title: "▶ [1/4] 文字起こしの提供元と API キー",
     step1Url: (url: string) => `  API キー取得先: ${url}`,
     currentSetting: (val: string) => `  現在の設定: ${val}`,
@@ -353,6 +357,12 @@ export const ja: typeof en = {
       groqModel: "Groq のモデル",
       openrouterSttModel: "OpenRouter の文字起こしモデル",
       openrouterLlmModel: "OpenRouter の文章生成モデル",
+      openaiCompatibleSttBaseUrl: "OpenAI 互換の文字起こし URL",
+      openaiCompatibleSttApiKey: "OpenAI 互換の文字起こし API キー",
+      openaiCompatibleSttModel: "OpenAI 互換の文字起こしモデル",
+      openaiCompatibleLlmBaseUrl: "OpenAI 互換の文章生成 URL",
+      openaiCompatibleLlmApiKey: "OpenAI 互換の文章生成 API キー",
+      openaiCompatibleLlmModel: "OpenAI 互換の文章生成モデル",
       concurrency: "並行数",
       maxLength: "字幕の最大文字数",
       burnPosition: "焼き込みの位置",
@@ -368,6 +378,8 @@ export const ja: typeof en = {
       "⚠️ 保存する設定を指定してください。(例: vsub config set --gemini-model gemini-3.8-flash)",
     invalidDisplayLang: (value: string) =>
       `表示言語が正しくありません: "${value}"。対応している言語: "en", "ja"`,
+    invalidOpenAICompatibleUrl: (flag: string, value: string, example: string) =>
+      `${flag} の URL が正しくありません: "${value}"。${example} のような http:// か https:// の URL を指定してください。`,
     invalidRefine: (value: string) =>
       `--refine の値が正しくありません: "${value}"。true か false を指定してください。`,
     setSaved: (path: string) => `✅ 設定を保存しました: ${path}`,
@@ -404,6 +416,18 @@ export const ja: typeof en = {
     modelNotFoundCustom: (model: string) =>
       `指定された Gemini モデル '${model}' が見つかりませんでした。モデル名または API の利用権限を確認してください。\n` +
       `  • 利用可能なモデル一覧: https://ai.google.dev/gemini-api/docs/models`,
+  },
+  openaiCompatible: {
+    notConfigured: (side: "stt" | "llm") =>
+      `OpenAI 互換の${side === "stt" ? "文字起こし" : "文章の生成"}が設定されていません:`,
+    baseUrlRequired: (side: "stt" | "llm") =>
+      `URL: VSUB_OPENAI_COMPATIBLE_${side === "stt" ? "STT" : "LLM"}_BASE_URL を設定するか、vsub config set --openai-compatible-${side}-base-url <url> を実行してください（例: http://localhost:${side === "stt" ? "8000" : "11434"}/v1）`,
+    baseUrlInvalid: (side: "stt" | "llm", value: string) =>
+      `URL "${value}" は http:// か https:// の正しい URL ではありません: VSUB_OPENAI_COMPATIBLE_${side === "stt" ? "STT" : "LLM"}_BASE_URL を設定するか、vsub config set --openai-compatible-${side}-base-url <url> を実行してください（例: http://localhost:${side === "stt" ? "8000" : "11434"}/v1）`,
+    modelRequired: (side: "stt" | "llm") =>
+      `モデル: --${side}-model を付けるか、VSUB_OPENAI_COMPATIBLE_${side === "stt" ? "STT" : "LLM"}_MODEL を設定するか、vsub config set --openai-compatible-${side}-model <model> を実行してください`,
+    modelNotFound: (model: string, baseUrl: string) =>
+      `OpenAI 互換の API（${baseUrl}）に、モデル '${model}' が見つかりませんでした。\n  • モデル名を確かめてください: --llm-model、VSUB_OPENAI_COMPATIBLE_LLM_MODEL、vsub config set --openai-compatible-llm-model <model>`,
   },
   openrouter: {
     modelRetiredDefault: (model: string) =>

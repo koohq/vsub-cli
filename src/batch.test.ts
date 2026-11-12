@@ -119,6 +119,65 @@ describe("batch.ts", () => {
   });
 
   describe("runBatchPipeline", () => {
+    describe("OpenAI-compatible preflight", () => {
+      function setup() {
+        const file = path.join(tempDir, "sample.mp4");
+        fs.writeFileSync(file, "test media");
+        const config = {
+          groqApiKey: "",
+          geminiApiKey: "",
+          ffmpegPath: "ffmpeg",
+          sttProvider: "openai-compatible",
+          llmProvider: "openai-compatible",
+          openaiCompatibleSttModel: "test-stt",
+          openaiCompatibleLlmModel: "test-llm",
+          openaiCompatibleSttBaseUrl: "http://localhost:8000/v1",
+          openaiCompatibleLlmBaseUrl: "http://localhost:11434/v1",
+        };
+        vi.spyOn(configModule, "getConfig").mockReturnValue(config);
+        const ensure = vi
+          .spyOn(configModule, "ensureApiKeys")
+          .mockImplementation(async (cfg) => cfg);
+        vi.spyOn(ffmpegModule, "checkFfmpeg").mockResolvedValue();
+        const process = vi.spyOn(pipelineModule, "processMediaPipeline").mockResolvedValue({
+          mediaFile: file,
+          mediaType: "video",
+          durationMs: 0,
+          targetLanguages: [],
+          entriesCount: 0,
+          outputFiles: [],
+          sttProvider: "openai-compatible",
+          sttModel: "test-stt",
+          llmProvider: "openai-compatible",
+          llmModel: "test-llm",
+        });
+        return { file, config, ensure, process };
+      }
+      it.each(["stt", "llm"] as const)("rejects missing %s URL before any file", async (side) => {
+        const { file, config, process } = setup();
+        if (side === "stt") config.openaiCompatibleSttBaseUrl = "";
+        else config.openaiCompatibleLlmBaseUrl = "";
+        await expect(runBatchPipeline({ targets: [file], noCache: true })).rejects.toThrow(
+          `VSUB_OPENAI_COMPATIBLE_${side.toUpperCase()}_BASE_URL`,
+        );
+        expect(process).not.toHaveBeenCalled();
+      });
+      it("skips unused LLM validation and never requests keys", async () => {
+        const { file, config, ensure, process } = setup();
+        config.openaiCompatibleLlmBaseUrl = "";
+        await runBatchPipeline({ targets: [file], noTranslate: true, noCache: true });
+        expect(process).toHaveBeenCalledOnce();
+        expect(ensure).toHaveBeenCalledWith(
+          expect.anything(),
+          expect.objectContaining({
+            requireGroq: false,
+            requireGemini: false,
+            requireOpenRouter: false,
+          }),
+        );
+      });
+    });
+
     it("should return empty summary when no media files match", async () => {
       const summary = await runBatchPipeline({
         targets: [path.join(tempDir, "empty_dir")],

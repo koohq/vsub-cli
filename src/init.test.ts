@@ -17,6 +17,7 @@ import {
   verifyOpenRouterApiKey,
 } from "./init.js";
 import { isolateConfigAndEnv } from "./test-support/isolate-config-env.js";
+import { DEFAULT_OPENROUTER_LLM_MODEL } from "./text/openrouter.js";
 import { displayWidth } from "./ui.js";
 
 // Mock Groq SDK
@@ -280,6 +281,84 @@ describe("init.ts", () => {
       fs.mkdirSync(path.dirname(configPath), { recursive: true });
       fs.writeFileSync(configPath, JSON.stringify(config, null, 2), "utf8");
     }
+
+    it.each(["en", "ja"] as const)(
+      "preserves generic settings without key or model questions (%s)",
+      async (lang) => {
+        const saved = {
+          sttProvider: "openai-compatible",
+          llmProvider: "openai-compatible",
+          openaiCompatibleSttBaseUrl: "http://localhost:8000/v1",
+          openaiCompatibleSttModel: "test-stt",
+          openaiCompatibleLlmModel: "test-llm",
+        };
+        placeConfig(saved);
+        const output = new PassThrough();
+        let printed = "";
+        output.on("data", (data) => {
+          printed += String(data);
+        });
+        const ask = vi.fn(async () => "");
+        const verify = vi.fn(async () => ({ success: true }));
+        await runInitWizard({
+          ask,
+          output,
+          lang,
+          openrouterVerifier: verify,
+          groqVerifier: verify,
+          geminiVerifier: verify,
+          ffmpegVerifier: verify,
+        });
+        expect(ask).toHaveBeenCalledTimes(4);
+        expect(ask.mock.calls[0]).toEqual([
+          getI18n(lang).init.promptSttProvider("openai-compatible"),
+        ]);
+        expect(ask.mock.calls[1]).toEqual([
+          getI18n(lang).init.promptLlmProvider("openai-compatible"),
+        ]);
+        expect(verify).toHaveBeenCalledOnce();
+        expect(stripVTControlCharacters(printed)).toContain("VSUB_OPENAI_COMPATIBLE_STT_*");
+        expect(stripVTControlCharacters(printed)).toContain("VSUB_OPENAI_COMPATIBLE_LLM_*");
+        expect(saveSpy).toHaveBeenCalledWith(
+          expect.objectContaining({
+            sttProvider: saved.sttProvider,
+            llmProvider: saved.llmProvider,
+          }),
+          expect.anything(),
+        );
+        const patch = saveSpy.mock.calls[0]?.[0];
+        expect(patch).not.toHaveProperty("openaiCompatibleSttModel");
+        expect(patch).not.toHaveProperty("openaiCompatibleLlmModel");
+      },
+    );
+
+    it("asks for an OpenRouter key after generic transcription without reusing step 1", async () => {
+      placeConfig({ sttProvider: "openai-compatible", llmProvider: "openrouter" });
+      const output = new PassThrough();
+      const m = getI18n("en").init;
+      const ask = vi.fn(async (question: string) =>
+        question === m.promptOpenRouterNew ? "test-key-1234" : "",
+      );
+      const openrouterVerifier = vi.fn(async () => ({ success: true }));
+      await runInitWizard({
+        ask,
+        output,
+        lang: "en",
+        openrouterVerifier,
+        ffmpegVerifier: async () => ({ success: true }),
+      });
+      expect(openrouterVerifier).toHaveBeenCalledExactlyOnceWith("test-key-1234");
+      expect(ask).toHaveBeenCalledWith(m.promptOpenRouterNew);
+      expect(ask).toHaveBeenCalledWith(m.promptOpenRouterLlmModel(DEFAULT_OPENROUTER_LLM_MODEL));
+      expect(saveSpy).toHaveBeenCalledWith(
+        expect.objectContaining({
+          openrouterApiKey: "test-key-1234",
+          sttProvider: "openai-compatible",
+          llmProvider: "openrouter",
+        }),
+        expect.anything(),
+      );
+    });
 
     function stopAtFirstQuestion() {
       const question = vi.fn().mockRejectedValue(new Error("test input closed"));

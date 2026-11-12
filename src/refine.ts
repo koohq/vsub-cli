@@ -30,6 +30,7 @@ export interface RefineSourceEntriesParams {
   llm: {
     provider: LlmProvider;
     model: string;
+    baseUrl?: string | undefined;
   };
   /** Called at most once on cache miss (pipeline checks the key lazily). */
   getTextModel: () => Promise<TextModel>;
@@ -83,6 +84,7 @@ export async function refineSourceEntries(
   const cacheContext: RefinementCacheContext = {
     sourceEntries: params.sourceEntries,
     provider: params.llm.provider,
+    baseUrl: params.llm.baseUrl,
     model: params.llm.model,
     prompt: params.prompt,
     glossaryHash,

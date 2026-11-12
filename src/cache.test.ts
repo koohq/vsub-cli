@@ -62,6 +62,81 @@ describe("cache module", () => {
     }
   });
 
+  describe("OpenAI-compatible cache URLs", () => {
+    const entries: SrtEntry[] = [
+      { id: 1, startTime: "00:00:00,000", endTime: "00:00:01,000", text: "Hello" },
+    ];
+    const context = {
+      provider: "openai-compatible",
+      model: "test-model",
+      baseUrl: "http://localhost:8000/v1",
+      sourceEntries: entries,
+      contextWindowSize: 5,
+    } as const;
+    it("binds transcription to the server, trimming surrounding whitespace", () => {
+      const cached = createCachedTranscription(context, entries);
+      expect(cached.baseUrl).toBe(context.baseUrl);
+      expect(
+        isTranscriptionCacheValid(cached, { ...context, baseUrl: ` ${context.baseUrl} ` }),
+      ).toBe(true);
+      expect(
+        isTranscriptionCacheValid(cached, { ...context, baseUrl: "https://example.invalid/v1" }),
+      ).toBe(false);
+      expect(isTranscriptionCacheValid(cached, { ...context, baseUrl: undefined })).toBe(false);
+      expect(
+        isTranscriptionCacheValid(
+          { ...cached, model: undefined },
+          { ...context, model: "whisper-large-v3-turbo" },
+        ),
+      ).toBe(false);
+    });
+
+    it("does not store a base URL for existing providers", () => {
+      for (const provider of ["groq", "openrouter"] as const) {
+        expect(
+          createCachedTranscription({ ...context, provider }, entries).baseUrl,
+        ).toBeUndefined();
+      }
+      for (const provider of ["gemini", "openrouter"] as const) {
+        const existing = { ...context, provider };
+        expect(createCachedTranslation("ja", existing, entries).baseUrl).toBeUndefined();
+        expect(createCachedRefinement(existing, entries).baseUrl).toBeUndefined();
+        expect(createCachedChapters("ja", existing, []).baseUrl).toBeUndefined();
+        expect(
+          createCachedSummary("ja", existing, { title: "", summary: "", keyPoints: [], topics: [] })
+            .baseUrl,
+        ).toBeUndefined();
+      }
+    });
+
+    it("binds every text cache to the server", () => {
+      function check<T extends { baseUrl?: string | undefined; model?: string | undefined }>(
+        cached: T,
+        valid: (record: T, ctx: GeneratedCacheContext & { contextWindowSize: number }) => boolean,
+      ) {
+        expect(cached.baseUrl).toBe(context.baseUrl);
+        expect(valid(cached, { ...context, baseUrl: ` ${context.baseUrl} ` })).toBe(true);
+        expect(valid(cached, { ...context, baseUrl: "https://example.invalid/v1" })).toBe(false);
+        expect(valid(cached, { ...context, baseUrl: undefined })).toBe(false);
+        expect(
+          valid({ ...cached, model: undefined }, { ...context, model: DEFAULT_GEMINI_MODEL }),
+        ).toBe(false);
+      }
+      check(createCachedTranslation("ja", context, entries), isTranslationCacheValid);
+      check(createCachedRefinement(context, entries), isRefinementCacheValid);
+      check(createCachedChapters("ja", context, []), isChaptersCacheValid);
+      check(
+        createCachedSummary("ja", context, {
+          title: "Title",
+          summary: "Summary",
+          keyPoints: [],
+          topics: [],
+        }),
+        isSummaryCacheValid,
+      );
+    });
+  });
+
   describe("partial translations", () => {
     const sourceEntries = Array.from({ length: 51 }, (_, index) => ({
       id: index + 1,

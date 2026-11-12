@@ -5,8 +5,11 @@ import pc from "picocolors";
 import { type BatchPipelineOptions, runBatchPipeline } from "./batch.js";
 import { clearCache, getCacheDir, getCacheStats } from "./cache.js";
 import {
+  type AppConfig,
   getConfig,
   getGlobalConfigPath,
+  isHttpBaseUrl,
+  normalizeBaseUrl,
   parseBooleanSetting,
   parsePositiveInteger,
   saveGlobalConfig,
@@ -214,11 +217,11 @@ function addLlmProviderOptions(command: Command): Command {
   return command
     .option(
       "--llm-provider <provider>",
-      "Text generation provider for translation, chapters and summaries: gemini or openrouter (default: VSUB_LLM_PROVIDER, config, or chosen from your API keys)",
+      "Text generation provider for translation, chapters and summaries: gemini, openrouter, or openai-compatible (default: VSUB_LLM_PROVIDER, config, or chosen from your API keys)",
     )
     .option(
       "--llm-model <model>",
-      "Model for the chosen text generation provider (default: gemini-3.8-flash on Gemini, google/gemini-3.8-flash on OpenRouter)",
+      "Model for the chosen text generation provider (default: gemini-3.8-flash on Gemini, google/gemini-3.8-flash on OpenRouter, the configured model on openai-compatible)",
     );
 }
 
@@ -256,11 +259,11 @@ function addTextTaskOptions(command: Command, texts: TextTaskOptionTexts): Comma
   return addLlmProviderOptions(command)
     .option(
       "--stt-provider <provider>",
-      "Transcription provider: openrouter or groq (default: VSUB_STT_PROVIDER, config, or chosen from your API keys)",
+      "Transcription provider: openrouter, groq, or openai-compatible (default: VSUB_STT_PROVIDER, config, or chosen from your API keys)",
     )
     .option(
       "--stt-model <model>",
-      "Transcription model for the chosen provider (default: elevenlabs/scribe-v2 on OpenRouter, whisper-large-v3-turbo on Groq)",
+      "Transcription model for the chosen provider (default: elevenlabs/scribe-v2 on OpenRouter, whisper-large-v3-turbo on Groq, the configured model on openai-compatible)",
     )
     .option(
       "--groq-model <model>",
@@ -268,7 +271,7 @@ function addTextTaskOptions(command: Command, texts: TextTaskOptionTexts): Comma
     )
     .option(
       "--whisper-prompt <text>",
-      "Groq Whisper recognition prompt hint (Groq only; not sent to OpenRouter)",
+      "Groq Whisper recognition prompt hint (Groq and openai-compatible; not sent to OpenRouter)",
     )
     .option("-w, --overwrite", "Overwrite existing output file without confirmation prompt", false)
     .option("--backup", "Create backup (.bak) of existing output file before overwriting", false)
@@ -373,11 +376,11 @@ function addMediaOptions(command: Command): Command {
     )
     .option(
       "--stt-provider <provider>",
-      "Transcription provider: openrouter or groq (default: VSUB_STT_PROVIDER, config, or chosen from your API keys)",
+      "Transcription provider: openrouter, groq, or openai-compatible (default: VSUB_STT_PROVIDER, config, or chosen from your API keys)",
     )
     .option(
       "--stt-model <model>",
-      "Transcription model for the chosen provider (default: elevenlabs/scribe-v2 on OpenRouter, whisper-large-v3-turbo on Groq)",
+      "Transcription model for the chosen provider (default: elevenlabs/scribe-v2 on OpenRouter, whisper-large-v3-turbo on Groq, the configured model on openai-compatible)",
     )
     .option(
       "--groq-model <model>",
@@ -385,7 +388,7 @@ function addMediaOptions(command: Command): Command {
     )
     .option(
       "--whisper-prompt <text>",
-      "Prompt hint for Groq Whisper speech recognition (Groq only; not sent to OpenRouter)",
+      "Prompt hint for Groq Whisper speech recognition (Groq and openai-compatible; not sent to OpenRouter)",
     );
 
   addTranslationOptions(command)
@@ -580,6 +583,8 @@ export function createProgram(): Command {
       const resolvedConfig = getConfig(undefined, lang);
       const m = getI18n(lang ?? resolvedConfig.lang ?? "en").config;
       const labels = m.showLabels;
+      const describeProvider = (label: string, model: string, source: string) =>
+        `${label} ${model ? `(${model})` : m.notConfigured} [${source}]`;
 
       console.log(`\n${m.showHeader(configPath)}`);
       console.log("----------------------------------------");
@@ -587,7 +592,7 @@ export function createProgram(): Command {
       try {
         const { stt } = resolveSttSettings(resolvedConfig, {});
         const label = STT_PROVIDER_LABELS[stt.provider];
-        transcriptionText = `${label} (${stt.model}) [${stt.source}]`;
+        transcriptionText = describeProvider(label, stt.model, stt.source);
       } catch {
         transcriptionText = m.invalidProvider(`${resolvedConfig.sttProvider}`);
       }
@@ -595,7 +600,7 @@ export function createProgram(): Command {
       try {
         const { llm } = resolveLlmSettings(resolvedConfig, {});
         const label = LLM_PROVIDER_LABELS[llm.provider];
-        textGenText = `${label} (${llm.model}) [${llm.source}]`;
+        textGenText = describeProvider(label, llm.model, llm.source);
       } catch {
         textGenText = m.invalidProvider(`${resolvedConfig.llmProvider}`);
       }
@@ -634,6 +639,22 @@ export function createProgram(): Command {
         [labels.groqModel, resolvedConfig.groqModel || undefined],
         [labels.openrouterSttModel, resolvedConfig.openrouterSttModel || undefined],
         [labels.openrouterLlmModel, resolvedConfig.openrouterLlmModel || undefined],
+        [labels.openaiCompatibleSttBaseUrl, resolvedConfig.openaiCompatibleSttBaseUrl || undefined],
+        [
+          labels.openaiCompatibleSttApiKey,
+          resolvedConfig.openaiCompatibleSttApiKey
+            ? `${resolvedConfig.openaiCompatibleSttApiKey.slice(0, 4)}...${resolvedConfig.openaiCompatibleSttApiKey.slice(-4)}`
+            : undefined,
+        ],
+        [labels.openaiCompatibleSttModel, resolvedConfig.openaiCompatibleSttModel || undefined],
+        [labels.openaiCompatibleLlmBaseUrl, resolvedConfig.openaiCompatibleLlmBaseUrl || undefined],
+        [
+          labels.openaiCompatibleLlmApiKey,
+          resolvedConfig.openaiCompatibleLlmApiKey
+            ? `${resolvedConfig.openaiCompatibleLlmApiKey.slice(0, 4)}...${resolvedConfig.openaiCompatibleLlmApiKey.slice(-4)}`
+            : undefined,
+        ],
+        [labels.openaiCompatibleLlmModel, resolvedConfig.openaiCompatibleLlmModel || undefined],
         [
           labels.concurrency,
           resolvedConfig.concurrency !== undefined ? `${resolvedConfig.concurrency}` : undefined,
@@ -660,7 +681,7 @@ export function createProgram(): Command {
   configCmd
     .command("set")
     .description(
-      "Save API Keys, models, prompts, glossary, concurrency, language, target language, transcript refinement, or FFmpeg path to global config",
+      "Save API Keys, models, OpenAI-compatible endpoints, prompts, glossary, concurrency, language, target language, transcript refinement, or FFmpeg path to global config",
     )
     .option("-l, --lang <lang>", "UI display language (en, ja)")
     .option(
@@ -670,15 +691,45 @@ export function createProgram(): Command {
     .option("--groq-key <key>", "Groq API Key")
     .option("--gemini-key <key>", "Gemini API Key")
     .option("--openrouter-key <key>", "OpenRouter API Key (for transcription and text generation)")
-    .option("--stt-provider <provider>", "Default transcription provider: openrouter or groq")
+    .option(
+      "--stt-provider <provider>",
+      "Default transcription provider: openrouter, groq, or openai-compatible",
+    )
     .option(
       "--openrouter-stt-model <model>",
       "Default OpenRouter transcription model (e.g. elevenlabs/scribe-v2)",
     )
-    .option("--llm-provider <provider>", "Default text generation provider: gemini or openrouter")
+    .option(
+      "--llm-provider <provider>",
+      "Default text generation provider: gemini, openrouter, or openai-compatible",
+    )
     .option(
       "--openrouter-llm-model <model>",
       "Default OpenRouter text generation model (e.g. google/gemini-3.8-flash)",
+    )
+    .option(
+      "--openai-compatible-stt-base-url <url>",
+      "Base URL of an OpenAI-compatible transcription API (e.g. http://localhost:8000/v1; untested)",
+    )
+    .option(
+      "--openai-compatible-stt-key <key>",
+      "API key for the OpenAI-compatible transcription API (optional)",
+    )
+    .option(
+      "--openai-compatible-stt-model <model>",
+      "Model for the OpenAI-compatible transcription API (e.g. whisper-1)",
+    )
+    .option(
+      "--openai-compatible-llm-base-url <url>",
+      "Base URL of an OpenAI-compatible text generation API (e.g. http://localhost:11434/v1; untested)",
+    )
+    .option(
+      "--openai-compatible-llm-key <key>",
+      "API key for the OpenAI-compatible text generation API (optional)",
+    )
+    .option(
+      "--openai-compatible-llm-model <model>",
+      "Model for the OpenAI-compatible text generation API (must support JSON schema output)",
     )
     .option("--ffmpeg-path <path>", "Path to ffmpeg executable")
     .option("--gemini-model <model>", "Default Gemini translation model (e.g. gemini-3.8-flash)")
@@ -712,6 +763,12 @@ export function createProgram(): Command {
         openrouterSttModel?: string;
         llmProvider?: string;
         openrouterLlmModel?: string;
+        openaiCompatibleSttBaseUrl?: string;
+        openaiCompatibleSttKey?: string;
+        openaiCompatibleSttModel?: string;
+        openaiCompatibleLlmBaseUrl?: string;
+        openaiCompatibleLlmKey?: string;
+        openaiCompatibleLlmModel?: string;
         ffmpegPath?: string;
         geminiModel?: string;
         groqModel?: string;
@@ -784,6 +841,34 @@ export function createProgram(): Command {
           }
         }
 
+        const compatibleConfig: Partial<AppConfig> = {};
+        const compatibleSides = ["stt", "llm"] as const;
+        for (const side of compatibleSides) {
+          const baseUrlKey =
+            side === "stt" ? "openaiCompatibleSttBaseUrl" : "openaiCompatibleLlmBaseUrl";
+          const keyOption = side === "stt" ? "openaiCompatibleSttKey" : "openaiCompatibleLlmKey";
+          const apiKey = side === "stt" ? "openaiCompatibleSttApiKey" : "openaiCompatibleLlmApiKey";
+          const modelKey = side === "stt" ? "openaiCompatibleSttModel" : "openaiCompatibleLlmModel";
+          const rawUrl = options[baseUrlKey];
+          if (rawUrl !== undefined) {
+            if (!isHttpBaseUrl(rawUrl)) {
+              const example =
+                side === "stt" ? "http://localhost:8000/v1" : "http://localhost:11434/v1";
+              console.error(
+                pc.red(
+                  `\n✖ ${m.invalidOpenAICompatibleUrl(`--openai-compatible-${side}-base-url`, rawUrl.trim(), example)}\n`,
+                ),
+              );
+              return process.exit(1);
+            }
+            compatibleConfig[baseUrlKey] = normalizeBaseUrl(rawUrl);
+          }
+          const key = options[keyOption]?.trim();
+          const model = options[modelKey]?.trim();
+          if (key) compatibleConfig[apiKey] = key;
+          if (model) compatibleConfig[modelKey] = model;
+        }
+
         let burnPositionVal: string | undefined;
         if (options.burnPosition) {
           try {
@@ -814,6 +899,7 @@ export function createProgram(): Command {
           !options.llmProvider &&
           !options.openrouterSttModel &&
           !options.openrouterLlmModel &&
+          Object.keys(compatibleConfig).length === 0 &&
           !options.ffmpegPath &&
           !options.geminiModel &&
           !options.groqModel &&
@@ -834,6 +920,7 @@ export function createProgram(): Command {
         try {
           saveGlobalConfig(
             {
+              ...compatibleConfig,
               ...(normalizedLang ? { lang: normalizedLang } : {}),
               ...(refineVal !== undefined ? { refine: refineVal } : {}),
               ...(targetLangVal !== undefined ? { targetLang: targetLangVal } : {}),

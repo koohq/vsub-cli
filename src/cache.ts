@@ -18,6 +18,7 @@ export interface CachedTranscription {
   /** Raw word timings; subtitles are rebuilt from these with the current options. */
   wordChunks?: WordChunk[] | undefined;
   model?: string | undefined;
+  baseUrl?: string | undefined;
   prompt?: string | undefined;
   createdAt: number;
 }
@@ -25,6 +26,7 @@ export interface CachedTranscription {
 export interface CachedRefinement {
   provider?: LlmProvider | undefined;
   model?: string | undefined;
+  baseUrl?: string | undefined;
   prompt?: string | undefined;
   glossaryHash?: string | undefined;
   /** computeEntriesHash() of the entries that were refined (after building and reflow). */
@@ -37,6 +39,7 @@ export interface CachedTranslation {
   targetLang: string;
   provider?: LlmProvider | undefined;
   model?: string | undefined;
+  baseUrl?: string | undefined;
   prompt?: string | undefined;
   glossaryHash?: string | undefined;
   sourceHash?: string | undefined;
@@ -53,6 +56,7 @@ export interface CachedChapters {
   targetLang: string;
   provider?: LlmProvider | undefined;
   model?: string | undefined;
+  baseUrl?: string | undefined;
   prompt?: string | undefined;
   glossaryHash?: string | undefined;
   sourceHash?: string | undefined;
@@ -64,6 +68,7 @@ export interface CachedSummary {
   targetLang: string;
   provider?: LlmProvider | undefined;
   model?: string | undefined;
+  baseUrl?: string | undefined;
   prompt?: string | undefined;
   glossaryHash?: string | undefined;
   sourceHash?: string | undefined;
@@ -75,6 +80,7 @@ export interface TranscriptionCacheContext {
   provider?: SttProvider | undefined;
   prompt?: string | undefined;
   model?: string | undefined;
+  baseUrl?: string | undefined;
 }
 
 function normalizeCacheString(value?: string): string {
@@ -84,12 +90,14 @@ function normalizeCacheString(value?: string): string {
 function normalizeModelForProvider(provider: SttProvider, model?: string): string {
   const norm = normalizeCacheString(model);
   if (norm !== "") return norm;
+  if (provider === "openai-compatible") return "";
   return provider === "openrouter" ? DEFAULT_OPENROUTER_STT_MODEL : DEFAULT_GROQ_MODEL;
 }
 
 function normalizeModelForLlmProvider(provider: LlmProvider, model?: string): string {
   const norm = normalizeCacheString(model);
   if (norm !== "") return norm;
+  if (provider === "openai-compatible") return "";
   return provider === "openrouter" ? DEFAULT_OPENROUTER_LLM_MODEL : DEFAULT_GEMINI_MODEL;
 }
 
@@ -106,6 +114,11 @@ export function isTranscriptionCacheValid(
   }
   const cachedProvider: SttProvider = cached.provider ?? "groq";
   const contextProvider: SttProvider = context.provider ?? "groq";
+  if (
+    contextProvider === "openai-compatible" &&
+    normalizeCacheString(cached.baseUrl) !== normalizeCacheString(context.baseUrl)
+  )
+    return false;
   if (cachedProvider !== contextProvider) {
     return false;
   }
@@ -130,6 +143,7 @@ export function createCachedTranscription(
   return {
     detectedLanguage,
     provider: context.provider,
+    baseUrl: context.provider === "openai-compatible" ? context.baseUrl : undefined,
     model: context.model,
     prompt: context.prompt,
     entries,
@@ -152,6 +166,7 @@ export interface TranslationCacheContext {
   prompt?: string | undefined;
   glossaryHash?: string | undefined;
   model?: string | undefined;
+  baseUrl?: string | undefined;
   contextWindowSize: number;
 }
 
@@ -159,6 +174,7 @@ export interface RefinementCacheContext {
   sourceEntries: SrtEntry[];
   provider?: LlmProvider | undefined;
   model?: string | undefined;
+  baseUrl?: string | undefined;
   prompt?: string | undefined;
   glossaryHash?: string | undefined;
 }
@@ -169,6 +185,7 @@ export interface GeneratedCacheContext {
   prompt?: string | undefined;
   glossaryHash?: string | undefined;
   model?: string | undefined;
+  baseUrl?: string | undefined;
 }
 
 function isLlmSourceCacheValid(
@@ -178,6 +195,7 @@ function isLlmSourceCacheValid(
         provider?: LlmProvider | undefined;
         prompt?: string | undefined;
         model?: string | undefined;
+        baseUrl?: string | undefined;
       }
     | undefined,
   context: GeneratedCacheContext,
@@ -191,6 +209,11 @@ function isLlmSourceCacheValid(
   }
   const cachedProvider: LlmProvider = cached.provider ?? "gemini";
   const contextProvider: LlmProvider = context.provider ?? "gemini";
+  if (
+    contextProvider === "openai-compatible" &&
+    normalizeCacheString(cached.baseUrl) !== normalizeCacheString(context.baseUrl)
+  )
+    return false;
   if (cachedProvider !== contextProvider) {
     return false;
   }
@@ -231,6 +254,7 @@ export function createCachedRefinement(
 ): CachedRefinement {
   return {
     provider: context.provider,
+    baseUrl: context.provider === "openai-compatible" ? context.baseUrl : undefined,
     model: context.model,
     prompt: context.prompt,
     glossaryHash: context.glossaryHash,
@@ -325,6 +349,7 @@ export function createCachedTranslation(
   return {
     targetLang,
     provider: context.provider,
+    baseUrl: context.provider === "openai-compatible" ? context.baseUrl : undefined,
     model: context.model,
     prompt: context.prompt,
     glossaryHash: context.glossaryHash,
@@ -373,6 +398,7 @@ function createCachedTextTask<T extends { chapters: ChapterItem[] } | { summary:
   return {
     targetLang,
     provider: context.provider,
+    baseUrl: context.provider === "openai-compatible" ? context.baseUrl : undefined,
     model: context.model,
     prompt: context.prompt,
     glossaryHash: context.glossaryHash,

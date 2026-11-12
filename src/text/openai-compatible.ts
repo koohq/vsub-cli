@@ -8,10 +8,10 @@ export interface OpenAICompatibleTextProfile {
   logLabel: string;
   /** API base URL without a trailing slash, e.g. "https://openrouter.ai/api/v1". */
   baseUrl: string;
-  defaultModel: string;
+  defaultModel?: string | undefined;
   limits: TextModelLimits; // { defaultConcurrency: 3 }
   /** Upper bound of output tokens per request. Also caps the cost the provider reserves. */
-  maxTokens: number; // 16384
+  maxTokens?: number | undefined; // 16384
   /** Sent as-is as `reasoning`; omitted when undefined. OpenRouter: { effort: "low" }. */
   reasoning?: { effort: "low" | "medium" | "high" } | undefined;
   /** Client-side timeout of one request, in milliseconds. */
@@ -23,7 +23,7 @@ export interface OpenAICompatibleTextProfile {
       isDefault: boolean,
       lang?: SupportedLanguage | undefined,
     ) => string;
-    insufficientCredits: (lang?: SupportedLanguage | undefined) => string;
+    insufficientCredits?: ((lang?: SupportedLanguage | undefined) => string) | undefined;
   };
 }
 
@@ -55,7 +55,7 @@ export function createOpenAICompatibleTextModel(
     async generateJson(request: JsonRequest): Promise<string> {
       const url = `${profile.baseUrl}/chat/completions`;
       const headers: Record<string, string> = {
-        Authorization: `Bearer ${apiKey}`,
+        ...(apiKey.trim() ? { Authorization: `Bearer ${apiKey}` } : {}),
         "Content-Type": "application/json",
       };
 
@@ -70,7 +70,7 @@ export function createOpenAICompatibleTextModel(
             schema: request.schema,
           },
         },
-        max_tokens: profile.maxTokens,
+        ...(profile.maxTokens !== undefined ? { max_tokens: profile.maxTokens } : {}),
       };
 
       if (profile.reasoning !== undefined) {
@@ -86,7 +86,7 @@ export function createOpenAICompatibleTextModel(
         signal,
       });
 
-      if (response.status === 402) {
+      if (response.status === 402 && profile.messages.insufficientCredits) {
         const err = new Error(profile.messages.insufficientCredits(deps?.lang));
         Object.assign(err, { status: 402 });
         throw err;
@@ -132,7 +132,7 @@ export function createOpenAICompatibleTextModel(
           code = Number.parseInt(data.error.code.trim(), 10);
         }
 
-        if (code === 402) {
+        if (code === 402 && profile.messages.insufficientCredits) {
           const err = new Error(profile.messages.insufficientCredits(deps?.lang));
           Object.assign(err, { status: 402 });
           throw err;

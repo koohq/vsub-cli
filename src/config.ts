@@ -11,6 +11,36 @@ import {
   type SupportedLanguage,
 } from "./i18n/index.js";
 
+/** Trims a configured API URL and removes trailing slashes without rewriting its path. */
+export function normalizeBaseUrl(value?: string): string | undefined {
+  return value?.trim().replace(/\/+$/, "") || undefined;
+}
+
+export function isHttpBaseUrl(value: string): boolean {
+  try {
+    const url = new URL(value.trim());
+    return url.protocol === "http:" || url.protocol === "https:";
+  } catch {
+    return false;
+  }
+}
+
+/** Shared validation for explicitly selected, user-configured OpenAI-compatible APIs. */
+export function assertOpenAICompatibleSettingsReady(
+  settings: { provider: string; model: string; baseUrl?: string | undefined },
+  side: "stt" | "llm",
+  lang?: SupportedLanguage | string,
+): void {
+  if (settings.provider !== "openai-compatible") return;
+  const m = getI18n(lang).openaiCompatible;
+  const issues: string[] = [];
+  const baseUrl = settings.baseUrl?.trim();
+  if (!baseUrl) issues.push(m.baseUrlRequired(side));
+  else if (!isHttpBaseUrl(baseUrl)) issues.push(m.baseUrlInvalid(side, baseUrl));
+  if (!settings.model.trim()) issues.push(m.modelRequired(side));
+  if (issues.length) throw new Error(`${m.notConfigured(side)}\n- ${issues.join("\n- ")}`);
+}
+
 export function parsePositiveInteger(value: unknown): number | undefined {
   const number = Number(value);
   return !Number.isNaN(number) && number > 0 ? Math.floor(number) : undefined;
@@ -94,6 +124,18 @@ export interface AppConfig {
   llmProvider?: string | undefined;
   /** OpenRouter text generation model: VSUB_OPENROUTER_LLM_MODEL, then the config file. */
   openrouterLlmModel?: string | undefined;
+  /** VSUB_OPENAI_COMPATIBLE_STT_BASE_URL, then the config file; never falls back to another API. */
+  openaiCompatibleSttBaseUrl?: string | undefined;
+  /** VSUB_OPENAI_COMPATIBLE_STT_API_KEY, then the config file; never falls back to another API. */
+  openaiCompatibleSttApiKey?: string | undefined;
+  /** VSUB_OPENAI_COMPATIBLE_STT_MODEL, then the config file; never falls back to another API. */
+  openaiCompatibleSttModel?: string | undefined;
+  /** VSUB_OPENAI_COMPATIBLE_LLM_BASE_URL, then the config file; never falls back to another API. */
+  openaiCompatibleLlmBaseUrl?: string | undefined;
+  /** VSUB_OPENAI_COMPATIBLE_LLM_API_KEY, then the config file; never falls back to another API. */
+  openaiCompatibleLlmApiKey?: string | undefined;
+  /** VSUB_OPENAI_COMPATIBLE_LLM_MODEL, then the config file; never falls back to another API. */
+  openaiCompatibleLlmModel?: string | undefined;
 }
 
 export function getGlobalConfigDir(): string {
@@ -292,6 +334,31 @@ export function getConfig(cliFfmpegPath?: string, cliLang?: string): AppConfig {
     globalConfig.openrouterApiKey?.trim() ||
     undefined;
 
+  const openaiCompatibleSttBaseUrl = normalizeBaseUrl(
+    process.env["VSUB_OPENAI_COMPATIBLE_STT_BASE_URL"]?.trim() ||
+      globalConfig.openaiCompatibleSttBaseUrl,
+  );
+  const openaiCompatibleSttApiKey =
+    process.env["VSUB_OPENAI_COMPATIBLE_STT_API_KEY"]?.trim() ||
+    globalConfig.openaiCompatibleSttApiKey?.trim() ||
+    undefined;
+  const openaiCompatibleSttModel =
+    process.env["VSUB_OPENAI_COMPATIBLE_STT_MODEL"]?.trim() ||
+    globalConfig.openaiCompatibleSttModel?.trim() ||
+    undefined;
+  const openaiCompatibleLlmBaseUrl = normalizeBaseUrl(
+    process.env["VSUB_OPENAI_COMPATIBLE_LLM_BASE_URL"]?.trim() ||
+      globalConfig.openaiCompatibleLlmBaseUrl,
+  );
+  const openaiCompatibleLlmApiKey =
+    process.env["VSUB_OPENAI_COMPATIBLE_LLM_API_KEY"]?.trim() ||
+    globalConfig.openaiCompatibleLlmApiKey?.trim() ||
+    undefined;
+  const openaiCompatibleLlmModel =
+    process.env["VSUB_OPENAI_COMPATIBLE_LLM_MODEL"]?.trim() ||
+    globalConfig.openaiCompatibleLlmModel?.trim() ||
+    undefined;
+
   const openrouterApiKeyFallback = process.env["OPENROUTER_API_KEY"]?.trim() || undefined;
 
   const sttProvider =
@@ -329,6 +396,12 @@ export function getConfig(cliFfmpegPath?: string, cliLang?: string): AppConfig {
     burnFontSize,
     openrouterApiKey,
     openrouterApiKeyFallback,
+    openaiCompatibleSttBaseUrl,
+    openaiCompatibleSttApiKey,
+    openaiCompatibleSttModel,
+    openaiCompatibleLlmBaseUrl,
+    openaiCompatibleLlmApiKey,
+    openaiCompatibleLlmModel,
     sttProvider,
     openrouterSttModel,
     llmProvider,

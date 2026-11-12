@@ -219,6 +219,7 @@ export async function runTranslateCommand(
       concurrency: resolvedConcurrency,
       llm: {
         provider: llm.provider,
+        baseUrl: llm.baseUrl,
         model: llm.model,
       },
       getTextModel: async () => createTextModel(config, llm, { lang: normalizeLanguage(lang) }),

@@ -147,7 +147,7 @@ VSUB_OPENROUTER_API_KEY=your_openrouter_api_key_here
 ## Choosing a Transcription Provider
 
 vsub selects the transcription provider in the following order of precedence:
-1. `--stt-provider <openrouter|groq>` CLI option
+1. `--stt-provider <openrouter|groq|openai-compatible>` CLI option
 2. `VSUB_STT_PROVIDER` environment variable or `sttProvider` in the configuration file
 3. Automatic selection based on configured keys:
    - If `VSUB_OPENROUTER_API_KEY` (or a saved OpenRouter key) exists → **OpenRouter**
@@ -168,14 +168,35 @@ Existing Groq users can update `vsub-cli` and continue using Groq seamlessly; yo
   - **The only tested OpenRouter model is `elevenlabs/scribe-v2`**. While other models can be specified with `--stt-model`, they are untested and may not work.
   - The model must return timestamped segments or words (`verbose_json`). Models that return plain text only cannot produce subtitles, and vsub stops with an error.
 * **Recognition Hints**:
-  - Recognition prompt hints (`--whisper-prompt` and terms extracted from `--glossary`) are sent only to Groq Whisper. They are not sent to OpenRouter.
+  - Recognition prompt hints (`--whisper-prompt` and terms extracted from `--glossary`) are sent only to Groq Whisper and the openai-compatible provider. They are not sent to OpenRouter.
 
 ---
+
+### OpenAI-compatible transcription (untested)
+
+**Untested and not guaranteed to work:** this provider is for OpenAI-compatible APIs, such as local servers or a direct OpenAI connection. The author has not verified these endpoints. It is never selected automatically from API keys; select it explicitly with `--stt-provider openai-compatible`, `VSUB_STT_PROVIDER=openai-compatible`, or `vsub config set --stt-provider openai-compatible`.
+
+Set a base URL and model; neither has a default. Environment variables take priority over saved settings and can also be written in `.env`:
+
+```dotenv
+VSUB_OPENAI_COMPATIBLE_STT_BASE_URL=http://localhost:8000/v1
+VSUB_OPENAI_COMPATIBLE_STT_MODEL=whisper-1
+VSUB_OPENAI_COMPATIBLE_STT_API_KEY=test-key-1234
+```
+
+```bash
+vsub config set --stt-provider openai-compatible --openai-compatible-stt-base-url http://localhost:8000/v1 --openai-compatible-stt-model whisper-1
+vsub config set --openai-compatible-stt-key test-key-1234
+```
+
+The key is optional; without one, no `Authorization` header is sent. Keys are sent to the configured URL, so use `https://` outside local servers. Only the dedicated `VSUB_OPENAI_COMPATIBLE_STT_*` settings are read; `OPENAI_API_KEY` and `OPENAI_BASE_URL` are ignored. STT and LLM settings are independent. Override the model for one run with `--stt-model`.
+
+The API must return `verbose_json` with segment or word timestamps. Requests run one at a time with a 300-second timeout and a 24 MB file limit; audio is split into chunks of up to 300 seconds. Recognition hints are sent in `prompt`.
 
 ## Choosing a Text Generation Provider
 
 vsub selects the text generation provider (for translation, chapters, and summaries) in the following order of precedence:
-1. `--llm-provider <gemini|openrouter>` CLI option
+1. `--llm-provider <gemini|openrouter|openai-compatible>` CLI option
 2. `VSUB_LLM_PROVIDER` environment variable or `llmProvider` in the configuration file
 3. Automatic selection based on configured keys:
    - If a Gemini key (`VSUB_GEMINI_API_KEY`, `GEMINI_API_KEY`, or saved key) exists → **Gemini**
@@ -199,6 +220,27 @@ Existing Gemini users can update `vsub-cli` and continue using Gemini directly w
   - Changing the provider or model creates fresh translations, chapters, and summaries; intermediate caches are reused only when the provider, model, and prompt match.
 
 ---
+
+### OpenAI-compatible text generation (untested)
+
+**Untested and not guaranteed to work:** this provider is for OpenAI-compatible APIs, such as local servers or a direct OpenAI connection. The author has not verified these endpoints. It is never selected automatically from API keys; select it explicitly with `--llm-provider openai-compatible`, `VSUB_LLM_PROVIDER=openai-compatible`, or `vsub config set --llm-provider openai-compatible`.
+
+Set a base URL and model; neither has a default. Environment variables take priority over saved settings and can also be written in `.env`:
+
+```dotenv
+VSUB_OPENAI_COMPATIBLE_LLM_BASE_URL=http://localhost:11434/v1
+VSUB_OPENAI_COMPATIBLE_LLM_MODEL=my-model
+VSUB_OPENAI_COMPATIBLE_LLM_API_KEY=test-key-1234
+```
+
+```bash
+vsub config set --llm-provider openai-compatible --openai-compatible-llm-base-url http://localhost:11434/v1 --openai-compatible-llm-model my-model
+vsub config set --openai-compatible-llm-key test-key-1234
+```
+
+The key is optional; without one, no `Authorization` header is sent. Keys are sent to the configured URL, so use `https://` outside local servers. Only the dedicated `VSUB_OPENAI_COMPATIBLE_LLM_*` settings are read; `OPENAI_API_KEY` and `OPENAI_BASE_URL` are ignored. STT and LLM settings are independent. Override the model for one run with `--llm-model`.
+
+The model must support strict JSON schema output through `response_format`. Requests omit `max_tokens` and `reasoning`, default to concurrency 1, and time out after 300 seconds. Existing `--concurrency`, `VSUB_CONCURRENCY` and saved concurrency settings still override this default.
 
 ## Usage
 
@@ -232,16 +274,16 @@ Options:
   -b, --bilingual               Generate bilingual subtitles combining original and translated text (default: false)
   --bilingual-order <order>     Order of bilingual subtitles: original-first (default) or target-first (default: "original-first")
   --ffmpeg-path <path>          Path to ffmpeg executable (searches VSUB_FFMPEG_PATH or PATH if omitted)
-  --stt-provider <provider>     Transcription provider: openrouter or groq (default: VSUB_STT_PROVIDER, config, or chosen from your API keys)
-  --stt-model <model>           Transcription model for the chosen provider (default: elevenlabs/scribe-v2 on OpenRouter, whisper-large-v3-turbo on Groq)
+  --stt-provider <provider>     Transcription provider: openrouter, groq, or openai-compatible (default: VSUB_STT_PROVIDER, config, or chosen from your API keys)
+  --stt-model <model>           Transcription model for the chosen provider (default: elevenlabs/scribe-v2 on OpenRouter, whisper-large-v3-turbo on Groq, the configured model on openai-compatible)
   --groq-model <model>          Groq Whisper model to use for transcription (used only when the provider is groq)
-  --whisper-prompt <text>       Prompt hint for Groq Whisper speech recognition (Groq only; not sent to OpenRouter)
+  --whisper-prompt <text>       Prompt hint for Groq Whisper speech recognition (Groq and openai-compatible; not sent to OpenRouter)
   --prompt <instruction>        Additional instruction prompt for translation
   --glossary <path-or-terms>    Glossary file path (JSON) or inline terms (Key=Val,Key=Val)
   --concurrency <number>        Number of concurrent translation requests (default: 3)
   --gemini-model <model>        Gemini model to use for translation (Gemini provider only)
-  --llm-provider <provider>     Text generation provider for translation, chapters and summaries: gemini or openrouter (default: VSUB_LLM_PROVIDER, config, or chosen from your API keys)
-  --llm-model <model>           Model for the chosen text generation provider (default: gemini-3.8-flash on Gemini, google/gemini-3.8-flash on OpenRouter)
+  --llm-provider <provider>     Text generation provider for translation, chapters and summaries: gemini, openrouter, or openai-compatible (default: VSUB_LLM_PROVIDER, config, or chosen from your API keys)
+  --llm-model <model>           Model for the chosen text generation provider (default: gemini-3.8-flash on Gemini, google/gemini-3.8-flash on OpenRouter, the configured model on openai-compatible)
   --no-cache                    Do not use or save intermediate cache (default: false)
   --fresh                       Ignore existing cache and generate fresh output, overwriting cache (default: false)
   --cache-dir <path>            Custom cache directory path
@@ -385,7 +427,7 @@ vsub video.mp4 -t ja,zh --glossary ./glossary.json
 ```
 
 > [!TIP]
-> When transcribing with Groq Whisper, source terms from `--glossary` (`Large Language Model, Agentic AI`) are automatically passed to Whisper as recognition hints even when `--whisper-prompt` is omitted, improving speech recognition accuracy as well (they are not sent to OpenRouter).
+> When transcribing with Groq Whisper (or the openai-compatible provider), source terms from `--glossary` (`Large Language Model, Agentic AI`) are automatically passed to Whisper as recognition hints even when `--whisper-prompt` is omitted, improving speech recognition accuracy as well (they are not sent to OpenRouter).
 
 #### Custom Translation Tone & Instructions
 ```bash
@@ -464,6 +506,7 @@ vsub config set --refine true
 vsub config set --max-length 32 --burn-position bottom --burn-font-size medium
 vsub config set --stt-provider openrouter --openrouter-key "your_openrouter_key"
 vsub config set --llm-provider openrouter
+vsub config set --stt-provider openai-compatible --openai-compatible-stt-base-url http://localhost:8000/v1 --openai-compatible-stt-model whisper-1
 
 # Disable automatic version update checks
 vsub config set --disable-update-check true

@@ -19,7 +19,7 @@ export interface OpenAICompatibleSttProfile {
   /** API base URL without a trailing slash, e.g. "https://openrouter.ai/api/v1". */
   baseUrl: string;
   /** Model used when the caller passes none. */
-  defaultModel: string;
+  defaultModel?: string | undefined;
   limits: TranscriberLimits;
   /**
    * How the recognition hint (whisperPrompt) is sent.
@@ -87,7 +87,7 @@ export function createOpenAICompatibleTranscriber(
     logLabel: profile.logLabel,
     limits: profile.limits,
     async transcribe(audioPath, options) {
-      const model = options?.model || profile.defaultModel;
+      const model = options?.model || profile.defaultModel || "";
 
       if (profile.promptField === "none" && options?.prompt) {
         if (options.verbose && !hasWarnedPrompt) {
@@ -129,7 +129,7 @@ export function createOpenAICompatibleTranscriber(
           response = await fetchFn(url, {
             method: "POST",
             headers: {
-              Authorization: `Bearer ${apiKey}`,
+              ...(apiKey.trim() ? { Authorization: `Bearer ${apiKey}` } : {}),
             },
             body: formData,
             signal,
@@ -227,7 +227,7 @@ export function createOpenAICompatibleTranscriber(
             data.text.trim().length > 0
           ) {
             throw new Error(
-              `${profile.logLabel} returned a transcript without timestamps for model "${model}". Subtitles need segment or word timestamps (response_format=verbose_json). Choose a model that returns them, such as ${profile.defaultModel}.`,
+              `${profile.logLabel} returned a transcript without timestamps for model "${model}". Subtitles need segment or word timestamps (response_format=verbose_json). Choose a model that returns them${profile.defaultModel ? `, such as ${profile.defaultModel}` : ""}.`,
             );
           }
           return result;

@@ -90,6 +90,30 @@ describe("src/refine.ts", () => {
     saveCacheSpy = vi.spyOn(cacheModule, "saveRefinementCache").mockImplementation(() => {});
   });
 
+  it("binds refinement cache reads and writes to the configured server", async () => {
+    const llm = {
+      provider: "openai-compatible",
+      model: "test-llm",
+      baseUrl: "http://localhost:11434/v1",
+    } as const;
+    const mediaCache = createMediaCacheWithRefinement(refinedSampleEntries);
+    mediaCache.refinement = cacheModule.createCachedRefinement(
+      { sourceEntries: sampleEntries, ...llm },
+      refinedSampleEntries,
+    );
+    expect((await refineSourceEntries(createParams({ llm, mediaCache }))).cached).toBe(true);
+    expect(getTextModelMock).not.toHaveBeenCalled();
+    const other = { ...llm, baseUrl: "https://example.invalid/v1" };
+    expect((await refineSourceEntries(createParams({ llm: other, mediaCache }))).cached).toBe(
+      false,
+    );
+    expect(saveCacheSpy).toHaveBeenCalledWith(
+      "dummy.mp4",
+      expect.objectContaining({ baseUrl: other.baseUrl }),
+      undefined,
+    );
+  });
+
   it("returns immediately without calling model, cache, or spinner when sourceEntries is empty", async () => {
     const result = await refineSourceEntries(createParams({ sourceEntries: [] }));
 

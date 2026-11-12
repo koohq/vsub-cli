@@ -165,6 +165,62 @@ describe("pipeline.ts", () => {
     vi.restoreAllMocks();
   });
 
+  describe("OpenAI-compatible transcription", () => {
+    it("fails before extraction when the URL is missing", async () => {
+      const mediaFile = path.join(tempDir, "sample.mp4");
+      fs.writeFileSync(mediaFile, "test media");
+      saveGlobalConfig({ sttProvider: "openai-compatible", openaiCompatibleSttModel: "test-stt" });
+      const ensure = vi.spyOn(configModule, "ensureApiKeys");
+      await expect(
+        processMediaPipeline({ mediaFile, noTranslate: true, noCache: true }),
+      ).rejects.toThrow("VSUB_OPENAI_COMPATIBLE_STT_BASE_URL");
+      expect(extractAudio).not.toHaveBeenCalled();
+      expect(ensure).toHaveBeenCalledWith(
+        expect.anything(),
+        expect.objectContaining({
+          requireGroq: false,
+          requireOpenRouter: false,
+          requireGemini: false,
+        }),
+      );
+    });
+
+    it("does not validate unused transcription settings on a cache hit", async () => {
+      const mediaFile = path.join(tempDir, "cached.mp4");
+      fs.writeFileSync(mediaFile, "test media");
+      saveGlobalConfig({ sttProvider: "openai-compatible" });
+      saveTranscriptionCache(mediaFile, {
+        provider: "openai-compatible",
+        entries: [{ id: 1, startTime: "00:00:00,000", endTime: "00:00:01,000", text: "Hello" }],
+        createdAt: 0,
+      });
+      const ensure = vi.spyOn(configModule, "ensureApiKeys");
+      await processMediaPipeline({ mediaFile, noTranslate: true });
+      expect(extractAudio).not.toHaveBeenCalled();
+      expect(ensure).not.toHaveBeenCalled();
+    });
+
+    it("includes the URL in the cache context and runs without a key", async () => {
+      const mediaFile = path.join(tempDir, "sample.mp4");
+      fs.writeFileSync(mediaFile, "test media");
+      saveGlobalConfig({
+        sttProvider: "openai-compatible",
+        openaiCompatibleSttBaseUrl: "http://localhost:8000/v1",
+        openaiCompatibleSttModel: "test-stt",
+      });
+      const save = vi.spyOn(cacheModule, "saveTranscriptionCache");
+      await processMediaPipeline({ mediaFile, noTranslate: true, fresh: true });
+      expect(save).toHaveBeenCalledWith(
+        mediaFile,
+        expect.objectContaining({
+          baseUrl: "http://localhost:8000/v1",
+          provider: "openai-compatible",
+        }),
+        undefined,
+      );
+    });
+  });
+
   describe("parseBilingualOrder", () => {
     it("should return original-first by default or when empty", () => {
       expect(parseBilingualOrder()).toBe("original-first");

@@ -1,7 +1,12 @@
 import { describe, expect, it } from "vitest";
 import type { AppConfig } from "../config.js";
 import { resolveSttSettings } from "../transcribe/select.js";
-import { createTextModel, parseLlmProvider, resolveLlmSettings } from "./select.js";
+import {
+  assertLlmSettingsReady,
+  createTextModel,
+  parseLlmProvider,
+  resolveLlmSettings,
+} from "./select.js";
 
 describe("select.ts", () => {
   const baseConfig: AppConfig = {
@@ -290,5 +295,85 @@ describe("select.ts", () => {
         ),
       ).toThrow("OpenRouter API key is required");
     });
+  });
+});
+
+describe("openai-compatible settings", () => {
+  const config: AppConfig = {
+    groqApiKey: "",
+    geminiApiKey: "",
+    ffmpegPath: "ffmpeg",
+    openaiCompatibleLlmBaseUrl: "http://localhost:8000/v1",
+    openaiCompatibleLlmModel: "configured-model",
+    openaiCompatibleLlmApiKey: "test-key-1234",
+  };
+  it.each(["option", "setting"])("selects explicitly via %s", (source) => {
+    const { llm } = resolveLlmSettings(
+      { ...config, ...(source === "setting" ? { llmProvider: " OpenAI-Compatible " } : {}) },
+      {
+        ...(source === "option" ? { llmProvider: " OpenAI-Compatible " } : {}),
+        geminiModel: "ignored",
+      },
+    );
+    expect(llm).toEqual({
+      provider: "openai-compatible",
+      source,
+      model: "configured-model",
+      baseUrl: "http://localhost:8000/v1",
+    });
+    expect(
+      resolveLlmSettings(config, { llmProvider: "openai-compatible", llmModel: " override " }).llm
+        .model,
+    ).toBe("override");
+    expect(
+      resolveLlmSettings(
+        { ...config, openaiCompatibleLlmModel: undefined },
+        { llmProvider: "openai-compatible", geminiModel: "ignored" },
+      ).llm.model,
+    ).toBe("");
+  });
+  it("does not auto-select even when all generic settings exist", () => {
+    expect(resolveLlmSettings(config, {}).llm).toMatchObject({
+      provider: "openrouter",
+      source: "auto",
+    });
+    expect(resolveLlmSettings(config, {}).llm.baseUrl).toBeUndefined();
+  });
+  it.each(["en", "ja"] as const)("lists all supported providers (%s)", (lang) => {
+    expect(() => resolveLlmSettings(config, { llmProvider: "invalid" }, lang)).toThrow(
+      "gemini, openrouter, openai-compatible",
+    );
+  });
+  it.each(["en", "ja"] as const)("validates only missing or invalid settings (%s)", (lang) => {
+    const valid = {
+      provider: "openai-compatible",
+      source: "option",
+      model: "test-model",
+      baseUrl: "http://localhost:8000/v1",
+    } as const;
+    expect(() => assertLlmSettingsReady(valid, lang)).not.toThrow();
+    expect(() =>
+      assertLlmSettingsReady(
+        { ...valid, provider: "openrouter", model: "", baseUrl: undefined },
+        lang,
+      ),
+    ).not.toThrow();
+    for (const baseUrl of [undefined, "ftp://example.invalid", "not a url"]) {
+      expect(() => assertLlmSettingsReady({ ...valid, baseUrl }, lang)).toThrow(
+        "VSUB_OPENAI_COMPATIBLE_LLM_BASE_URL",
+      );
+      try {
+        assertLlmSettingsReady({ ...valid, baseUrl }, lang);
+      } catch (error) {
+        expect(String(error)).not.toContain("--llm-model");
+      }
+    }
+    expect(() => assertLlmSettingsReady({ ...valid, model: "" }, lang)).toThrow("--llm-model");
+    try {
+      assertLlmSettingsReady({ ...valid, model: "", baseUrl: undefined }, lang);
+    } catch (error) {
+      expect(String(error)).toContain("VSUB_OPENAI_COMPATIBLE_LLM_BASE_URL");
+      expect(String(error)).toContain("--llm-model");
+    }
   });
 });

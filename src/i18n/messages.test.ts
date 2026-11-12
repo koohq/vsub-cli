@@ -168,3 +168,48 @@ describe("i18n messages backwards compatibility with Gemini", () => {
     expect(actual).toBe(expected);
   });
 });
+
+describe("OpenAI-compatible setup messages", () => {
+  it.each([
+    {
+      lang: "en",
+      m: en,
+      heading: "OpenAI-compatible transcription is not configured:",
+      url: "Base URL: set VSUB_OPENAI_COMPATIBLE_STT_BASE_URL or run vsub config set --openai-compatible-stt-base-url <url> (e.g. http://localhost:8000/v1)",
+      model:
+        "Model: use --stt-model, set VSUB_OPENAI_COMPATIBLE_STT_MODEL, or run vsub config set --openai-compatible-stt-model <model>",
+    },
+    {
+      lang: "ja",
+      m: ja,
+      heading: "OpenAI 互換の文字起こしが設定されていません:",
+      url: "URL: VSUB_OPENAI_COMPATIBLE_STT_BASE_URL を設定するか、vsub config set --openai-compatible-stt-base-url <url> を実行してください（例: http://localhost:8000/v1）",
+      model:
+        "モデル: --stt-model を付けるか、VSUB_OPENAI_COMPATIBLE_STT_MODEL を設定するか、vsub config set --openai-compatible-stt-model <model> を実行してください",
+    },
+  ])("matches the specified transcription wording ($lang)", ({ m, heading, url, model }) => {
+    expect(m.openaiCompatible.notConfigured("stt")).toBe(heading);
+    expect(m.openaiCompatible.baseUrlRequired("stt")).toBe(url);
+    expect(m.openaiCompatible.modelRequired("stt")).toBe(model);
+  });
+  it.each([
+    {
+      m: en,
+      heading: "OpenAI-compatible text generation is not configured:",
+      url: "Base URL: set VSUB_OPENAI_COMPATIBLE_LLM_BASE_URL or run vsub config set --openai-compatible-llm-base-url <url> (e.g. http://localhost:11434/v1)",
+      model:
+        "Model: use --llm-model, set VSUB_OPENAI_COMPATIBLE_LLM_MODEL, or run vsub config set --openai-compatible-llm-model <model>",
+    },
+    {
+      m: ja,
+      heading: "OpenAI 互換の文章の生成が設定されていません:",
+      url: "URL: VSUB_OPENAI_COMPATIBLE_LLM_BASE_URL を設定するか、vsub config set --openai-compatible-llm-base-url <url> を実行してください（例: http://localhost:11434/v1）",
+      model:
+        "モデル: --llm-model を付けるか、VSUB_OPENAI_COMPATIBLE_LLM_MODEL を設定するか、vsub config set --openai-compatible-llm-model <model> を実行してください",
+    },
+  ])("matches the specified text generation wording", ({ m, heading, url, model }) => {
+    expect(m.openaiCompatible.notConfigured("llm")).toBe(heading);
+    expect(m.openaiCompatible.baseUrlRequired("llm")).toBe(url);
+    expect(m.openaiCompatible.modelRequired("llm")).toBe(model);
+  });
+});

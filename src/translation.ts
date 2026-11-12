@@ -37,6 +37,7 @@ export interface TranslateToTargetsParams {
   llm: {
     provider: LlmProvider;
     model: string;
+    baseUrl?: string | undefined;
   };
   /** Called at most once, on the first cache miss (pipeline checks the key lazily). */
   getTextModel: () => Promise<TextModel>;
@@ -161,6 +162,7 @@ export async function translateToTargets(
       prompt: params.prompt,
       glossaryHash,
       provider: params.llm.provider,
+      baseUrl: params.llm.baseUrl,
       model: params.llm.model,
       contextWindowSize: params.contextWindowSize,
     };

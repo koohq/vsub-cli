@@ -76,9 +76,9 @@ export const en = {
     invalidTargetLang: (token: string) =>
       `Invalid target language code: "${token}". Valid examples: "ja", "en", "zh", "zh-CN", "pt-BR"`,
     invalidSttProvider: (provider: string) =>
-      `Unsupported transcription provider: "${provider}". Supported: openrouter, groq`,
+      `Unsupported transcription provider: "${provider}". Supported: openrouter, groq, openai-compatible`,
     invalidLlmProvider: (provider: string) =>
-      `Unsupported text generation provider: "${provider}". Supported: gemini, openrouter`,
+      `Unsupported text generation provider: "${provider}". Supported: gemini, openrouter, openai-compatible`,
     sttGroqAutoHint:
       "💡 Transcribing with Groq because VSUB_OPENROUTER_API_KEY is not set. The default is now OpenRouter (elevenlabs/scribe-v2). To keep Groq and hide this tip, set VSUB_STT_PROVIDER=groq.",
     step1SkipCache:
@@ -270,6 +270,10 @@ export const en = {
     description1:
       "This wizard verifies API keys and FFmpeg connectivity, then configures preferences.",
     description2: "Press Enter to keep current or bracketed values.",
+    openaiCompatibleSttNotice:
+      "  OpenAI-compatible transcription uses the URL, key and model from vsub config set (--openai-compatible-stt-base-url, --openai-compatible-stt-key, --openai-compatible-stt-model) or the VSUB_OPENAI_COMPATIBLE_STT_* environment variables.",
+    openaiCompatibleLlmNotice:
+      "  OpenAI-compatible text generation uses the URL, key and model from vsub config set (--openai-compatible-llm-base-url, --openai-compatible-llm-key, --openai-compatible-llm-model) or the VSUB_OPENAI_COMPATIBLE_LLM_* environment variables.",
     step1Title: "▶ [1/4] Speech Recognition Provider & API Key",
     step1Url: (url: string) => `  Get API key at: ${url}`,
     currentSetting: (val: string) => `  Current: ${val}`,
@@ -354,6 +358,12 @@ export const en = {
       groqModel: "Groq Model",
       openrouterSttModel: "OpenRouter STT Model",
       openrouterLlmModel: "OpenRouter LLM Model",
+      openaiCompatibleSttBaseUrl: "OpenAI-compatible STT URL",
+      openaiCompatibleSttApiKey: "OpenAI-compatible STT API Key",
+      openaiCompatibleSttModel: "OpenAI-compatible STT Model",
+      openaiCompatibleLlmBaseUrl: "OpenAI-compatible LLM URL",
+      openaiCompatibleLlmApiKey: "OpenAI-compatible LLM API Key",
+      openaiCompatibleLlmModel: "OpenAI-compatible LLM Model",
       concurrency: "Concurrency",
       maxLength: "Max Length",
       burnPosition: "Burn Position",
@@ -369,6 +379,8 @@ export const en = {
       "⚠️ Please specify settings to save. (Example: vsub config set --gemini-model gemini-3.8-flash)",
     invalidDisplayLang: (value: string) =>
       `Invalid display language: "${value}". Supported languages: "en", "ja"`,
+    invalidOpenAICompatibleUrl: (flag: string, value: string, example: string) =>
+      `Invalid URL for ${flag}: "${value}". Use an http:// or https:// URL such as ${example}.`,
     invalidRefine: (value: string) => `Invalid value for --refine: "${value}". Use true or false.`,
     setSaved: (path: string) => `✅ Configuration updated and saved: ${path}`,
     missingKeysHeader: "\n🔑 API keys missing. Starting interactive setup.",
@@ -404,6 +416,18 @@ export const en = {
     modelNotFoundCustom: (model: string) =>
       `Specified Gemini model '${model}' was not found. Please check model name or API permissions.\n` +
       `  • Available models: https://ai.google.dev/gemini-api/docs/models`,
+  },
+  openaiCompatible: {
+    notConfigured: (side: "stt" | "llm") =>
+      `OpenAI-compatible ${side === "stt" ? "transcription" : "text generation"} is not configured:`,
+    baseUrlRequired: (side: "stt" | "llm") =>
+      `Base URL: set VSUB_OPENAI_COMPATIBLE_${side === "stt" ? "STT" : "LLM"}_BASE_URL or run vsub config set --openai-compatible-${side}-base-url <url> (e.g. http://localhost:${side === "stt" ? "8000" : "11434"}/v1)`,
+    baseUrlInvalid: (side: "stt" | "llm", value: string) =>
+      `Base URL "${value}" is not a valid http:// or https:// URL: set VSUB_OPENAI_COMPATIBLE_${side === "stt" ? "STT" : "LLM"}_BASE_URL or run vsub config set --openai-compatible-${side}-base-url <url> (e.g. http://localhost:${side === "stt" ? "8000" : "11434"}/v1)`,
+    modelRequired: (side: "stt" | "llm") =>
+      `Model: use --${side}-model, set VSUB_OPENAI_COMPATIBLE_${side === "stt" ? "STT" : "LLM"}_MODEL, or run vsub config set --openai-compatible-${side}-model <model>`,
+    modelNotFound: (model: string, baseUrl: string) =>
+      `Model '${model}' was not found on the OpenAI-compatible API (${baseUrl}).\n  • Check the model name: --llm-model, VSUB_OPENAI_COMPATIBLE_LLM_MODEL, or vsub config set --openai-compatible-llm-model <model>`,
   },
   openrouter: {
     modelRetiredDefault: (model: string) =>

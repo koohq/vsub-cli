@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import type { AppConfig } from "../config.js";
 import { DEFAULT_GROQ_MODEL } from "../config.js";
 import { DEFAULT_OPENROUTER_STT_MODEL } from "./openrouter.js";
-import { resolveSttSettings } from "./select.js";
+import { assertSttSettingsReady, resolveSttSettings } from "./select.js";
 
 function createDummyConfig(overrides: Partial<AppConfig> = {}): AppConfig {
   return {
@@ -204,5 +204,85 @@ describe("resolveSttSettings", () => {
       const result = resolveSttSettings(baseConfig, { ...overrides, sttProvider: provider });
       expect(result.stt.model).toBe(expectedModel);
     });
+  });
+});
+
+describe("openai-compatible settings", () => {
+  const config: AppConfig = {
+    groqApiKey: "",
+    geminiApiKey: "",
+    ffmpegPath: "ffmpeg",
+    openaiCompatibleSttBaseUrl: "http://localhost:8000/v1",
+    openaiCompatibleSttModel: "configured-model",
+    openaiCompatibleSttApiKey: "test-key-1234",
+  };
+  it.each(["option", "setting"])("selects explicitly via %s", (source) => {
+    const { stt } = resolveSttSettings(
+      { ...config, ...(source === "setting" ? { sttProvider: " OpenAI-Compatible " } : {}) },
+      {
+        ...(source === "option" ? { sttProvider: " OpenAI-Compatible " } : {}),
+        groqModel: "ignored",
+      },
+    );
+    expect(stt).toEqual({
+      provider: "openai-compatible",
+      source,
+      model: "configured-model",
+      baseUrl: "http://localhost:8000/v1",
+    });
+    expect(
+      resolveSttSettings(config, { sttProvider: "openai-compatible", sttModel: " override " }).stt
+        .model,
+    ).toBe("override");
+    expect(
+      resolveSttSettings(
+        { ...config, openaiCompatibleSttModel: undefined },
+        { sttProvider: "openai-compatible", groqModel: "ignored" },
+      ).stt.model,
+    ).toBe("");
+  });
+  it("does not auto-select even when all generic settings exist", () => {
+    expect(resolveSttSettings(config, {}).stt).toMatchObject({
+      provider: "openrouter",
+      source: "auto",
+    });
+    expect(resolveSttSettings(config, {}).stt.baseUrl).toBeUndefined();
+  });
+  it.each(["en", "ja"] as const)("lists all supported providers (%s)", (lang) => {
+    expect(() => resolveSttSettings(config, { sttProvider: "invalid" }, lang)).toThrow(
+      "openrouter, groq, openai-compatible",
+    );
+  });
+  it.each(["en", "ja"] as const)("validates only missing or invalid settings (%s)", (lang) => {
+    const valid = {
+      provider: "openai-compatible",
+      source: "option",
+      model: "test-model",
+      baseUrl: "http://localhost:8000/v1",
+    } as const;
+    expect(() => assertSttSettingsReady(valid, lang)).not.toThrow();
+    expect(() =>
+      assertSttSettingsReady(
+        { ...valid, provider: "openrouter", model: "", baseUrl: undefined },
+        lang,
+      ),
+    ).not.toThrow();
+    for (const baseUrl of [undefined, "ftp://example.invalid", "not a url"]) {
+      expect(() => assertSttSettingsReady({ ...valid, baseUrl }, lang)).toThrow(
+        "VSUB_OPENAI_COMPATIBLE_STT_BASE_URL",
+      );
+      try {
+        assertSttSettingsReady({ ...valid, baseUrl }, lang);
+      } catch (error) {
+        expect(String(error)).not.toContain("--stt-model");
+      }
+    }
+    expect(() => assertSttSettingsReady({ ...valid, model: "" }, lang)).toThrow("--stt-model");
+    try {
+      assertSttSettingsReady({ ...valid, model: "", baseUrl: undefined }, lang);
+    } catch (error) {
+      expect(String(error)).toContain("VSUB_OPENAI_COMPATIBLE_STT_BASE_URL");
+      expect(String(error)).toContain("--stt-model");
+    }
   });
 });

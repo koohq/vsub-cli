@@ -147,7 +147,7 @@ VSUB_OPENROUTER_API_KEY=your_openrouter_api_key_here
 ## 文字起こしの提供元の選び方
 
 vsub は、次の順で文字起こしの提供元を決めます。
-1. コマンドラインオプション `--stt-provider <openrouter|groq>`
+1. コマンドラインオプション `--stt-provider <openrouter|groq|openai-compatible>`
 2. 環境変数 `VSUB_STT_PROVIDER`、または設定ファイルの `sttProvider`
 3. 設定されているキーからの自動選択:
    - `VSUB_OPENROUTER_API_KEY`（または保存済みの OpenRouter のキー）がある → **OpenRouter**
@@ -168,14 +168,35 @@ vsub は、次の順で文字起こしの提供元を決めます。
   - **OpenRouter で動作を確かめたモデルは `elevenlabs/scribe-v2` だけです**。ほかのモデルも `--stt-model` で指定できますが、確かめていないため、動かないことがあります。
   - モデルは、区切りごと（または単語ごと）の開始・終了時刻を含む結果（`verbose_json`）を返せる必要があります。時刻を返さないモデルでは字幕を作れないため、エラーで止まります。
 * **認識のヒント**:
-  - 認識のヒント（`--whisper-prompt` と、`--glossary` から取り出した用語）は、Groq の Whisper にだけ送ります。OpenRouter には送りません。
+  - 認識のヒント（`--whisper-prompt` と、`--glossary` から取り出した用語）は、Groq の Whisper と openai-compatible の提供元にだけ送ります。OpenRouter には送りません。
 
 ---
+
+### OpenAI 互換の文字起こし（動作保証外）
+
+**作者が確認していないため、動作保証外です。** ローカルのサーバーや OpenAI への直接接続など、OpenAI 互換の API 向けです。API キーから自動では選ばれません。`--stt-provider openai-compatible`、`VSUB_STT_PROVIDER=openai-compatible`、または `vsub config set --stt-provider openai-compatible` で明示的に選んでください。
+
+URL とモデルが必要で、既定値はありません。環境変数は保存した設定より優先され、`.env` にも書けます。
+
+```dotenv
+VSUB_OPENAI_COMPATIBLE_STT_BASE_URL=http://localhost:8000/v1
+VSUB_OPENAI_COMPATIBLE_STT_MODEL=whisper-1
+VSUB_OPENAI_COMPATIBLE_STT_API_KEY=test-key-1234
+```
+
+```bash
+vsub config set --stt-provider openai-compatible --openai-compatible-stt-base-url http://localhost:8000/v1 --openai-compatible-stt-model whisper-1
+vsub config set --openai-compatible-stt-key test-key-1234
+```
+
+キーは任意で、無ければ `Authorization` ヘッダーを送りません。キーは設定した URL に送られるため、ローカル以外では `https://` を使ってください。専用の `VSUB_OPENAI_COMPATIBLE_STT_*` だけを読み、`OPENAI_API_KEY`・`OPENAI_BASE_URL` は読みません。文字起こしと文章の生成の設定は独立しています。1 回だけモデルを変えるには `--stt-model` を使います。
+
+`verbose_json` と segment または word の時刻を返す API が必要です。リクエストは 1 つずつ送り、タイムアウトは 300 秒、ファイルの上限は 24 MB、音声の分割は最大 300 秒です。認識のヒントは `prompt` で送ります。
 
 ## 文章の生成の提供元の選び方
 
 vsub は、次の順で文章の生成（翻訳・チャプター・要約）の提供元を決めます。
-1. コマンドラインオプション `--llm-provider <gemini|openrouter>`
+1. コマンドラインオプション `--llm-provider <gemini|openrouter|openai-compatible>`
 2. 環境変数 `VSUB_LLM_PROVIDER`、または設定ファイルの `llmProvider`
 3. 設定されているキーからの自動選択:
    - Gemini のキー（`VSUB_GEMINI_API_KEY`、`GEMINI_API_KEY`、または保存済みのキー）がある → **Gemini**
@@ -199,6 +220,27 @@ vsub は、次の順で文章の生成（翻訳・チャプター・要約）の
   - 提供元やモデルを変えると、翻訳・チャプター・要約は新しく作り直します。途中結果のキャッシュは、提供元・モデル・プロンプトがすべて同じときだけ使い回します。
 
 ---
+
+### OpenAI 互換の文章の生成（動作保証外）
+
+**作者が確認していないため、動作保証外です。** ローカルのサーバーや OpenAI への直接接続など、OpenAI 互換の API 向けです。API キーから自動では選ばれません。`--llm-provider openai-compatible`、`VSUB_LLM_PROVIDER=openai-compatible`、または `vsub config set --llm-provider openai-compatible` で明示的に選んでください。
+
+URL とモデルが必要で、既定値はありません。環境変数は保存した設定より優先され、`.env` にも書けます。
+
+```dotenv
+VSUB_OPENAI_COMPATIBLE_LLM_BASE_URL=http://localhost:11434/v1
+VSUB_OPENAI_COMPATIBLE_LLM_MODEL=my-model
+VSUB_OPENAI_COMPATIBLE_LLM_API_KEY=test-key-1234
+```
+
+```bash
+vsub config set --llm-provider openai-compatible --openai-compatible-llm-base-url http://localhost:11434/v1 --openai-compatible-llm-model my-model
+vsub config set --openai-compatible-llm-key test-key-1234
+```
+
+キーは任意で、無ければ `Authorization` ヘッダーを送りません。キーは設定した URL に送られるため、ローカル以外では `https://` を使ってください。専用の `VSUB_OPENAI_COMPATIBLE_LLM_*` だけを読み、`OPENAI_API_KEY`・`OPENAI_BASE_URL` は読みません。文字起こしと文章の生成の設定は独立しています。1 回だけモデルを変えるには `--llm-model` を使います。
+
+`response_format` による strict な JSON schema の出力に対応するモデルが必要です。`max_tokens` と `reasoning` は送らず、並行数の既定は 1、タイムアウトは 300 秒です。並行数は既存の `--concurrency`・`VSUB_CONCURRENCY`・設定ファイルで上書きできます。
 
 ## 使い方
 
@@ -234,16 +276,16 @@ Options:
   -b, --bilingual               原文と訳文を組にした二言語字幕を作る (既定: false)
   --bilingual-order <order>     二言語字幕の並び順: original-first または target-first (既定: "original-first")
   --ffmpeg-path <path>          ffmpeg の実行ファイルのパス (省略時は VSUB_FFMPEG_PATH、次に PATH から探す)
-  --stt-provider <provider>     文字起こしの提供元: openrouter または groq (既定: VSUB_STT_PROVIDER、設定の値、または API キーから自動選択)
-  --stt-model <model>           選んだ提供元の文字起こしモデル (既定: OpenRouter は elevenlabs/scribe-v2、Groq は whisper-large-v3-turbo)
+  --stt-provider <provider>     文字起こしの提供元: openrouter、groq、openai-compatible (既定: VSUB_STT_PROVIDER、設定の値、または API キーから自動選択)
+  --stt-model <model>           選んだ提供元の文字起こしモデル (既定: OpenRouter は elevenlabs/scribe-v2、Groq は whisper-large-v3-turbo、openai-compatible は設定したモデル)
   --groq-model <model>          文字起こしに使う Groq の Whisper モデル (提供元が groq のときだけ使う)
-  --whisper-prompt <text>       Groq の Whisper に渡す認識のヒント (Groq のみ。OpenRouter には送らない)
+  --whisper-prompt <text>       Groq の Whisper に渡す認識のヒント (Groq と openai-compatible のみ。OpenRouter には送らない)
   --prompt <instruction>        翻訳への追加の指示
   --glossary <path-or-terms>    用語集の JSON ファイルのパス、または直接指定の用語 (Key=Val,Key=Val)
   --concurrency <number>        翻訳のリクエストを同時にいくつ送るか (既定: 3)
   --gemini-model <model>        翻訳に使う Gemini のモデル (提供元が Gemini のときだけ)
-  --llm-provider <provider>     翻訳・チャプター・要約に使う文章の生成の提供元: gemini または openrouter (既定: VSUB_LLM_PROVIDER、設定の値、または API キーから自動選択)
-  --llm-model <model>           選んだ提供元の文章の生成モデル (既定: Gemini は gemini-3.8-flash、OpenRouter は google/gemini-3.8-flash)
+  --llm-provider <provider>     翻訳・チャプター・要約に使う文章の生成の提供元: gemini、openrouter、openai-compatible (既定: VSUB_LLM_PROVIDER、設定の値、または API キーから自動選択)
+  --llm-model <model>           選んだ提供元の文章の生成モデル (既定: Gemini は gemini-3.8-flash、OpenRouter は google/gemini-3.8-flash、openai-compatible は設定したモデル)
   --no-cache                    途中結果のキャッシュを読まず、保存もしない (既定: false)
   --fresh                       既存のキャッシュを使わずに作り直し、キャッシュを上書きする (既定: false)
   --cache-dir <path>            キャッシュを置くディレクトリ
@@ -387,7 +429,7 @@ vsub video.mp4 -t ja,zh --glossary ./glossary.json
 ```
 
 > [!TIP]
-> Groq の Whisper で文字起こしする場合は、`--whisper-prompt` を省略しても、`--glossary` の原語（`Large Language Model, Agentic AI`）が認識のヒントとして自動で渡され、音声認識の精度も上がります（OpenRouter には送りません）。
+> Groq の Whisper（または openai-compatible の提供元）で文字起こしする場合は、`--whisper-prompt` を省略しても、`--glossary` の原語（`Large Language Model, Agentic AI`）が認識のヒントとして自動で渡され、音声認識の精度も上がります（OpenRouter には送りません）。
 
 #### 翻訳の口調や指示を変える
 ```bash
@@ -466,6 +508,7 @@ vsub config set --refine true
 vsub config set --max-length 32 --burn-position bottom --burn-font-size medium
 vsub config set --stt-provider openrouter --openrouter-key "your_openrouter_key"
 vsub config set --llm-provider openrouter
+vsub config set --stt-provider openai-compatible --openai-compatible-stt-base-url http://localhost:8000/v1 --openai-compatible-stt-model whisper-1
 
 # 新しいバージョンの自動確認を止める
 vsub config set --disable-update-check true

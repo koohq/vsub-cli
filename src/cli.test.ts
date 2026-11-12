@@ -173,6 +173,242 @@ describe("CLI integration harness", () => {
     await program.parseAsync(["node", "vsub", ...args]);
   }
 
+  describe("OpenAI-compatible config", () => {
+    afterEach(() => {
+      vi.mocked(getConfig).mockReturnValue(mockConfig);
+    });
+
+    it.each(["stt", "llm"] as const)(
+      "ignores blank optional %s values without clearing saved settings",
+      async (side) => {
+        await runCli(
+          "config",
+          "set",
+          `--openai-compatible-${side}-key`,
+          " ",
+          `--openai-compatible-${side}-model`,
+          " ",
+        );
+        expect(saveGlobalConfig).not.toHaveBeenCalled();
+        expect(exitSpy).not.toHaveBeenCalled();
+      },
+    );
+    it.each(["en", "ja"] as const)(
+      "validates the LLM URL before any settings are saved (%s)",
+      async (lang) => {
+        const error = vi.spyOn(console, "error").mockImplementation(() => {});
+        try {
+          await runCli(
+            "config",
+            "set",
+            "--lang",
+            lang,
+            "--openai-compatible-stt-base-url",
+            "http://localhost:8000/v1/",
+            "--openai-compatible-llm-base-url",
+            " not a url ",
+          );
+          expect(exitSpy).toHaveBeenCalledWith(1);
+          expect(saveGlobalConfig).not.toHaveBeenCalled();
+          const text = stripVTControlCharacters(String(error.mock.calls[0]?.[0]));
+          expect(text).toBe(
+            lang === "en"
+              ? '\n✖ Invalid URL for --openai-compatible-llm-base-url: "not a url". Use an http:// or https:// URL such as http://localhost:11434/v1.\n'
+              : '\n✖ --openai-compatible-llm-base-url の URL が正しくありません: "not a url"。http://localhost:11434/v1 のような http:// か https:// の URL を指定してください。\n',
+          );
+        } finally {
+          error.mockRestore();
+        }
+      },
+    );
+    it.each(["en", "ja"] as const)("shows all six configured rows in order (%s)", async (lang) => {
+      vi.mocked(getConfig).mockReturnValue({
+        ...mockConfig,
+        openaiCompatibleSttBaseUrl: "http://localhost:8000/v1",
+        openaiCompatibleSttApiKey: "test-key-1234",
+        openaiCompatibleSttModel: "test-stt",
+        openaiCompatibleLlmBaseUrl: "http://localhost:11434/v1",
+        openaiCompatibleLlmApiKey: "test-key-5678",
+        openaiCompatibleLlmModel: "test-llm",
+      });
+      await runCli("config", "show", "--lang", lang);
+      const output = stripVTControlCharacters(
+        logSpy.mock.calls.map((call: unknown[]) => String(call[0])).join("\n"),
+      );
+      const labels = getI18n(lang).config.showLabels;
+      const rows = [
+        labels.openaiCompatibleSttBaseUrl,
+        labels.openaiCompatibleSttApiKey,
+        labels.openaiCompatibleSttModel,
+        labels.openaiCompatibleLlmBaseUrl,
+        labels.openaiCompatibleLlmApiKey,
+        labels.openaiCompatibleLlmModel,
+      ];
+      let previous = -1;
+      for (const label of rows) {
+        const current = output.indexOf(label);
+        expect(current).toBeGreaterThan(previous);
+        previous = current;
+      }
+      expect(output).toContain("test...1234");
+      expect(output).toContain("test...5678");
+      logSpy.mockClear();
+      vi.mocked(getConfig).mockReturnValue(mockConfig);
+      await runCli("config", "show", "--lang", lang);
+      const empty = stripVTControlCharacters(
+        logSpy.mock.calls.map((call: unknown[]) => String(call[0])).join("\n"),
+      );
+      for (const label of rows) expect(empty).not.toContain(label);
+    });
+    it.each(["main", "batch", "chapters", "summarize", "translate"])(
+      "documents compatible providers and models in %s help",
+      (name) => {
+        const program = createProgram();
+        const command =
+          name === "main" ? program : program.commands.find((cmd) => cmd.name() === name);
+        const help = stripVTControlCharacters(command?.helpInformation() ?? "").replace(
+          /\s+/g,
+          " ",
+        );
+        const sides = name === "translate" ? ["llm"] : ["stt", "llm"];
+        for (const side of sides) {
+          expect(help).toContain(
+            side === "stt"
+              ? "Transcription provider: openrouter, groq, or openai-compatible (default: VSUB_STT_PROVIDER, config, or chosen from your API keys)"
+              : "Text generation provider for translation, chapters and summaries: gemini, openrouter, or openai-compatible (default: VSUB_LLM_PROVIDER, config, or chosen from your API keys)",
+          );
+          expect(help).toContain(
+            side === "stt"
+              ? "Transcription model for the chosen provider (default: elevenlabs/scribe-v2 on OpenRouter, whisper-large-v3-turbo on Groq, the configured model on openai-compatible)"
+              : "Model for the chosen text generation provider (default: gemini-3.8-flash on Gemini, google/gemini-3.8-flash on OpenRouter, the configured model on openai-compatible)",
+          );
+        }
+        expect(help).not.toContain("--openai-compatible-stt-base-url");
+        expect(help).not.toContain("--openai-compatible-llm-key");
+      },
+    );
+    it("places all compatible config flags after the OpenRouter model", () => {
+      const command = createProgram()
+        .commands.find((cmd) => cmd.name() === "config")
+        ?.commands.find((cmd) => cmd.name() === "set");
+      const names = command?.options.map((option) => option.long) ?? [];
+      expect(
+        names.slice(names.indexOf("--openrouter-llm-model") + 1, names.indexOf("--ffmpeg-path")),
+      ).toEqual([
+        "--openai-compatible-stt-base-url",
+        "--openai-compatible-stt-key",
+        "--openai-compatible-stt-model",
+        "--openai-compatible-llm-base-url",
+        "--openai-compatible-llm-key",
+        "--openai-compatible-llm-model",
+      ]);
+      const help = stripVTControlCharacters(command?.helpInformation() ?? "").replace(/\s+/g, " ");
+      expect(help).toContain("OpenAI-compatible endpoints");
+      expect(help).toContain(
+        "Base URL of an OpenAI-compatible transcription API (e.g. http://localhost:8000/v1; untested)",
+      );
+      expect(help).toContain("API key for the OpenAI-compatible transcription API (optional)");
+      expect(help).toContain("Model for the OpenAI-compatible transcription API (e.g. whisper-1)");
+      expect(help).toContain(
+        "Base URL of an OpenAI-compatible text generation API (e.g. http://localhost:11434/v1; untested)",
+      );
+      expect(help).toContain("API key for the OpenAI-compatible text generation API (optional)");
+      expect(help).toContain(
+        "Model for the OpenAI-compatible text generation API (must support JSON schema output)",
+      );
+    });
+
+    it("saves six trimmed values and explicit providers", async () => {
+      await runCli(
+        "config",
+        "set",
+        "--stt-provider",
+        "OpenAI-Compatible",
+        "--llm-provider",
+        "openai-compatible",
+        "--openai-compatible-stt-base-url",
+        " http://localhost:8000/v1/// ",
+        "--openai-compatible-stt-key",
+        " test-key-1234 ",
+        "--openai-compatible-stt-model",
+        " test-stt ",
+        "--openai-compatible-llm-base-url",
+        " http://localhost:11434/v1/ ",
+        "--openai-compatible-llm-key",
+        " test-key-5678 ",
+        "--openai-compatible-llm-model",
+        " test-llm ",
+      );
+      expect(saveGlobalConfig).toHaveBeenCalledWith(
+        expect.objectContaining({
+          sttProvider: "openai-compatible",
+          llmProvider: "openai-compatible",
+          openaiCompatibleSttBaseUrl: "http://localhost:8000/v1",
+          openaiCompatibleSttApiKey: "test-key-1234",
+          openaiCompatibleSttModel: "test-stt",
+          openaiCompatibleLlmBaseUrl: "http://localhost:11434/v1",
+          openaiCompatibleLlmApiKey: "test-key-5678",
+          openaiCompatibleLlmModel: "test-llm",
+        }),
+        expect.anything(),
+      );
+    });
+    it.each(["en", "ja"] as const)("rejects invalid URLs atomically (%s)", async (lang) => {
+      const err = vi.spyOn(console, "error").mockImplementation(() => {});
+      try {
+        await runCli(
+          "config",
+          "set",
+          "--lang",
+          lang,
+          "--groq-key",
+          "test-key-1234",
+          "--openai-compatible-stt-base-url",
+          "ftp://example.invalid",
+        );
+        expect(exitSpy).toHaveBeenCalledWith(1);
+        expect(saveGlobalConfig).not.toHaveBeenCalled();
+        const output = stripVTControlCharacters(String(err.mock.calls[0]?.[0]));
+        expect(output).toContain(
+          lang === "en"
+            ? "Invalid URL for --openai-compatible-stt-base-url"
+            : "--openai-compatible-stt-base-url の URL が正しくありません",
+        );
+      } finally {
+        err.mockRestore();
+      }
+    });
+    it.each(["en", "ja"] as const)(
+      "shows only configured rows, masks keys and tolerates missing models (%s)",
+      async (lang) => {
+        vi.mocked(getConfig).mockReturnValue({
+          ...mockConfig,
+          sttProvider: "openai-compatible",
+          llmProvider: "openai-compatible",
+          openaiCompatibleSttBaseUrl: "http://localhost:8000/v1",
+          openaiCompatibleSttApiKey: "test-key-1234",
+          openaiCompatibleLlmBaseUrl: "http://localhost:11434/v1",
+          openaiCompatibleLlmApiKey: "test-key-5678",
+          openaiCompatibleLlmModel: "test-llm",
+        });
+        await runCli("config", "show", "--lang", lang);
+        const output = stripVTControlCharacters(
+          logSpy.mock.calls.map((call: unknown[]) => String(call[0])).join("\n"),
+        );
+        expect(output).toContain(
+          `OpenAI-compatible ${getI18n(lang).config.notConfigured} [setting]`,
+        );
+        expect(output).toContain("http://localhost:8000/v1");
+        expect(output).toContain("test...1234");
+        expect(output).toContain("test...5678");
+        expect(output).not.toContain("test-key-");
+        expect(output).not.toContain(
+          lang === "en" ? "OpenAI-compatible STT Model" : "OpenAI 互換の文字起こしモデル",
+        );
+      },
+    );
+  });
+
   describe("chapters, summarize and reflow limit options", () => {
     afterEach(() => {
       vi.mocked(getConfig).mockReturnValue(mockConfig);
@@ -2094,7 +2330,7 @@ describe("CLI integration harness", () => {
           "Default translation instruction prompt",
           "Default concurrent translation requests (e.g. 3)",
           "OpenRouter API Key (for transcription and text generation)",
-          "Default text generation provider: gemini or openrouter",
+          "Default text generation provider: gemini, openrouter, or openai-compatible",
           "Default OpenRouter text generation model (e.g. google/gemini-3.8-flash)",
         ],
       },
