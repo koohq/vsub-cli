@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import type { AppConfig } from "../config.js";
 import { DEFAULT_GROQ_MODEL } from "../config.js";
 import { DEFAULT_OPENROUTER_STT_MODEL } from "./openrouter.js";
-import { assertSttSettingsReady, resolveSttSettings } from "./select.js";
+import { assertSttSettingsReady, createTranscriber, resolveSttSettings } from "./select.js";
 
 function createDummyConfig(overrides: Partial<AppConfig> = {}): AppConfig {
   return {
@@ -205,6 +205,12 @@ describe("resolveSttSettings", () => {
       expect(result.stt.model).toBe(expectedModel);
     });
   });
+});
+
+it("localizes missing OpenRouter transcription keys", () => {
+  expect(() =>
+    createTranscriber({ groqApiKey: "", openrouterApiKey: "" }, "openrouter", "ja"),
+  ).toThrow("OpenRouter で文字起こしをするには、OpenRouter の API キーが必要です。");
 });
 
 describe("openai-compatible settings", () => {

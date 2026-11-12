@@ -79,6 +79,9 @@ export const en = {
       `Unsupported transcription provider: "${provider}". Supported: openrouter, groq, openai-compatible`,
     invalidLlmProvider: (provider: string) =>
       `Unsupported text generation provider: "${provider}". Supported: gemini, openrouter, openai-compatible`,
+    geminiTextKeyRequired: "Gemini API key is required for Gemini text generation.",
+    openrouterTextKeyRequired: "OpenRouter API key is required for OpenRouter text generation.",
+    openrouterSttKeyRequired: "OpenRouter API key is required for OpenRouter transcription.",
     sttGroqAutoHint:
       "💡 Transcribing with Groq because VSUB_OPENROUTER_API_KEY is not set. The default is now OpenRouter (elevenlabs/scribe-v2). To keep Groq and hide this tip, set VSUB_STT_PROVIDER=groq.",
     step1SkipCache:

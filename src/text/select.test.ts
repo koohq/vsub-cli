@@ -379,6 +379,15 @@ describe("select.ts", () => {
   });
 });
 
+it.each([
+  ["gemini", "Gemini で文章を生成するには、Gemini の API キーが必要です。"],
+  ["openrouter", "OpenRouter で文章を生成するには、OpenRouter の API キーが必要です。"],
+] as const)("localizes missing %s text keys", (provider, message) => {
+  expect(() =>
+    createTextModel({}, { provider, source: "auto", model: "test-model" }, { lang: "ja" }),
+  ).toThrow(message);
+});
+
 describe("openai-compatible settings", () => {
   const config: AppConfig = {
     groqApiKey: "",

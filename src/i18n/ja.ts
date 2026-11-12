@@ -82,6 +82,11 @@ export const ja: typeof en = {
       `サポートされていない文字起こし提供元です: "${provider}". 利用可能な提供元: openrouter, groq, openai-compatible`,
     invalidLlmProvider: (provider: string) =>
       `サポートされていない文章生成提供元です: "${provider}". 利用可能な提供元: gemini, openrouter, openai-compatible`,
+    geminiTextKeyRequired: "Gemini で文章を生成するには、Gemini の API キーが必要です。",
+    openrouterTextKeyRequired:
+      "OpenRouter で文章を生成するには、OpenRouter の API キーが必要です。",
+    openrouterSttKeyRequired:
+      "OpenRouter で文字起こしをするには、OpenRouter の API キーが必要です。",
     sttGroqAutoHint:
       "💡 VSUB_OPENROUTER_API_KEY が無いため、Groq で文字起こしします。既定は OpenRouter（elevenlabs/scribe-v2）になりました。Groq を使い続けるなら、VSUB_STT_PROVIDER=groq を設定すると、この表示は消えます。",
     step1SkipCache:

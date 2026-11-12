@@ -131,7 +131,7 @@ export function createTranscriber(
 
   if (provider === "openrouter") {
     if (!config.openrouterApiKey) {
-      throw new Error("OpenRouter API key is required for OpenRouter transcription.");
+      throw new Error(getI18n(lang).pipeline.openrouterSttKeyRequired);
     }
     return createOpenRouterTranscriber(config.openrouterApiKey);
   }

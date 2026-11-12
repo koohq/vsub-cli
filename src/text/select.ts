@@ -133,13 +133,13 @@ export function createTextModel(
 
   if (llm.provider === "gemini") {
     if (!config.geminiApiKey) {
-      throw new Error("Gemini API key is required for Gemini text generation.");
+      throw new Error(getI18n(deps?.lang).pipeline.geminiTextKeyRequired);
     }
     return createGeminiTextModel(config.geminiApiKey, llm.model);
   }
 
   if (!config.openrouterApiKey) {
-    throw new Error("OpenRouter API key is required for OpenRouter text generation.");
+    throw new Error(getI18n(deps?.lang).pipeline.openrouterTextKeyRequired);
   }
   return createOpenRouterTextModel(config.openrouterApiKey, llm.model, deps);
 }
