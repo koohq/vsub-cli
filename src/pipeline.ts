@@ -64,6 +64,7 @@ import { LLM_PROVIDER_LABELS, type LlmProvider } from "./text/providers.js";
 import { createTextModel, resolveLlmSettings } from "./text/select.js";
 import { generateChapters, generateSummary } from "./text/tasks.js";
 import {
+  assertSttSettingsReady,
   createTranscriber,
   resolveSttSettings,
   STT_PROVIDER_LABELS,
@@ -563,6 +564,7 @@ export async function processMediaPipeline(
       requireGemini: false,
       lang,
     });
+    assertSttSettingsReady(stt, lang);
     rawConfig = config;
     await checkFfmpeg(config.ffmpegPath);
 
@@ -1106,6 +1108,7 @@ export async function resolveTranscriptEntries(
     requireGemini: false,
     lang,
   });
+  assertSttSettingsReady(stt, lang);
   await checkFfmpeg(config.ffmpegPath);
 
   const verbose = Boolean(options.verbose);

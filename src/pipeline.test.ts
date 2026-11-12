@@ -16,7 +16,12 @@ import {
 } from "./cache.js";
 import * as configModule from "./config.js";
 import { DEFAULT_GEMINI_MODEL, DEFAULT_GROQ_MODEL, saveGlobalConfig } from "./config.js";
-import { burnSubtitlesToVideo, embedSubtitlesToVideo, extractAudio } from "./ffmpeg.js";
+import {
+  burnSubtitlesToVideo,
+  checkFfmpeg,
+  embedSubtitlesToVideo,
+  extractAudio,
+} from "./ffmpeg.js";
 import type { ChaptersFormat, SummaryFormat } from "./formatter.js";
 import { type ChapterItem, secondsToTimestamp } from "./formatter.js";
 import * as glossaryModule from "./glossary.js";
@@ -166,14 +171,26 @@ describe("pipeline.ts", () => {
   });
 
   describe("OpenAI-compatible transcription", () => {
-    it("fails before extraction when the URL is missing", async () => {
+    function spyOnSpinnerStart() {
+      const spinner = ui.createSpinner("", { isSilent: true });
+      vi.spyOn(ui, "createSpinner").mockReturnValue(spinner);
+      return vi.spyOn(spinner, "start");
+    }
+
+    it("fails before extraction, FFmpeg and spinner start when the URL is missing", async () => {
       const mediaFile = path.join(tempDir, "sample.mp4");
       fs.writeFileSync(mediaFile, "test media");
       saveGlobalConfig({ sttProvider: "openai-compatible", openaiCompatibleSttModel: "test-stt" });
       const ensure = vi.spyOn(configModule, "ensureApiKeys");
+      const start = spyOnSpinnerStart();
+      vi.mocked(checkFfmpeg).mockClear();
       await expect(
-        processMediaPipeline({ mediaFile, noTranslate: true, noCache: true }),
-      ).rejects.toThrow("VSUB_OPENAI_COMPATIBLE_STT_BASE_URL");
+        processMediaPipeline({ mediaFile, noTranslate: true, noCache: true, lang: "en" }),
+      ).rejects.toThrow(
+        "OpenAI-compatible transcription is not configured:\n- Base URL: set VSUB_OPENAI_COMPATIBLE_STT_BASE_URL or run vsub config set --openai-compatible-stt-base-url <url> (e.g. http://localhost:8000/v1)",
+      );
+      expect(checkFfmpeg).not.toHaveBeenCalled();
+      expect(start).not.toHaveBeenCalled();
       expect(extractAudio).not.toHaveBeenCalled();
       expect(ensure).toHaveBeenCalledWith(
         expect.anything(),
@@ -184,6 +201,60 @@ describe("pipeline.ts", () => {
         }),
       );
     });
+
+    it.each([processChaptersPipeline, processSummaryPipeline])(
+      "rejects missing transcription URL before FFmpeg in text tasks (%#)",
+      async (run) => {
+        const inputFile = path.join(tempDir, "sample.mp4");
+        fs.writeFileSync(inputFile, "test media");
+        saveGlobalConfig({
+          geminiApiKey: "test-key-1234",
+          sttProvider: "openai-compatible",
+          openaiCompatibleSttModel: "test-stt",
+        });
+        vi.mocked(checkFfmpeg).mockClear();
+        await expect(run({ inputFile, noCache: true, lang: "en" })).rejects.toThrow(
+          "VSUB_OPENAI_COMPATIBLE_STT_BASE_URL",
+        );
+        expect(checkFfmpeg).not.toHaveBeenCalled();
+      },
+    );
+
+    it.each(["main", "chapters", "summarize"] as const)(
+      "keeps missing LLM settings immediately after key checks in %s",
+      async (route) => {
+        const inputFile = path.join(tempDir, route === "main" ? "sample.mp4" : "sample.srt");
+        fs.writeFileSync(inputFile, "1\n00:00:00,000 --> 00:00:01,000\nTest subtitle\n");
+        saveGlobalConfig({
+          sttProvider: "groq",
+          llmProvider: "openai-compatible",
+          openaiCompatibleLlmModel: "test-llm",
+        });
+        saveTranscriptionCache(inputFile, {
+          provider: "groq",
+          entries: [
+            { id: 1, startTime: "00:00:00,000", endTime: "00:00:01,000", text: "Test subtitle" },
+          ],
+          createdAt: 0,
+        });
+        const ensure = vi.spyOn(configModule, "ensureApiKeys");
+        const create = vi.spyOn(selectModule, "createTextModel");
+        const start = spyOnSpinnerStart();
+        const run =
+          route === "main"
+            ? processMediaPipeline({ mediaFile: inputFile, targetLang: "ja" })
+            : route === "chapters"
+              ? processChaptersPipeline({ inputFile, noCache: true })
+              : processSummaryPipeline({ inputFile, noCache: true });
+        await expect(run).rejects.toThrow("VSUB_OPENAI_COMPATIBLE_LLM_BASE_URL");
+        expect(ensure).toHaveBeenCalledOnce();
+        expect(create).toHaveBeenCalledOnce();
+        expect(ensure.mock.invocationCallOrder[0]).toBeLessThan(
+          create.mock.invocationCallOrder[0] ?? 0,
+        );
+        expect(start).not.toHaveBeenCalled();
+      },
+    );
 
     it("does not validate unused transcription settings on a cache hit", async () => {
       const mediaFile = path.join(tempDir, "cached.mp4");

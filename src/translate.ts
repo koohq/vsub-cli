@@ -10,7 +10,7 @@ import { parseBilingualOrder, resolveOutputFilePaths } from "./pipeline.js";
 import { ensureWritableTargets } from "./safety.js";
 import { mergeBilingualEntries, parseSrt, reflowSrtEntries } from "./srt.js";
 import { LLM_PROVIDER_LABELS } from "./text/providers.js";
-import { createTextModel, resolveLlmSettings } from "./text/select.js";
+import { assertLlmSettingsReady, createTextModel, resolveLlmSettings } from "./text/select.js";
 import {
   getTranslationResumeHint,
   resolveConcurrency,
@@ -163,6 +163,7 @@ export async function runTranslateCommand(
       lang: normalizeLanguage(lang),
     });
 
+    assertLlmSettingsReady(llm, lang);
     if (!isStdout) {
       console.log(`\n🌐 ${pc.bold(tm.started(pc.cyan(path.basename(resolvedSubtitlePath))))}`);
     }

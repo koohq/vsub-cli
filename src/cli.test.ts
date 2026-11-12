@@ -1384,7 +1384,42 @@ describe("CLI integration harness", () => {
       afterEach(() => {
         vi.mocked(loadMediaCache).mockReturnValue(null);
         vi.mocked(ui.createSpinner).mockRestore();
+        vi.mocked(getConfig).mockReturnValue(mockConfig);
       });
+
+      it.each([false, true])(
+        "rejects missing LLM URL before any progress (cached: %s)",
+        async (cached) => {
+          vi.mocked(getConfig).mockReturnValue({
+            ...mockConfig,
+            llmProvider: "openai-compatible",
+            openaiCompatibleLlmModel: "test-llm",
+          });
+          if (cached)
+            mockCacheWithTranslation(
+              createCachedTranslation(
+                "ja",
+                {
+                  provider: "openai-compatible",
+                  model: "test-llm",
+                  sourceEntries,
+                  contextWindowSize: DEFAULT_CONTEXT_WINDOW_SIZE,
+                },
+                sourceEntries,
+              ),
+            );
+          await runCli("translate", dummySrtPath, "-t", "ja");
+          expect(exitSpy).toHaveBeenCalledWith(1);
+          expect(logSpy).not.toHaveBeenCalled();
+          expect(ui.createSpinner).toHaveBeenCalledOnce();
+          expect(vi.mocked(ui.createSpinner).mock.results[0]?.value.start).not.toHaveBeenCalled();
+          const spinner = vi.mocked(ui.createSpinner).mock.results[0]?.value;
+          expect(stripVTControlCharacters(String(spinner.fail.mock.calls[0]?.[0]))).toContain(
+            "VSUB_OPENAI_COMPATIBLE_LLM_BASE_URL",
+          );
+          expect(translateSrtEntries).not.toHaveBeenCalled();
+        },
+      );
 
       it("does not call translateSrtEntries when matching cache exists", async () => {
         const cached = createCachedTranslation(
