@@ -1,16 +1,7 @@
 export const en = {
   common: {
-    success: "Success",
-    failed: "Failed",
-    skipped: "Skipped",
-    error: "Error",
-    warning: "Warning",
     glossaryParseFailed: (file: string, reason: string) =>
       `Failed to parse glossary file (${file}): ${reason}`,
-    lines: (count: number) => `${count} lines`,
-    files: (count: number) => `${count} files`,
-    segments: (count: number) => `${count} segments`,
-    terms: (count: number) => `${count} terms`,
   },
   summary: {
     title: "  vsub-cli Processing Summary  ",
@@ -500,23 +491,15 @@ export const en = {
     releaseNotes: (url: string) => `Release notes: ${url}`,
     checking: "Checking for updates...",
     alreadyLatest: (version: string) => `vsub-cli is already up to date (v${version}).`,
-    foundNewVersion: (latest: string) => `Found new version v${latest}. Starting self-update...`,
     npmEnvNotice: "vsub-cli is running in an npm / Node.js environment.",
     npmEnvUpdateHint: (cmd: string) => `To update to the latest version, run:\n   ${cmd}`,
-    downloading: (asset: string) => `Downloading ${asset}...`,
-    verifyingChecksum: "Verifying SHA-256 checksum...",
     checksumMismatch: (expected: string, actual: string) =>
       `Checksum mismatch! Expected: ${expected}, but got: ${actual}`,
     checksumMissing: (url: string) =>
       `The release does not include SHA256SUMS.txt, so the download cannot be verified. The update was stopped and the current binary was left unchanged. To update manually, see: ${url}`,
     checksumEntryMissing: (asset: string, url: string) =>
       `SHA256SUMS.txt has no checksum for ${asset}, so the download cannot be verified. The update was stopped and the current binary was left unchanged. To update manually, see: ${url}`,
-    extracting: "Extracting binary archive...",
-    replacing: (path: string) => `Installing binary to ${path}...`,
-    permissionDenied: (path: string) =>
-      `Permission denied to modify ${path}. Please re-run with administrator privileges (e.g. sudo vsub update).`,
     successTitle: "vsub-cli updated successfully!",
-    previousVersion: "Previous Version",
     updatedVersion: "Updated Version",
     binaryLocation: "Binary Path",
   },

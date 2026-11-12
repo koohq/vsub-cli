@@ -2,17 +2,8 @@ import type { en } from "./en.js";
 
 export const ja: typeof en = {
   common: {
-    success: "成功",
-    failed: "失敗",
-    skipped: "スキップ",
-    error: "エラー",
-    warning: "警告",
     glossaryParseFailed: (file: string, reason: string) =>
       `用語集ファイル（${file}）を読み込めませんでした: ${reason}`,
-    lines: (count: number) => `${count} 行`,
-    files: (count: number) => `${count} ファイル`,
-    segments: (count: number) => `${count} セグメント`,
-    terms: (count: number) => `${count} 語`,
   },
   summary: {
     title: "  vsub-cli 処理サマリー  ",
@@ -502,25 +493,16 @@ export const ja: typeof en = {
     releaseNotes: (url: string) => `リリースノート: ${url}`,
     checking: "最新バージョンを確認中...",
     alreadyLatest: (version: string) => `vsub-cli は既に最新バージョンです (v${version})。`,
-    foundNewVersion: (latest: string) =>
-      `最新バージョン v${latest} が見つかりました。自己更新を開始します...`,
     npmEnvNotice: "vsub-cli は npm / Node.js 環境で実行されています。",
     npmEnvUpdateHint: (cmd: string) =>
       `最新版に更新するには、以下のコマンドを実行してください:\n   ${cmd}`,
-    downloading: (asset: string) => `${asset} をダウンロード中...`,
-    verifyingChecksum: "SHA-256 チェックサムを検証中...",
     checksumMismatch: (expected: string, actual: string) =>
       `チェックサムの不一致を検出しました。期待値: ${expected}, 実際値: ${actual}`,
     checksumMissing: (url: string) =>
       `リリースに SHA256SUMS.txt が無いため、ダウンロードしたファイルを検証できません。更新を中止しました（今のバイナリはそのままです）。手動で更新する場合は、次を参照してください: ${url}`,
     checksumEntryMissing: (asset: string, url: string) =>
       `SHA256SUMS.txt に ${asset} のチェックサムが無いため、ダウンロードしたファイルを検証できません。更新を中止しました（今のバイナリはそのままです）。手動で更新する場合は、次を参照してください: ${url}`,
-    extracting: "アーカイブを展開中...",
-    replacing: (path: string) => `${path} を新バージョンに置換中...`,
-    permissionDenied: (path: string) =>
-      `${path} の更新権限がありません。管理者権限（例: sudo vsub update）で再実行してください。`,
     successTitle: "vsub-cli の更新が完了しました！",
-    previousVersion: "更新前バージョン",
     updatedVersion: "更新後バージョン",
     binaryLocation: "実行ファイルパス",
   },
