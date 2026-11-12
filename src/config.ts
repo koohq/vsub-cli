@@ -136,6 +136,8 @@ export interface AppConfig {
   openaiCompatibleLlmApiKey?: string | undefined;
   /** VSUB_OPENAI_COMPATIBLE_LLM_MODEL, then the config file; never falls back to another API. */
   openaiCompatibleLlmModel?: string | undefined;
+  /** VSUB_OPENAI_COMPATIBLE_LLM_REASONING_EFFORT, then config file; trimmed, blank values ignored. */
+  openaiCompatibleLlmReasoningEffort?: string | undefined;
 }
 
 export function getGlobalConfigDir(): string {
@@ -358,6 +360,10 @@ export function getConfig(cliFfmpegPath?: string, cliLang?: string): AppConfig {
     process.env["VSUB_OPENAI_COMPATIBLE_LLM_MODEL"]?.trim() ||
     globalConfig.openaiCompatibleLlmModel?.trim() ||
     undefined;
+  const openaiCompatibleLlmReasoningEffort =
+    process.env["VSUB_OPENAI_COMPATIBLE_LLM_REASONING_EFFORT"]?.trim() ||
+    globalConfig.openaiCompatibleLlmReasoningEffort?.trim() ||
+    undefined;
 
   const openrouterApiKeyFallback = process.env["OPENROUTER_API_KEY"]?.trim() || undefined;
 
@@ -402,6 +408,7 @@ export function getConfig(cliFfmpegPath?: string, cliLang?: string): AppConfig {
     openaiCompatibleLlmBaseUrl,
     openaiCompatibleLlmApiKey,
     openaiCompatibleLlmModel,
+    openaiCompatibleLlmReasoningEffort,
     sttProvider,
     openrouterSttModel,
     llmProvider,

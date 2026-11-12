@@ -165,6 +165,7 @@ describe("config.ts", () => {
       ],
       ["openaiCompatibleLlmApiKey", "VSUB_OPENAI_COMPATIBLE_LLM_API_KEY", "test-key-5678"],
       ["openaiCompatibleLlmModel", "VSUB_OPENAI_COMPATIBLE_LLM_MODEL", "test-llm"],
+      ["openaiCompatibleLlmReasoningEffort", "VSUB_OPENAI_COMPATIBLE_LLM_REASONING_EFFORT", "High"],
     ] as const;
     it.each(fields)("reads %s from environment before config", (key, env, value) => {
       vi.mocked(fs.existsSync).mockReturnValue(true);

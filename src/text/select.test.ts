@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import type { AppConfig } from "../config.js";
 import { resolveSttSettings } from "../transcribe/select.js";
 import {
@@ -8,12 +8,93 @@ import {
   resolveLlmSettings,
 } from "./select.js";
 
+const { generateContent } = vi.hoisted(() => ({ generateContent: vi.fn() }));
+vi.mock("@google/genai", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@google/genai")>()),
+  GoogleGenAI: class {
+    models = { generateContent };
+  },
+}));
+
 describe("select.ts", () => {
   const baseConfig: AppConfig = {
     groqApiKey: "",
     geminiApiKey: "",
     ffmpegPath: "ffmpeg",
   };
+  const request = { prompt: "Test", schemaName: "test", schema: { type: "object" as const } };
+  function createFetch() {
+    return vi
+      .fn<typeof globalThis.fetch>()
+      .mockImplementation(async () => Response.json({ choices: [{ message: { content: "{}" } }] }));
+  }
+
+  it.each([" High ", " ", undefined])(
+    "passes configured generic reasoning effort %j",
+    async (effort) => {
+      const fetch = createFetch();
+      const config = { ...baseConfig, openaiCompatibleLlmReasoningEffort: effort };
+      await createTextModel(
+        config,
+        {
+          provider: "openai-compatible",
+          source: "option",
+          model: "test-model",
+          baseUrl: "http://localhost:11434/v1",
+        },
+        { fetch },
+      ).generateJson(request);
+      const body = JSON.parse(String(fetch.mock.calls[0]?.[1]?.body));
+      if (effort?.trim()) expect(body.reasoning_effort).toBe(effort.trim());
+      else expect(body).not.toHaveProperty("reasoning_effort");
+      expect(body).not.toHaveProperty("reasoning");
+      expect(body).not.toHaveProperty("max_tokens");
+    },
+  );
+
+  it("ignores generic effort in OpenRouter request bodies", async () => {
+    const fetch = createFetch();
+    for (const effort of [undefined, "High"]) {
+      await createTextModel(
+        {
+          ...baseConfig,
+          openrouterApiKey: "test-key-1234",
+          openaiCompatibleLlmReasoningEffort: effort,
+        },
+        { provider: "openrouter", source: "option", model: "test-model" },
+        { fetch },
+      ).generateJson(request);
+    }
+    const bodies = fetch.mock.calls.map((call) => JSON.parse(String(call[1]?.body)));
+    expect(bodies[0]).toEqual(bodies[1]);
+    expect(bodies[1]).toMatchObject({ reasoning: { effort: "low" }, max_tokens: 16384 });
+    expect(bodies[1]).not.toHaveProperty("reasoning_effort");
+  });
+
+  it("ignores generic effort in Gemini requests", async () => {
+    generateContent.mockClear().mockResolvedValue({ text: "{}" });
+    for (const effort of [undefined, "High"]) {
+      await createTextModel(
+        {
+          ...baseConfig,
+          geminiApiKey: "test-key-1234",
+          openaiCompatibleLlmReasoningEffort: effort,
+        },
+        { provider: "gemini", source: "option", model: "gemini-3-test" },
+      ).generateJson(request);
+    }
+    expect(generateContent).toHaveBeenCalledTimes(2);
+    expect(generateContent.mock.calls[0]).toEqual(generateContent.mock.calls[1]);
+    expect(generateContent.mock.calls[1]?.[0]).toEqual({
+      model: "gemini-3-test",
+      contents: "Test",
+      config: {
+        responseMimeType: "application/json",
+        responseSchema: { type: "OBJECT" },
+        thinkingConfig: { thinkingLevel: "LOW" },
+      },
+    });
+  });
 
   describe("parseLlmProvider", () => {
     it.each([

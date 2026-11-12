@@ -364,6 +364,7 @@ export const en = {
       openaiCompatibleLlmBaseUrl: "OpenAI-compatible LLM URL",
       openaiCompatibleLlmApiKey: "OpenAI-compatible LLM API Key",
       openaiCompatibleLlmModel: "OpenAI-compatible LLM Model",
+      openaiCompatibleLlmReasoningEffort: "OpenAI-compatible LLM Reasoning Effort",
       concurrency: "Concurrency",
       maxLength: "Max Length",
       burnPosition: "Burn Position",

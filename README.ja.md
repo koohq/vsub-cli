@@ -230,17 +230,19 @@ URL とモデルが必要で、既定値はありません。環境変数は保�
 ```dotenv
 VSUB_OPENAI_COMPATIBLE_LLM_BASE_URL=http://localhost:11434/v1
 VSUB_OPENAI_COMPATIBLE_LLM_MODEL=my-model
+VSUB_OPENAI_COMPATIBLE_LLM_REASONING_EFFORT=low
 VSUB_OPENAI_COMPATIBLE_LLM_API_KEY=test-key-1234
 ```
 
 ```bash
 vsub config set --llm-provider openai-compatible --openai-compatible-llm-base-url http://localhost:11434/v1 --openai-compatible-llm-model my-model
 vsub config set --openai-compatible-llm-key test-key-1234
+vsub config set --openai-compatible-llm-reasoning-effort low
 ```
 
 キーは任意で、無ければ `Authorization` ヘッダーを送りません。キーは設定した URL に送られるため、ローカル以外では `https://` を使ってください。専用の `VSUB_OPENAI_COMPATIBLE_LLM_*` だけを読み、`OPENAI_API_KEY`・`OPENAI_BASE_URL` は読みません。文字起こしと文章の生成の設定は独立しています。1 回だけモデルを変えるには `--llm-model` を使います。
 
-`response_format` による strict な JSON schema の出力に対応するモデルが必要です。`max_tokens` と `reasoning` は送らず、並行数の既定は 1、タイムアウトは 300 秒です。並行数は既存の `--concurrency`・`VSUB_CONCURRENCY`・設定ファイルで上書きできます。
+`response_format` による strict な JSON schema の出力に対応するモデルが必要です。既定では `max_tokens` も推論の量も送りません。推論するモデルは、サーバーの既定の推論の量で動くと遅く高くなることがあるため、`VSUB_OPENAI_COMPATIBLE_LLM_REASONING_EFFORT`（または `config set --openai-compatible-llm-reasoning-effort`）を設定すると、`reasoning_effort` として送って抑えられます。`low` などの値はそのまま送るので、サーバーとモデルが受け付ける値を使ってください。受け付けない値や欄だとエラーになるサーバーもあります。ほかの提供元（`gemini`・`openrouter`）には効きません。`max_tokens` と入れ子の `reasoning` は引き続き送らず、並行数の既定は 1、タイムアウトは 300 秒です。並行数は既存の `--concurrency`・`VSUB_CONCURRENCY`・設定ファイルで上書きできます。
 
 ## 使い方
 

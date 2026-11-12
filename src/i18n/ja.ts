@@ -363,6 +363,7 @@ export const ja: typeof en = {
       openaiCompatibleLlmBaseUrl: "OpenAI 互換の文章生成 URL",
       openaiCompatibleLlmApiKey: "OpenAI 互換の文章生成 API キー",
       openaiCompatibleLlmModel: "OpenAI 互換の文章生成モデル",
+      openaiCompatibleLlmReasoningEffort: "OpenAI 互換の文章生成の推論の量",
       concurrency: "並行数",
       maxLength: "字幕の最大文字数",
       burnPosition: "焼き込みの位置",

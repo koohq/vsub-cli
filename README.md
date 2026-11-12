@@ -230,17 +230,19 @@ Set a base URL and model; neither has a default. Environment variables take prio
 ```dotenv
 VSUB_OPENAI_COMPATIBLE_LLM_BASE_URL=http://localhost:11434/v1
 VSUB_OPENAI_COMPATIBLE_LLM_MODEL=my-model
+VSUB_OPENAI_COMPATIBLE_LLM_REASONING_EFFORT=low
 VSUB_OPENAI_COMPATIBLE_LLM_API_KEY=test-key-1234
 ```
 
 ```bash
 vsub config set --llm-provider openai-compatible --openai-compatible-llm-base-url http://localhost:11434/v1 --openai-compatible-llm-model my-model
 vsub config set --openai-compatible-llm-key test-key-1234
+vsub config set --openai-compatible-llm-reasoning-effort low
 ```
 
 The key is optional; without one, no `Authorization` header is sent. Keys are sent to the configured URL, so use `https://` outside local servers. Only the dedicated `VSUB_OPENAI_COMPATIBLE_LLM_*` settings are read; `OPENAI_API_KEY` and `OPENAI_BASE_URL` are ignored. STT and LLM settings are independent. Override the model for one run with `--llm-model`.
 
-The model must support strict JSON schema output through `response_format`. Requests omit `max_tokens` and `reasoning`, default to concurrency 1, and time out after 300 seconds. Existing `--concurrency`, `VSUB_CONCURRENCY` and saved concurrency settings still override this default.
+The model must support strict JSON schema output through `response_format`. By default, requests omit both `max_tokens` and reasoning effort. Reasoning models can be slower and more expensive with the server's default reasoning effort; set `VSUB_OPENAI_COMPATIBLE_LLM_REASONING_EFFORT` (or `config set --openai-compatible-llm-reasoning-effort`) to send `reasoning_effort` and reduce it. Values such as `low` are passed through as-is, so use a value supported by your server and model; some servers reject unsupported values or fields. This setting has no effect on other providers (`gemini` or `openrouter`). Requests still omit `max_tokens` and nested `reasoning`, default to concurrency 1, and time out after 300 seconds. Existing `--concurrency`, `VSUB_CONCURRENCY` and saved concurrency settings still override this default.
 
 ## Usage
 

@@ -8,6 +8,26 @@ import { createTextModel } from "./select.js";
 describe("generic OpenAI-compatible text generation", () => {
   const baseUrl = "http://localhost:11434/v1";
   const request = { prompt: "Test", schemaName: "test", schema: { type: "object" as const } };
+  it.each(["low", "High", "custom-value", "", undefined])(
+    "passes optional reasoning effort %s without token or nested reasoning fields",
+    async (reasoningEffort) => {
+      const fetch = vi
+        .fn<typeof globalThis.fetch>()
+        .mockResolvedValue(Response.json({ choices: [{ message: { content: "{}" } }] }));
+      const profile = createGenericTextProfile(baseUrl, reasoningEffort);
+      if (reasoningEffort) expect(profile.reasoningEffort).toBe(reasoningEffort);
+      else expect(profile).not.toHaveProperty("reasoningEffort");
+      await createGenericOpenAICompatibleTextModel(baseUrl, "", "test-llm", {
+        fetch,
+        reasoningEffort,
+      }).generateJson(request);
+      const body = JSON.parse(String(fetch.mock.calls[0]?.[1]?.body));
+      if (reasoningEffort) expect(body.reasoning_effort).toBe(reasoningEffort);
+      else expect(body).not.toHaveProperty("reasoning_effort");
+      expect(body).not.toHaveProperty("reasoning");
+      expect(body).not.toHaveProperty("max_tokens");
+    },
+  );
   it("uses conservative fixed limits without token or reasoning options", () => {
     expect(createGenericTextProfile(baseUrl)).toMatchObject({
       baseUrl,
@@ -38,6 +58,7 @@ describe("generic OpenAI-compatible text generation", () => {
     const body = JSON.parse(String(init?.body));
     expect(body).not.toHaveProperty("max_tokens");
     expect(body).not.toHaveProperty("reasoning");
+    expect(body).not.toHaveProperty("reasoning_effort");
     expect(body.response_format).toEqual({
       type: "json_schema",
       json_schema: { name: "test", strict: true, schema: request.schema },

@@ -110,7 +110,13 @@ export function resolveLlmSettings(
 
 export function createTextModel(
   config: Partial<
-    Pick<AppConfig, "geminiApiKey" | "openrouterApiKey" | "openaiCompatibleLlmApiKey">
+    Pick<
+      AppConfig,
+      | "geminiApiKey"
+      | "openrouterApiKey"
+      | "openaiCompatibleLlmApiKey"
+      | "openaiCompatibleLlmReasoningEffort"
+    >
   >,
   llm: LlmSettings,
   deps?: { fetch?: typeof fetch | undefined; lang?: SupportedLanguage | undefined },
@@ -121,7 +127,7 @@ export function createTextModel(
       llm.baseUrl?.trim() ?? "",
       config.openaiCompatibleLlmApiKey?.trim() || "",
       llm.model,
-      deps,
+      { ...deps, reasoningEffort: config.openaiCompatibleLlmReasoningEffort?.trim() || undefined },
     );
   }
 

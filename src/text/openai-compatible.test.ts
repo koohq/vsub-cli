@@ -4,6 +4,7 @@ import {
   createOpenAICompatibleTextModel,
   type OpenAICompatibleTextProfile,
 } from "./openai-compatible.js";
+import { createGenericTextProfile } from "./openai-compatible-provider.js";
 
 describe("createOpenAICompatibleTextModel", () => {
   const dummyProfile: OpenAICompatibleTextProfile = {
@@ -34,6 +35,22 @@ describe("createOpenAICompatibleTextModel", () => {
     },
     schemaName: "translation",
   };
+
+  it("sends top-level reasoning effort from a generic profile", async () => {
+    const fakeFetch = vi
+      .fn<typeof fetch>()
+      .mockResolvedValue(Response.json({ choices: [{ message: { content: "{}" } }] }));
+    await createOpenAICompatibleTextModel(
+      { ...createGenericTextProfile("http://localhost:11434/v1"), reasoningEffort: "High" },
+      "",
+      "test-model",
+      { fetch: fakeFetch },
+    ).generateJson(sampleRequest);
+    const body = JSON.parse(String(fakeFetch.mock.calls[0]?.[1]?.body));
+    expect(body.reasoning_effort).toBe("High");
+    expect(body).not.toHaveProperty("reasoning");
+    expect(body).not.toHaveProperty("max_tokens");
+  });
 
   it("should send correct URL, method, headers, signal, and full JSON body", async () => {
     let capturedUrl: string | undefined;

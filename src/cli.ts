@@ -656,6 +656,10 @@ export function createProgram(): Command {
         ],
         [labels.openaiCompatibleLlmModel, resolvedConfig.openaiCompatibleLlmModel || undefined],
         [
+          labels.openaiCompatibleLlmReasoningEffort,
+          resolvedConfig.openaiCompatibleLlmReasoningEffort || undefined,
+        ],
+        [
           labels.concurrency,
           resolvedConfig.concurrency !== undefined ? `${resolvedConfig.concurrency}` : undefined,
         ],
@@ -731,6 +735,10 @@ export function createProgram(): Command {
       "--openai-compatible-llm-model <model>",
       "Model for the OpenAI-compatible text generation API (must support JSON schema output)",
     )
+    .option(
+      "--openai-compatible-llm-reasoning-effort <effort>",
+      "Reasoning effort sent as reasoning_effort to the OpenAI-compatible text generation API (e.g. low; passed through as-is, not sent unless set)",
+    )
     .option("--ffmpeg-path <path>", "Path to ffmpeg executable")
     .option("--gemini-model <model>", "Default Gemini translation model (e.g. gemini-3.8-flash)")
     .option(
@@ -769,6 +777,7 @@ export function createProgram(): Command {
         openaiCompatibleLlmBaseUrl?: string;
         openaiCompatibleLlmKey?: string;
         openaiCompatibleLlmModel?: string;
+        openaiCompatibleLlmReasoningEffort?: string;
         ffmpegPath?: string;
         geminiModel?: string;
         groqModel?: string;
@@ -868,6 +877,8 @@ export function createProgram(): Command {
           if (key) compatibleConfig[apiKey] = key;
           if (model) compatibleConfig[modelKey] = model;
         }
+        const reasoningEffort = options.openaiCompatibleLlmReasoningEffort?.trim();
+        if (reasoningEffort) compatibleConfig.openaiCompatibleLlmReasoningEffort = reasoningEffort;
 
         let burnPositionVal: string | undefined;
         if (options.burnPosition) {

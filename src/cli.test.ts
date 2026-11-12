@@ -178,6 +178,46 @@ describe("CLI integration harness", () => {
       vi.mocked(getConfig).mockReturnValue(mockConfig);
     });
 
+    it.each([" low ", " High ", " "])("saves only nonblank reasoning effort %j", async (value) => {
+      await runCli("config", "set", "--openai-compatible-llm-reasoning-effort", value);
+      if (value.trim())
+        expect(saveGlobalConfig).toHaveBeenCalledWith(
+          expect.objectContaining({ openaiCompatibleLlmReasoningEffort: value.trim() }),
+          expect.anything(),
+        );
+      else expect(saveGlobalConfig).not.toHaveBeenCalled();
+      expect(exitSpy).not.toHaveBeenCalled();
+    });
+
+    it.each(["en", "ja"] as const)("shows reasoning effort only when set (%s)", async (lang) => {
+      const label =
+        lang === "en"
+          ? "OpenAI-compatible LLM Reasoning Effort"
+          : "OpenAI 互換の文章生成の推論の量";
+      vi.mocked(getConfig).mockReturnValue({
+        ...mockConfig,
+        openaiCompatibleLlmModel: "test-llm",
+        openaiCompatibleLlmReasoningEffort: "High",
+      });
+      await runCli("config", "show", "--lang", lang);
+      const output = stripVTControlCharacters(
+        logSpy.mock.calls.map((call: unknown[]) => String(call[0])).join("\n"),
+      );
+      const lines = output.split("\n");
+      const modelRow = lines.findIndex((line) =>
+        line.includes(getI18n(lang).config.showLabels.openaiCompatibleLlmModel),
+      );
+      expect(lines[modelRow + 1]).toMatch(new RegExp(`${label}\\s+: High`));
+      logSpy.mockClear();
+      vi.mocked(getConfig).mockReturnValue(mockConfig);
+      await runCli("config", "show", "--lang", lang);
+      expect(
+        stripVTControlCharacters(
+          logSpy.mock.calls.map((call: unknown[]) => String(call[0])).join("\n"),
+        ),
+      ).not.toContain(label);
+    });
+
     it.each(["stt", "llm"] as const)(
       "ignores blank optional %s values without clearing saved settings",
       async (side) => {
@@ -285,6 +325,7 @@ describe("CLI integration harness", () => {
         }
         expect(help).not.toContain("--openai-compatible-stt-base-url");
         expect(help).not.toContain("--openai-compatible-llm-key");
+        expect(help).not.toContain("--openai-compatible-llm-reasoning-effort");
       },
     );
     it("places all compatible config flags after the OpenRouter model", () => {
@@ -301,6 +342,7 @@ describe("CLI integration harness", () => {
         "--openai-compatible-llm-base-url",
         "--openai-compatible-llm-key",
         "--openai-compatible-llm-model",
+        "--openai-compatible-llm-reasoning-effort",
       ]);
       const help = stripVTControlCharacters(command?.helpInformation() ?? "").replace(/\s+/g, " ");
       expect(help).toContain("OpenAI-compatible endpoints");
@@ -2332,6 +2374,7 @@ describe("CLI integration harness", () => {
           "OpenRouter API Key (for transcription and text generation)",
           "Default text generation provider: gemini, openrouter, or openai-compatible",
           "Default OpenRouter text generation model (e.g. google/gemini-3.8-flash)",
+          "--openai-compatible-llm-reasoning-effort <effort> Reasoning effort sent as reasoning_effort to the OpenAI-compatible text generation API (e.g. low; passed through as-is, not sent unless set)",
         ],
       },
       {

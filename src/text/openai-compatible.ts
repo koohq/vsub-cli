@@ -14,6 +14,8 @@ export interface OpenAICompatibleTextProfile {
   maxTokens?: number | undefined; // 16384
   /** Sent as-is as `reasoning`; omitted when undefined. OpenRouter: { effort: "low" }. */
   reasoning?: { effort: "low" | "medium" | "high" } | undefined;
+  /** Sent as-is as top-level `reasoning_effort`; omitted when unset. */
+  reasoningEffort?: string | undefined;
   /** Client-side timeout of one request, in milliseconds. */
   requestTimeoutMs: number; // 120_000
   /** Messages for errors the user can act on. */
@@ -75,6 +77,9 @@ export function createOpenAICompatibleTextModel(
 
       if (profile.reasoning !== undefined) {
         body["reasoning"] = profile.reasoning;
+      }
+      if (profile.reasoningEffort) {
+        body["reasoning_effort"] = profile.reasoningEffort;
       }
 
       const signal = AbortSignal.timeout(profile.requestTimeoutMs);
