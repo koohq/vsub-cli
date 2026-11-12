@@ -2,6 +2,16 @@
 
 All notable changes to this project will be documented in this file. See [standard-version](https://github.com/conventional-changelog/standard-version) for commit guidelines.
 
+## [1.8.1](https://github.com/koohq/vsub-cli/compare/vsub-cli-v1.8.0...vsub-cli-v1.8.1) (2026-11-11)
+
+
+### Bug Fixes
+
+* localize the glossary file read error ([a8dda4e](https://github.com/koohq/vsub-cli/commit/a8dda4ed940cb7b7519c92b494f5ac90f33d2762))
+* print update success lines with --verbose ([7fc4f4f](https://github.com/koohq/vsub-cli/commit/7fc4f4f9a5df20e58b5635ba4cb7c8961e1ba1c3))
+* show --lang in vsub init help ([c26e837](https://github.com/koohq/vsub-cli/commit/c26e8371ac1438aced22544d22eaaa2ca4e11d6d))
+* size config show labels by the rows actually printed ([319fb31](https://github.com/koohq/vsub-cli/commit/319fb3180207266636996d84a41a9ab857853b69))
+
 ## [1.8.0](https://github.com/koohq/vsub-cli/compare/vsub-cli-v1.7.2...vsub-cli-v1.8.0) (2026-11-11)
 
 
