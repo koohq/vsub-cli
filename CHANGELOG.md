@@ -2,6 +2,19 @@
 
 All notable changes to this project will be documented in this file. See [standard-version](https://github.com/conventional-changelog/standard-version) for commit guidelines.
 
+## [1.9.0](https://github.com/koohq/vsub-cli/compare/vsub-cli-v1.8.1...vsub-cli-v1.9.0) (2026-11-12)
+
+
+### Features
+
+* add an openai-compatible provider for transcription and text generation ([abdd068](https://github.com/koohq/vsub-cli/commit/abdd06848899aabf8c5eebb018d6b175335b9804))
+* let openai-compatible text generation send a reasoning effort ([7a2b924](https://github.com/koohq/vsub-cli/commit/7a2b9242442e3c660222046d25c752a6086f9b36))
+
+
+### Bug Fixes
+
+* report missing openai-compatible settings where missing keys are reported ([f11a423](https://github.com/koohq/vsub-cli/commit/f11a4237bdf602ff0ac65fc68c8e819a77f516be))
+
 ## [1.8.1](https://github.com/koohq/vsub-cli/compare/vsub-cli-v1.8.0...vsub-cli-v1.8.1) (2026-11-11)
 
 
