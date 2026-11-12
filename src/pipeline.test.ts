@@ -414,6 +414,86 @@ describe("pipeline.ts", () => {
     });
   });
 
+  describe("extracted audio cleanup on failure", () => {
+    let mediaFile: string;
+    let audioFile: string;
+    const cleanup = vi.fn<() => Promise<void>>().mockResolvedValue(undefined);
+
+    beforeEach(() => {
+      mediaFile = path.join(tempDir, "sample.mp4");
+      audioFile = path.join(tempDir, "extracted.m4a");
+      fs.writeFileSync(mediaFile, "dummy media");
+      fs.writeFileSync(audioFile, "dummy audio");
+      cleanup.mockClear();
+      vi.mocked(extractAudio).mockResolvedValueOnce({ audioPaths: [audioFile], cleanup });
+    });
+
+    function runMain(keepAudio = false, verbose = false) {
+      return processMediaPipeline({
+        mediaFile,
+        noTranslate: true,
+        fresh: true,
+        keepAudio,
+        verbose,
+        lang: "en",
+      });
+    }
+
+    it("cleans up once and preserves the transcription error in the main pipeline", async () => {
+      const error = new Error("Test transcription failed");
+      vi.mocked(transcribeAudioSegments).mockRejectedValueOnce(error);
+
+      await expect(runMain()).rejects.toBe(error);
+
+      expect(cleanup).toHaveBeenCalledExactlyOnceWith();
+    });
+
+    it("cleans up once and preserves an error saving the transcription cache", async () => {
+      const error = new Error("Test transcription cache save failed");
+      const save = vi.spyOn(cacheModule, "saveTranscriptionCache").mockImplementationOnce(() => {
+        throw error;
+      });
+
+      await expect(runMain()).rejects.toBe(error);
+
+      expect(save).toHaveBeenCalledOnce();
+      expect(cleanup).toHaveBeenCalledExactlyOnceWith();
+    });
+
+    it.each([false, true])(
+      "keeps audio and reports its path once after transcription fails with verbose: %s",
+      async (verbose) => {
+        const error = new Error("Test transcription failed");
+        vi.mocked(transcribeAudioSegments).mockRejectedValueOnce(error);
+        const spinner = ui.createSpinner("", { isSilent: true });
+        const info = vi.spyOn(spinner, "info");
+        vi.spyOn(ui, "createSpinner").mockReturnValue(spinner);
+        const stderr = vi.spyOn(console, "error").mockImplementation(() => {});
+
+        await expect(runMain(true, verbose)).rejects.toBe(error);
+
+        expect(cleanup).not.toHaveBeenCalled();
+        const expected = getI18n("en").pipeline.keptAudio(audioFile);
+        const notices = (verbose ? stderr : info).mock.calls.map(([line]) =>
+          stripVTControlCharacters(String(line)),
+        );
+        expect(notices.filter((line) => line === expected)).toEqual([expected]);
+        expect(verbose ? info : stderr).not.toHaveBeenCalled();
+      },
+    );
+
+    it("cleans up once and preserves the transcription error when resolving text task entries", async () => {
+      const error = new Error("Test transcription failed");
+      vi.mocked(transcribeAudioSegments).mockRejectedValueOnce(error);
+
+      await expect(
+        resolveTranscriptEntries({ filePath: mediaFile, noCache: true, lang: "en" }),
+      ).rejects.toBe(error);
+
+      expect(cleanup).toHaveBeenCalledExactlyOnceWith();
+    });
+  });
+
   describe("resolveOutputFilePaths", () => {
     it("should resolve single language paths alongside media file", () => {
       const paths = resolveOutputFilePaths("/dir", "video", "ja", ["srt", "vtt"]);

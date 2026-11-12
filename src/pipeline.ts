@@ -547,124 +547,129 @@ export async function processMediaPipeline(
   const isTranscriptionCacheMatch =
     useCache && isTranscriptionCacheValid(mediaCache?.transcription, transcriptionContext);
 
-  if (isTranscriptionCacheMatch && mediaCache?.transcription) {
-    transcriptionCacheHit = true;
-    srtEntries = mediaCache.transcription.entries;
-    wordChunks = mediaCache.transcription.wordChunks;
-    detectedLanguage = mediaCache.transcription.detectedLanguage;
+  try {
+    if (isTranscriptionCacheMatch && mediaCache?.transcription) {
+      transcriptionCacheHit = true;
+      srtEntries = mediaCache.transcription.entries;
+      wordChunks = mediaCache.transcription.wordChunks;
+      detectedLanguage = mediaCache.transcription.detectedLanguage;
 
-    const langDisplay = detectedLanguage ? ` (${detectedLanguage.toUpperCase()})` : "";
-    showSpinnerNotice(spinner, verbose, "info", `${prefix}${m.step1SkipCache}`);
-    spinner.succeed(`${prefix}${m.step2UseCached(langDisplay, srtEntries.length)}`);
-  } else {
-    // Ensure API Key and FFmpeg only when transcription is needed
-    const config = await ensureApiKeys(rawConfig, {
-      requireGroq: stt.provider === "groq",
-      requireOpenRouter: stt.provider === "openrouter",
-      requireGemini: false,
-      lang,
-    });
-    assertSttSettingsReady(stt, lang);
-    rawConfig = config;
-    await checkFfmpeg(config.ffmpegPath);
+      const langDisplay = detectedLanguage ? ` (${detectedLanguage.toUpperCase()})` : "";
+      showSpinnerNotice(spinner, verbose, "info", `${prefix}${m.step1SkipCache}`);
+      spinner.succeed(`${prefix}${m.step2UseCached(langDisplay, srtEntries.length)}`);
+    } else {
+      // Ensure API Key and FFmpeg only when transcription is needed
+      const config = await ensureApiKeys(rawConfig, {
+        requireGroq: stt.provider === "groq",
+        requireOpenRouter: stt.provider === "openrouter",
+        requireGemini: false,
+        lang,
+      });
+      assertSttSettingsReady(stt, lang);
+      rawConfig = config;
+      await checkFfmpeg(config.ffmpegPath);
 
-    if (stt.source === "auto" && stt.provider === "groq" && !isStdout && !options.silentSttHint) {
-      showSpinnerNotice(spinner, verbose, "info", `${prefix}${m.sttGroqAutoHint}`);
-    }
-
-    // 1. Audio extraction / optimization
-    const audioStartMsg = isAudio ? m.step1Optimizing : m.step1Extracting;
-    spinner.start(`${prefix}${audioStartMsg}`);
-    const transcriber = createTranscriber(config, stt, lang);
-    const extractResult = await extractAudio(
-      resolvedMediaPath,
-      config.ffmpegPath,
-      transcriber.limits,
-      verbose,
-    );
-    audioPaths = extractResult.audioPaths;
-    cleanupAudio = extractResult.cleanup;
-
-    for (const p of audioPaths) {
-      try {
-        totalAudioBytes += fs.statSync(p).size;
-      } catch {
-        // ignore
+      if (stt.source === "auto" && stt.provider === "groq" && !isStdout && !options.silentSttHint) {
+        showSpinnerNotice(spinner, verbose, "info", `${prefix}${m.sttGroqAutoHint}`);
       }
-    }
-    const audioDoneMsg = isAudio
-      ? m.step1AudioOptimized(audioPaths.length, formatFileSize(totalAudioBytes))
-      : m.step1AudioExtracted(audioPaths.length, formatFileSize(totalAudioBytes));
-    spinner.succeed(`${prefix}${audioDoneMsg}`);
 
-    // 2. Transcription
-    const providerLabel = STT_PROVIDER_LABELS[stt.provider];
-    const initialText = `${prefix}${m.step2Transcribing(
-      providerLabel,
-      stt.model,
-      audioPaths.length > 1 ? 1 : undefined,
-      audioPaths.length > 1 ? audioPaths.length : undefined,
-    )}`;
-    spinner.start(initialText);
+      // 1. Audio extraction / optimization
+      const audioStartMsg = isAudio ? m.step1Optimizing : m.step1Extracting;
+      spinner.start(`${prefix}${audioStartMsg}`);
+      const transcriber = createTranscriber(config, stt, lang);
+      const extractResult = await extractAudio(
+        resolvedMediaPath,
+        config.ffmpegPath,
+        transcriber.limits,
+        verbose,
+      );
+      audioPaths = extractResult.audioPaths;
+      cleanupAudio = extractResult.cleanup;
 
-    const transcriptResult = await transcribeAudioSegments(
-      audioPaths,
-      transcriber,
-      verbose,
-      (current, total) => {
-        if (total > 1) {
-          spinner.updateText(
-            `${prefix}${m.step2Transcribing(providerLabel, stt.model, current, total)}`,
+      for (const p of audioPaths) {
+        try {
+          totalAudioBytes += fs.statSync(p).size;
+        } catch {
+          // ignore
+        }
+      }
+      const audioDoneMsg = isAudio
+        ? m.step1AudioOptimized(audioPaths.length, formatFileSize(totalAudioBytes))
+        : m.step1AudioExtracted(audioPaths.length, formatFileSize(totalAudioBytes));
+      spinner.succeed(`${prefix}${audioDoneMsg}`);
+
+      // 2. Transcription
+      const providerLabel = STT_PROVIDER_LABELS[stt.provider];
+      const initialText = `${prefix}${m.step2Transcribing(
+        providerLabel,
+        stt.model,
+        audioPaths.length > 1 ? 1 : undefined,
+        audioPaths.length > 1 ? audioPaths.length : undefined,
+      )}`;
+      spinner.start(initialText);
+
+      const transcriptResult = await transcribeAudioSegments(
+        audioPaths,
+        transcriber,
+        verbose,
+        (current, total) => {
+          if (total > 1) {
+            spinner.updateText(
+              `${prefix}${m.step2Transcribing(providerLabel, stt.model, current, total)}`,
+            );
+          }
+        },
+        {
+          model: stt.model,
+          ...(transcriptionContext.prompt ? { prompt: transcriptionContext.prompt } : {}),
+          ...(extractResult.durations ? { durations: extractResult.durations } : {}),
+        },
+      );
+
+      srtEntries = transcriptResult.entries;
+      wordChunks = transcriptResult.wordChunks;
+      detectedLanguage = transcriptResult.detectedLanguage;
+
+      if (srtEntries.length === 0) {
+        showSpinnerNotice(spinner, verbose, "warn", `${prefix}${m.step2NoEntries}`);
+      } else {
+        const langDisplay = detectedLanguage ? ` (${detectedLanguage.toUpperCase()})` : "";
+        spinner.succeed(`${prefix}${m.step2Done(langDisplay, srtEntries.length)}`);
+
+        if (!options.noCache) {
+          saveTranscriptionCache(
+            resolvedMediaPath,
+            createCachedTranscription(
+              transcriptionContext,
+              srtEntries,
+              detectedLanguage,
+              wordChunks,
+            ),
+            options.cacheDir,
           );
         }
-      },
-      {
-        model: stt.model,
-        ...(transcriptionContext.prompt ? { prompt: transcriptionContext.prompt } : {}),
-        ...(extractResult.durations ? { durations: extractResult.durations } : {}),
-      },
-    );
+      }
+    }
 
-    srtEntries = transcriptResult.entries;
-    wordChunks = transcriptResult.wordChunks;
-    detectedLanguage = transcriptResult.detectedLanguage;
-
-    if (srtEntries.length === 0) {
-      showSpinnerNotice(spinner, verbose, "warn", `${prefix}${m.step2NoEntries}`);
-    } else {
-      const langDisplay = detectedLanguage ? ` (${detectedLanguage.toUpperCase()})` : "";
-      spinner.succeed(`${prefix}${m.step2Done(langDisplay, srtEntries.length)}`);
-
-      if (!options.noCache) {
-        saveTranscriptionCache(
-          resolvedMediaPath,
-          createCachedTranscription(transcriptionContext, srtEntries, detectedLanguage, wordChunks),
-          options.cacheDir,
+    const rawEntriesCount = srtEntries.length;
+    if (wordChunks) {
+      srtEntries = buildEntriesFromWords(wordChunks, {
+        maxLength: resolvedMaxLength,
+        maxDuration: resolvedMaxDuration,
+        noLimits: noReflow,
+      });
+    } else if (!noReflow && srtEntries.length > 0) {
+      srtEntries = reflowSrtEntries(srtEntries, {
+        maxLength: resolvedMaxLength,
+        maxDuration: resolvedMaxDuration,
+      });
+      if (verbose && srtEntries.length !== rawEntriesCount) {
+        console.error(
+          `${prefix}[Reflow] Adjusted subtitle segments: ${rawEntriesCount} -> ${srtEntries.length} entries`,
         );
       }
     }
-  }
 
-  const rawEntriesCount = srtEntries.length;
-  if (wordChunks) {
-    srtEntries = buildEntriesFromWords(wordChunks, {
-      maxLength: resolvedMaxLength,
-      maxDuration: resolvedMaxDuration,
-      noLimits: noReflow,
-    });
-  } else if (!noReflow && srtEntries.length > 0) {
-    srtEntries = reflowSrtEntries(srtEntries, {
-      maxLength: resolvedMaxLength,
-      maxDuration: resolvedMaxDuration,
-    });
-    if (verbose && srtEntries.length !== rawEntriesCount) {
-      console.error(
-        `${prefix}[Reflow] Adjusted subtitle segments: ${rawEntriesCount} -> ${srtEntries.length} entries`,
-      );
-    }
-  }
-
-  try {
     let activeConfig: ReturnType<typeof getConfig> | null = null;
     let sharedTextModel: ReturnType<typeof createTextModel> | null = null;
     const getTextModel = async () => {
