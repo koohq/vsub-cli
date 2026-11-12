@@ -73,6 +73,29 @@ describe("cache module", () => {
       sourceEntries: entries,
       contextWindowSize: 5,
     } as const;
+    it.each([undefined, "notes-hash"])(
+      "binds translation, partial, and refinement caches to background notes (%s)",
+      (contextHash) => {
+        const ctx = { ...context, contextHash };
+        const translation = createCachedTranslation("ja", ctx, entries);
+        const refinement = createCachedRefinement(ctx, entries);
+        const chunks = { "0": ["Translated"] };
+        const partial = createPartialTranslation("ja", ctx, 50, chunks);
+        expect(translation.contextHash).toBe(contextHash);
+        expect(refinement.contextHash).toBe(contextHash);
+        expect(partial.contextHash).toBe(contextHash);
+        for (const record of [translation, refinement, partial]) {
+          if (contextHash === undefined) delete record.contextHash;
+        }
+        expect(isTranslationCacheValid(translation, ctx)).toBe(true);
+        expect(isRefinementCacheValid(refinement, ctx)).toBe(true);
+        expect(getPartialTranslationChunks(partial, "ja", ctx, 50)).toEqual(chunks);
+        const changed = { ...ctx, contextHash: contextHash ? undefined : "new-notes" };
+        expect(isTranslationCacheValid(translation, changed)).toBe(false);
+        expect(isRefinementCacheValid(refinement, changed)).toBe(false);
+        expect(getPartialTranslationChunks(partial, "ja", changed, 50)).toEqual({});
+      },
+    );
     it("binds transcription to the server, trimming surrounding whitespace", () => {
       const cached = createCachedTranscription(context, entries);
       expect(cached.baseUrl).toBe(context.baseUrl);
@@ -170,6 +193,7 @@ describe("cache module", () => {
       { model: "other" },
       { prompt: "Other" },
       { glossaryHash: "other" },
+      { contextHash: "other" },
       { contextWindowSize: 0 },
     ])("rejects a changed cache context %s", (change) => {
       expect(

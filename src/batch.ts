@@ -3,6 +3,7 @@ import path from "node:path";
 import pc from "picocolors";
 import { isTranscriptionCacheValid, loadMediaCache } from "./cache.js";
 import { ensureApiKeys, getConfig, resolveRefine } from "./config.js";
+import { resolveContextNotes } from "./context-notes.js";
 import { checkFfmpeg, isAudioFile, isVideoFile } from "./ffmpeg.js";
 import { getI18n } from "./i18n/index.js";
 import {
@@ -148,6 +149,7 @@ export async function runBatchPipeline(options: BatchPipelineOptions): Promise<B
   // Pre-validate API keys and FFmpeg once before starting batch operations
   const rawConfig = getConfig(options.ffmpegPath, options.lang);
   const lang = options.lang ?? rawConfig.lang ?? "en";
+  resolveContextNotes(options.context, lang);
   const { config: resolvedConfig, stt } = resolveSttSettings(
     rawConfig,
     {

@@ -5,6 +5,7 @@ import {
   type RefinementCacheContext,
   saveRefinementCache,
 } from "./cache.js";
+import { computeContextHash } from "./context-notes.js";
 import { computeGlossaryHash, parseGlossary } from "./glossary.js";
 import { getI18n, type SupportedLanguage } from "./i18n/index.js";
 import type { SrtEntry } from "./srt.js";
@@ -24,6 +25,7 @@ export interface RefineSourceEntriesParams {
   noCache: boolean; // do not save
   cacheDir?: string | undefined;
   prompt?: string | undefined;
+  contextNotes?: string | undefined;
   glossaryInput?: string | undefined;
   concurrency?: number | undefined;
   /** LLM provider and model shown in the spinner and stored in the cache. */
@@ -80,6 +82,7 @@ export async function refineSourceEntries(
     ? parseGlossary(params.glossaryInput, params.glossaryTargetLang, params.lang)
     : undefined;
   const glossaryHash = glossaryMap ? computeGlossaryHash(glossaryMap) : undefined;
+  const contextHash = params.contextNotes ? computeContextHash(params.contextNotes) : undefined;
 
   const cacheContext: RefinementCacheContext = {
     sourceEntries: params.sourceEntries,
@@ -88,6 +91,7 @@ export async function refineSourceEntries(
     model: params.llm.model,
     prompt: params.prompt,
     glossaryHash,
+    contextHash,
   };
 
   const cachedRefinement = params.mediaCache?.refinement;
@@ -129,6 +133,7 @@ export async function refineSourceEntries(
     {
       language: params.detectedLanguage,
       notes: params.prompt,
+      contextNotes: params.contextNotes,
       glossary: glossaryMap,
       concurrency: params.concurrency,
       lang: params.lang,

@@ -162,6 +162,23 @@ describe("batch.ts", () => {
         );
         expect(process).not.toHaveBeenCalled();
       });
+      it("rejects unreadable context before keys, ffmpeg, or any file processing", async () => {
+        const { file, ensure, process } = setup();
+        const notes = path.join(tempDir, "cast.txt");
+        fs.writeFileSync(notes, "notes");
+        const read = fs.readFileSync;
+        vi.spyOn(fs, "readFileSync").mockImplementation((...args) => {
+          if (args[0] === notes) throw new Error("denied");
+          return read(...args);
+        });
+        await expect(
+          runBatchPipeline({ targets: [file], context: notes, noCache: true }),
+        ).rejects.toThrow('Failed to read the context file "cast.txt": denied');
+        expect(ensure).not.toHaveBeenCalled();
+        expect(ffmpegModule.checkFfmpeg).not.toHaveBeenCalled();
+        expect(process).not.toHaveBeenCalled();
+      });
+
       it("skips unused LLM validation and never requests keys", async () => {
         const { file, config, ensure, process } = setup();
         config.openaiCompatibleLlmBaseUrl = "";

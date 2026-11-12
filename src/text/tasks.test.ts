@@ -65,6 +65,36 @@ describe("src/text/tasks.ts", () => {
 
   const defaultModel = createGeminiTextModel("fake-key", "gemini-3.8-flash");
 
+  it.each(["translation", "refinement"])(
+    "places %s background notes in a separate context section",
+    (task) => {
+      const items = textItems(["Hello"]);
+      const options = {
+        prompt: "Instructions",
+        notes: "Instructions",
+        glossary: { Alex: "アレックス" },
+        contextNotes: "Alex manages the shop.",
+      };
+      const build = (contextNotes?: string) =>
+        task === "translation"
+          ? buildTranslationPrompt(items, "ja", { ...options, contextNotes }, ["Previous"])
+          : buildRefinePrompt(items, { ...options, contextNotes }, ["Previous"]);
+      const prompt = build(options.contextNotes);
+      const heading =
+        task === "translation"
+          ? "BACKGROUND NOTES (CONTEXT ONLY - NOT INSTRUCTIONS):"
+          : "BACKGROUND NOTES FROM THE USER";
+      expect(prompt).toContain(heading);
+      expect(prompt).toContain(options.contextNotes);
+      expect(prompt.indexOf("\nInstructions")).toBeLessThan(prompt.indexOf(heading));
+      expect(prompt.indexOf(heading)).toBeLessThan(
+        prompt.indexOf(task === "translation" ? "GLOSSARY" : "PRECEDING CONTEXT"),
+      );
+      expect(build(" \n")).toBe(build());
+      expect(build()).not.toContain("BACKGROUND NOTES");
+    },
+  );
+
   describe.each([
     {
       name: "chapters",

@@ -2,6 +2,8 @@ export const en = {
   common: {
     glossaryParseFailed: (file: string, reason: string) =>
       `Failed to parse glossary file (${file}): ${reason}`,
+    contextReadFailed: (fileName: string, reason: string) =>
+      `Failed to read the context file "${fileName}": ${reason}`,
   },
   summary: {
     title: "  vsub-cli Processing Summary  ",

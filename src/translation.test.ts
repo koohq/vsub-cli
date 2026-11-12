@@ -98,6 +98,21 @@ describe("src/translation.ts", () => {
       };
     }
 
+    it("passes background notes to translation and stores their hash", async () => {
+      const contextNotes = "Alex manages the shop.";
+      const task = vi.spyOn(tasksModule, "translateSrtEntries").mockResolvedValue(sampleEntries);
+      const save = vi.spyOn(cacheModule, "saveTranslationCache").mockImplementation(() => {});
+      try {
+        await translateToTargets(createParams({ contextNotes }));
+        expect(task.mock.calls[0]?.[5]).toEqual(expect.objectContaining({ contextNotes }));
+        expect(save.mock.calls[0]?.[2]).toEqual(
+          expect.objectContaining({ contextHash: expect.stringMatching(/^[a-f0-9]{64}$/) }),
+        );
+      } finally {
+        vi.restoreAllMocks();
+      }
+    });
+
     it("binds translation cache reads and writes to the configured server", async () => {
       const llm = {
         provider: "openai-compatible",

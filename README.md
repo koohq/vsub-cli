@@ -281,6 +281,7 @@ Options:
   --groq-model <model>          Groq Whisper model to use for transcription (used only when the provider is groq)
   --whisper-prompt <text>       Prompt hint for Groq Whisper speech recognition (Groq and openai-compatible; not sent to OpenRouter)
   --prompt <instruction>        Additional instruction prompt for translation
+  --context <text-or-path>      Background notes about the speakers, their relationships, and the setting, as text or a text file path (passed to translation and --refine as context, not as instructions)
   --glossary <path-or-terms>    Glossary file path (JSON) or inline terms (Key=Val,Key=Val)
   --concurrency <number>        Number of concurrent translation requests (default: 3)
   --gemini-model <model>        Gemini model to use for translation (Gemini provider only)
@@ -300,7 +301,7 @@ Options:
   --keep-audio                  Keep intermediate extracted audio files without deleting (default: false)
   --no-translate                Skip translation and output raw transcribed subtitles (default: false)
   --save-original               Save original transcription subtitle file alongside the result (default: false)
-  --refine                      Correct speech recognition errors in the transcript with the text generation model before translation (default: VSUB_REFINE, config, or off; uses --glossary and --prompt; timing and line count are kept)
+  --refine                      Correct speech recognition errors in the transcript with the text generation model before translation (default: VSUB_REFINE, config, or off; uses --glossary, --prompt, and --context; timing and line count are kept)
   --no-refine                   Do not refine the transcript, even if VSUB_REFINE or the config turns it on
   --force-translate             Force translation even if detected language matches target language (default: false)
   --no-update-check             Disable checking for new version updates (default: false)
@@ -363,6 +364,8 @@ Translate an existing `.srt` file without needing media files or transcription A
 ```bash
 vsub translate sample.ja.srt -t en -f srt,vtt
 ```
+
+`vsub translate` also accepts `--context <text-or-path>` (background notes about the speakers and the setting; see [Background Notes about Speakers and the Setting](#background-notes-about-speakers-and-the-setting)).
 
 ### 5. Video Subtitle Hardsub / Burn-in (`--burn` & `vsub burn`)
 Bake subtitles directly into an `.mp4` video with FFmpeg:
@@ -436,6 +439,19 @@ vsub video.mp4 -t ja,zh --glossary ./glossary.json
 vsub video.mp4 -t ja --prompt "Translate in a polite and professional tone suited for software engineers. Keep subtitles concise."
 ```
 
+#### Background Notes about Speakers and the Setting
+```bash
+vsub talk.mp4 -t ja --context ./cast.txt
+```
+
+Example `cast.txt`:
+```text
+Alex is the shop manager; Sam is a new part-time employee.
+Sam speaks politely to Alex. Alex calls Sam by their first name.
+```
+
+Use `--prompt` for translation instructions and `--context` for background about the speakers, their relationships, and the setting; these notes are passed as context only, not as instructions. Keep the notes short; an existing file is read as UTF-8, otherwise the value is used as inline text. This is separate from `--context-window`, which controls how many preceding subtitle lines are supplied to each translation chunk.
+
 ### 9. AI Chapters & Video Summary (`vsub chapters` & `vsub summarize`)
 Generate YouTube chapters or structured Markdown summaries from any video, audio, or existing `.srt` file. Chapters and summaries are written in one language: if several target languages are given (for example, with `vsub config set --target-lang ja,en`), only the first one is used. When the media has already been processed by `vsub`, it automatically reuses the transcription cache and finishes in seconds:
 ```bash
@@ -487,7 +503,7 @@ vsub video.mp4 --no-translate --refine
 * **What it fixes**: Corrects clear ASR recognition errors such as homophones / wrong kanji, misheard proper nouns and technical terms, and split or merged words.
 * **Provider & model**: Uses your configured text generation provider and model (`--llm-provider`, `--llm-model`, `--gemini-model`).
 * **Enable by default**: Use `vsub config set --refine true` or `VSUB_REFINE=true`; use `--no-refine` to turn it off for one run. Priority is `--refine`/`--no-refine` → `VSUB_REFINE` → the config file. This applies only to the main command and `vsub batch`.
-* **Glossary & notes**: Works best when paired with `--glossary` (improvements are much smaller without one). Your `--prompt` notes are also passed as background context, and when using a language-keyed glossary file, the table for the first target language is used to supply the correct spellings of terms.
+* **Glossary & notes**: Works best when paired with `--glossary` (improvements are much smaller without one). Your `--prompt` notes and `--context` background notes are also passed as background context, and when using a language-keyed glossary file, the table for the first target language is used to supply the correct spellings of terms.
 * **Timing & structure guarantees**: Subtitle timestamps, entry IDs, and line counts are never changed. If the model's answer does not match the input lines for any 50-line chunk, vsub keeps the original text for that chunk and prints a warning.
 * **Limitations**: **Speech completely dropped during transcription will not be recovered, and subtitle timing will not be adjusted.**
 * **Downstream outputs**: The refined transcript becomes the source text used for `--save-original`, `--bilingual`, `--no-translate`, and translation.

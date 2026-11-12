@@ -114,6 +114,15 @@ describe("src/refine.ts", () => {
     );
   });
 
+  it("passes background notes to refinement and stores their hash", async () => {
+    const contextNotes = "Alex manages the shop.";
+    await refineSourceEntries(createParams({ contextNotes }));
+    expect(refineSpy.mock.calls[0]?.[4]).toEqual(expect.objectContaining({ contextNotes }));
+    expect(saveCacheSpy.mock.calls[0]?.[1]).toEqual(
+      expect.objectContaining({ contextHash: expect.stringMatching(/^[a-f0-9]{64}$/) }),
+    );
+  });
+
   it("returns immediately without calling model, cache, or spinner when sourceEntries is empty", async () => {
     const result = await refineSourceEntries(createParams({ sourceEntries: [] }));
 

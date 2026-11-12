@@ -3,6 +3,7 @@ import path from "node:path";
 import pc from "picocolors";
 import { loadMediaCache } from "./cache.js";
 import { ensureApiKeys, getConfig, resolveReflowLimits } from "./config.js";
+import { resolveContextNotes } from "./context-notes.js";
 import { formatEntries, parseOutputFormats } from "./formatter.js";
 import { DEFAULT_LANGUAGE, getI18n, normalizeLanguage } from "./i18n/index.js";
 import { parseTargetLanguages, resolveTargetLang } from "./languages.js";
@@ -30,6 +31,7 @@ export interface TranslateCommandOptions {
   bilingual?: boolean | undefined;
   bilingualOrder?: string | undefined;
   prompt?: string | undefined;
+  context?: string | undefined;
   glossary?: string | undefined;
   concurrency?: string | undefined;
   geminiModel?: string | undefined;
@@ -67,6 +69,12 @@ export async function runTranslateCommand(
   const outputFiles: string[] = [];
 
   try {
+    const contextNotes = resolveContextNotes(options.context, lang);
+    if (verbose && contextNotes) {
+      console.error(
+        `[Context] Background notes from ${contextNotes.fileName ?? "--context"} (${contextNotes.text.length} chars)`,
+      );
+    }
     const outputFormats = parseOutputFormats(options.format, lang);
     const targetLanguages = parseTargetLanguages(
       resolveTargetLang(options.targetLang, rawConfig.targetLang),
@@ -215,6 +223,7 @@ export async function runTranslateCommand(
       noCache: Boolean(options.noCache),
       cacheDir: options.cacheDir,
       prompt: translationPrompt,
+      contextNotes: contextNotes?.text,
       glossaryInput,
       contextWindowSize: resolvedContextWindow,
       concurrency: resolvedConcurrency,

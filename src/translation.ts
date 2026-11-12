@@ -8,6 +8,7 @@ import {
   saveTranslationCache,
   type TranslationCacheContext,
 } from "./cache.js";
+import { computeContextHash } from "./context-notes.js";
 import { computeGlossaryHash, parseGlossary } from "./glossary.js";
 import { getI18n, type SupportedLanguage } from "./i18n/index.js";
 import type { SrtEntry } from "./srt.js";
@@ -30,6 +31,7 @@ export interface TranslateToTargetsParams {
   noCache: boolean; // do not save
   cacheDir?: string | undefined;
   prompt?: string | undefined;
+  contextNotes?: string | undefined;
   glossaryInput?: string | undefined;
   contextWindowSize: number;
   concurrency?: number | undefined;
@@ -137,6 +139,7 @@ export async function translateToTargets(
   const totalChunks = Math.max(1, Math.ceil(params.sourceEntries.length / DEFAULT_CHUNK_SIZE));
   let totalGlossaryTerms = 0;
   const i18n = getI18n(params.lang);
+  const contextHash = params.contextNotes ? computeContextHash(params.contextNotes) : undefined;
 
   for (let i = 0; i < params.targetLanguages.length; i++) {
     const targetL = params.targetLanguages[i] ?? "ja";
@@ -161,6 +164,7 @@ export async function translateToTargets(
       sourceEntries: params.sourceEntries,
       prompt: params.prompt,
       glossaryHash,
+      contextHash,
       provider: params.llm.provider,
       baseUrl: params.llm.baseUrl,
       model: params.llm.model,
@@ -239,6 +243,7 @@ export async function translateToTargets(
           },
           {
             prompt: params.prompt,
+            contextNotes: params.contextNotes,
             glossary: glossaryMap,
             concurrency: params.concurrency,
             lang: params.lang,

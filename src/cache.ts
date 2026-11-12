@@ -24,6 +24,7 @@ export interface CachedTranscription {
 }
 
 export interface CachedRefinement {
+  contextHash?: string | undefined;
   provider?: LlmProvider | undefined;
   model?: string | undefined;
   baseUrl?: string | undefined;
@@ -36,6 +37,7 @@ export interface CachedRefinement {
 }
 
 export interface CachedTranslation {
+  contextHash?: string | undefined;
   targetLang: string;
   provider?: LlmProvider | undefined;
   model?: string | undefined;
@@ -161,6 +163,7 @@ export function computeEntriesHash(entries: SrtEntry[]): string {
 }
 
 export interface TranslationCacheContext {
+  contextHash?: string | undefined;
   sourceEntries: SrtEntry[];
   provider?: LlmProvider | undefined;
   prompt?: string | undefined;
@@ -171,6 +174,7 @@ export interface TranslationCacheContext {
 }
 
 export interface RefinementCacheContext {
+  contextHash?: string | undefined;
   sourceEntries: SrtEntry[];
   provider?: LlmProvider | undefined;
   model?: string | undefined;
@@ -239,6 +243,9 @@ export function isRefinementCacheValid(
   if (cached.entries.length === 0 || cached.entries.length !== context.sourceEntries.length) {
     return false;
   }
+  if (normalizeCacheString(cached.contextHash) !== normalizeCacheString(context.contextHash)) {
+    return false;
+  }
   if (normalizeCacheString(cached.glossaryHash) !== normalizeCacheString(context.glossaryHash)) {
     return false;
   }
@@ -260,6 +267,7 @@ export function createCachedRefinement(
     glossaryHash: context.glossaryHash,
     sourceHash: computeEntriesHash(context.sourceEntries),
     entries: refinedEntries,
+    contextHash: context.contextHash,
     createdAt: Date.now(),
   };
 }
@@ -284,6 +292,9 @@ function hasTranslationCacheContext(
   context: TranslationCacheContext,
 ): boolean {
   if (!cached || !isLlmSourceCacheValid(cached, context)) return false;
+  if (normalizeCacheString(cached.contextHash) !== normalizeCacheString(context.contextHash)) {
+    return false;
+  }
   if (normalizeCacheString(cached.glossaryHash) !== normalizeCacheString(context.glossaryHash)) {
     return false;
   }
@@ -356,6 +367,7 @@ export function createCachedTranslation(
     sourceHash: computeEntriesHash(context.sourceEntries),
     contextWindowSize: context.contextWindowSize,
     entries: translatedEntries,
+    contextHash: context.contextHash,
     createdAt: Date.now(),
   };
 }

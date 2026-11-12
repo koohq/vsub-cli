@@ -424,7 +424,7 @@ function addMediaOptions(command: Command): Command {
     )
     .option(
       "--refine",
-      "Correct speech recognition errors in the transcript with the text generation model before translation (default: VSUB_REFINE, config, or off; uses --glossary and --prompt; timing and line count are kept)",
+      "Correct speech recognition errors in the transcript with the text generation model before translation (default: VSUB_REFINE, config, or off; uses --glossary, --prompt, and --context; timing and line count are kept)",
     )
     .option(
       "--no-refine",
@@ -443,6 +443,10 @@ function addTranslationOptions(command: Command): Command {
   return addLlmProviderOptions(
     command
       .option("--prompt <instruction>", "Additional instruction prompt for translation")
+      .option(
+        "--context <text-or-path>",
+        "Background notes about the speakers, their relationships, and the setting, as text or a text file path (passed to translation and --refine as context, not as instructions)",
+      )
       .option(
         "--glossary <path-or-terms>",
         "Glossary file path (JSON) or inline terms (key=val,key=val)",

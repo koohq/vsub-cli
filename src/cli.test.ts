@@ -12,7 +12,7 @@ import {
   saveTranslationCache,
 } from "./cache.js";
 import { createProgram } from "./cli.js";
-import { DEFAULT_GEMINI_MODEL, getConfig, saveGlobalConfig } from "./config.js";
+import { DEFAULT_GEMINI_MODEL, ensureApiKeys, getConfig, saveGlobalConfig } from "./config.js";
 import { checkFfmpeg, embedSubtitlesToVideo } from "./ffmpeg.js";
 import { getI18n } from "./i18n/index.js";
 import { runInitWizard } from "./init.js";
@@ -21,6 +21,7 @@ import {
   processMediaPipeline,
   processSummaryPipeline,
 } from "./pipeline.js";
+import * as safetyModule from "./safety.js";
 import { parseSrt, reflowSrtEntries, stringifySrt } from "./srt.js";
 import { isolateConfigAndEnv } from "./test-support/isolate-config-env.js";
 import { DEFAULT_CONTEXT_WINDOW_SIZE, translateSrtEntries } from "./text/tasks.js";
@@ -172,6 +173,103 @@ describe("CLI integration harness", () => {
     const program = createProgram();
     await program.parseAsync(["node", "vsub", ...args]);
   }
+
+  it.each(["en", "ja"])(
+    "stops translate before safety and keys on unreadable context (%s)",
+    async (lang) => {
+      const notes = path.join(tmpDir, "cast.txt");
+      fs.writeFileSync(notes, "notes");
+      const read = fs.readFileSync;
+      const readSpy = vi.spyOn(fs, "readFileSync").mockImplementation((...args) => {
+        if (args[0] === notes) throw new Error("denied");
+        return read(...args);
+      });
+      const safety = vi.spyOn(safetyModule, "ensureWritableTargets");
+      const stderr = vi.spyOn(console, "error").mockImplementation(() => {});
+      try {
+        await runCli("translate", dummySrtPath, "--context", notes, "--lang", lang, "--verbose");
+        expect(
+          stderr.mock.calls.map(([line]) => stripVTControlCharacters(String(line))).join("\n"),
+        ).toContain(getI18n(lang).common.contextReadFailed("cast.txt", "denied"));
+        expect(safety).not.toHaveBeenCalled();
+        expect(ensureApiKeys).not.toHaveBeenCalled();
+        expect(translateSrtEntries).not.toHaveBeenCalled();
+      } finally {
+        readSpy.mockRestore();
+        safety.mockRestore();
+        stderr.mockRestore();
+      }
+    },
+  );
+
+  it.each(["main", "batch", "translate"])(
+    "accepts and forwards --context for %s",
+    async (command) => {
+      const notes = "Alex manages the shop.";
+      const program = createProgram();
+      const cmd =
+        command === "main" ? program : program.commands.find((item) => item.name() === command);
+      expect(cmd?.options.find((option) => option.long === "--context")?.flags).toBe(
+        "--context <text-or-path>",
+      );
+      await runCli(
+        ...(command === "main"
+          ? [dummyVideoPath]
+          : command === "batch"
+            ? ["batch", "videos"]
+            : ["translate", dummySrtPath, "--overwrite"]),
+        "--context",
+        notes,
+      );
+      if (command === "translate") {
+        expect(vi.mocked(translateSrtEntries).mock.calls[0]?.[5]).toEqual(
+          expect.objectContaining({ contextNotes: notes }),
+        );
+        expect(vi.mocked(saveTranslationCache).mock.calls[0]?.[2]).toEqual(
+          expect.objectContaining({ contextHash: expect.stringMatching(/^[a-f0-9]{64}$/) }),
+        );
+      } else {
+        expect(command === "main" ? processMediaPipeline : runBatchPipeline).toHaveBeenCalledWith(
+          expect.objectContaining({ context: notes }),
+        );
+      }
+    },
+  );
+
+  it.each([false, true])(
+    "logs resolved translate context only in verbose mode (file: %s)",
+    async (fromFile) => {
+      const text = "Alex manages the shop.";
+      const file = path.join(tmpDir, "cast.txt");
+      fs.writeFileSync(file, `\uFEFF ${text}\n`);
+      const stderr = vi.spyOn(console, "error").mockImplementation(() => {});
+      try {
+        for (const verbose of [false, true]) {
+          stderr.mockClear();
+          await runCli(
+            "translate",
+            dummySrtPath,
+            "--context",
+            fromFile ? file : text,
+            "--overwrite",
+            ...(verbose ? ["--verbose"] : []),
+          );
+          const contextLines = stderr.mock.calls
+            .map(([line]) => stripVTControlCharacters(String(line)))
+            .filter((line) => line.startsWith("[Context]"));
+          expect(contextLines).toEqual(
+            verbose
+              ? [
+                  `[Context] Background notes from ${fromFile ? "cast.txt" : "--context"} (${text.length} chars)`,
+                ]
+              : [],
+          );
+        }
+      } finally {
+        stderr.mockRestore();
+      }
+    },
+  );
 
   it.each(["burn", "embed"])("passes explicit Japanese to %s FFmpeg calls", async (command) => {
     await runCli("-l", "ja", command, dummyVideoPath, dummySrtPath);
@@ -2360,7 +2458,7 @@ describe("CLI integration harness", () => {
           "Additional instruction prompt for translation",
           "Number of concurrent translation requests",
           "Gemini model to use for translation (Gemini provider only)",
-          "Correct speech recognition errors in the transcript with the text generation model before translation (default: VSUB_REFINE, config, or off; uses --glossary and --prompt; timing and line count are kept)",
+          "Correct speech recognition errors in the transcript with the text generation model before translation (default: VSUB_REFINE, config, or off; uses --glossary, --prompt, and --context; timing and line count are kept)",
           "--no-refine Do not refine the transcript, even if VSUB_REFINE or the config turns it on",
           "Force translation even if detected language matches target language",
         ],
@@ -2375,7 +2473,7 @@ describe("CLI integration harness", () => {
           "Additional instruction prompt for translation",
           "Number of concurrent translation requests",
           "Gemini model to use for translation (Gemini provider only)",
-          "Correct speech recognition errors in the transcript with the text generation model before translation (default: VSUB_REFINE, config, or off; uses --glossary and --prompt; timing and line count are kept)",
+          "Correct speech recognition errors in the transcript with the text generation model before translation (default: VSUB_REFINE, config, or off; uses --glossary, --prompt, and --context; timing and line count are kept)",
           "--no-refine Do not refine the transcript, even if VSUB_REFINE or the config turns it on",
           "Force translation even if detected language matches target language",
         ],

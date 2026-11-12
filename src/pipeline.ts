@@ -23,6 +23,7 @@ import {
   resolveRefine,
   resolveReflowLimits,
 } from "./config.js";
+import { resolveContextNotes } from "./context-notes.js";
 import {
   burnSubtitlesToVideo,
   checkFfmpeg,
@@ -235,6 +236,7 @@ export interface ProcessMediaOptions {
   silentSttHint?: boolean | undefined;
   whisperPrompt?: string | undefined;
   prompt?: string | undefined;
+  context?: string | undefined;
   glossary?: string | undefined;
   concurrency?: string | number | undefined;
   noCache?: boolean | undefined;
@@ -345,6 +347,12 @@ export async function processMediaPipeline(
   const lang = options.lang ?? rawConfig.lang ?? "en";
   const i18n = getI18n(lang);
   const m = i18n.pipeline;
+  const contextNotes = resolveContextNotes(options.context, lang);
+  if (verbose && contextNotes) {
+    console.error(
+      `[Context] Background notes from ${contextNotes.fileName ?? "--context"} (${contextNotes.text.length} chars)`,
+    );
+  }
 
   const { config: resolvedSttConfig, stt } = resolveSttSettings(
     rawConfig,
@@ -703,6 +711,7 @@ export async function processMediaPipeline(
         noCache: Boolean(options.noCache),
         cacheDir: options.cacheDir,
         prompt: translationPrompt,
+        contextNotes: contextNotes?.text,
         glossaryInput,
         concurrency: resolvedConcurrency,
         llm: {
@@ -788,6 +797,7 @@ export async function processMediaPipeline(
       noCache: Boolean(options.noCache),
       cacheDir: options.cacheDir,
       prompt: translationPrompt,
+      contextNotes: contextNotes?.text,
       glossaryInput,
       contextWindowSize: resolvedContextWindow,
       concurrency: resolvedConcurrency,

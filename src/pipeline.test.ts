@@ -16,6 +16,7 @@ import {
 } from "./cache.js";
 import * as configModule from "./config.js";
 import { DEFAULT_GEMINI_MODEL, DEFAULT_GROQ_MODEL, saveGlobalConfig } from "./config.js";
+import { computeContextHash } from "./context-notes.js";
 import {
   burnSubtitlesToVideo,
   checkFfmpeg,
@@ -201,6 +202,91 @@ describe("pipeline.ts", () => {
       );
     },
   );
+
+  describe("background notes", () => {
+    it.each([false, true])(
+      "passes notes to both tasks and invalidates only text caches (file: %s)",
+      async (fromFile) => {
+        vi.clearAllMocks();
+        vi.spyOn(console, "log").mockImplementation(() => {});
+        const stderr = vi.spyOn(console, "error").mockImplementation(() => {});
+        const mediaFile = path.join(tempDir, "talk.mp4");
+        const notesFile = path.join(tempDir, "cast.txt");
+        const cacheDir = path.join(tempDir, "cache");
+        fs.writeFileSync(mediaFile, "dummy media");
+        const entries = [
+          { id: 1, startTime: "00:00:00,000", endTime: "00:00:02,000", text: "Hello" },
+        ];
+        saveTranscriptionCache(
+          mediaFile,
+          { entries, provider: "groq", detectedLanguage: "en", createdAt: 0 },
+          cacheDir,
+        );
+        const options = {
+          mediaFile,
+          cacheDir,
+          targetLang: "ja",
+          refine: true,
+          sttProvider: "groq",
+          overwrite: true,
+          verbose: fromFile,
+        };
+        const run = async (text: string) => {
+          fs.writeFileSync(notesFile, `\uFEFF ${text}\n`);
+          await processMediaPipeline({ ...options, context: fromFile ? notesFile : text });
+        };
+        const notes = "Alex manages the shop.";
+        await run(notes);
+        expect(vi.mocked(refineSrtEntries).mock.calls[0]?.[4]).toEqual(
+          expect.objectContaining({ contextNotes: notes }),
+        );
+        expect(vi.mocked(translateSrtEntries).mock.calls[0]?.[5]).toEqual(
+          expect.objectContaining({ contextNotes: notes }),
+        );
+        const cache = loadMediaCache(mediaFile, cacheDir);
+        expect(cache?.refinement?.contextHash).toBe(computeContextHash(notes));
+        expect(cache?.translations?.["ja"]?.contextHash).toBe(computeContextHash(notes));
+        const contextLines = stderr.mock.calls
+          .map(([line]) => stripVTControlCharacters(String(line)))
+          .filter((line) => line.startsWith("[Context]"));
+        expect(contextLines).toEqual(
+          fromFile ? [`[Context] Background notes from cast.txt (${notes.length} chars)`] : [],
+        );
+        await run(notes);
+        expect(refineSrtEntries).toHaveBeenCalledTimes(1);
+        expect(translateSrtEntries).toHaveBeenCalledTimes(1);
+        await run("Sam manages the shop.");
+        expect(refineSrtEntries).toHaveBeenCalledTimes(2);
+        expect(translateSrtEntries).toHaveBeenCalledTimes(2);
+        expect(transcribeAudioSegments).not.toHaveBeenCalled();
+        expect(loadMediaCache(mediaFile, cacheDir)?.transcription).toEqual(cache?.transcription);
+      },
+    );
+
+    it.each(["en", "ja"] as const)(
+      "fails before output directories, safety checks, keys, or ffmpeg (%s)",
+      async (lang) => {
+        vi.clearAllMocks();
+        const notes = path.join(tempDir, "cast.txt");
+        const outputDir = path.join(tempDir, "output");
+        fs.writeFileSync(notes, "notes");
+        const read = fs.readFileSync;
+        vi.spyOn(fs, "readFileSync").mockImplementation((...args) => {
+          if (args[0] === notes) throw new Error("denied");
+          return read(...args);
+        });
+        const safety = vi.spyOn(safetyModule, "ensureWritableTargets");
+        const ensure = vi.spyOn(configModule, "ensureApiKeys");
+        await expect(
+          processMediaPipeline({ mediaFile: "talk.mp4", outputDir, context: notes, lang }),
+        ).rejects.toThrow(getI18n(lang).common.contextReadFailed("cast.txt", "denied"));
+        expect(fs.existsSync(outputDir)).toBe(false);
+        expect(safety).not.toHaveBeenCalled();
+        expect(ensure).not.toHaveBeenCalled();
+        expect(checkFfmpeg).not.toHaveBeenCalled();
+      },
+    );
+  });
 
   describe("OpenAI-compatible transcription", () => {
     function spyOnSpinnerStart() {

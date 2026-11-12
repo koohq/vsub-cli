@@ -283,6 +283,7 @@ Options:
   --groq-model <model>          文字起こしに使う Groq の Whisper モデル (提供元が groq のときだけ使う)
   --whisper-prompt <text>       Groq の Whisper に渡す認識のヒント (Groq と openai-compatible のみ。OpenRouter には送らない)
   --prompt <instruction>        翻訳への追加の指示
+  --context <text-or-path>      話者・関係・場面の背景メモを文字列またはテキストファイルのパスで指定 (翻訳と --refine に、指示ではなく背景として渡す)
   --glossary <path-or-terms>    用語集の JSON ファイルのパス、または直接指定の用語 (Key=Val,Key=Val)
   --concurrency <number>        翻訳のリクエストを同時にいくつ送るか (既定: 3)
   --gemini-model <model>        翻訳に使う Gemini のモデル (提供元が Gemini のときだけ)
@@ -302,7 +303,7 @@ Options:
   --keep-audio                  途中で取り出した音声ファイルを消さずに残す (既定: false)
   --no-translate                翻訳せず、文字起こしした字幕をそのまま出力する (既定: false)
   --save-original               翻訳した字幕と一緒に、文字起こしした原文の字幕も保存する (既定: false)
-  --refine                      翻訳の前に、文章の生成モデルで文字起こしの認識の誤りを直す (既定: VSUB_REFINE、設定ファイル、または無効。--glossary と --prompt を使う。時刻と行数は変えない)
+  --refine                      翻訳の前に、文章の生成モデルで文字起こしの認識の誤りを直す (既定: VSUB_REFINE、設定ファイル、または無効。--glossary、--prompt、--context を使う。時刻と行数は変えない)
   --no-refine                   VSUB_REFINE や設定ファイルで有効になっていても、文字起こしを修正しない
   --force-translate             検出した言語が翻訳先と同じでも翻訳する (既定: false)
   --no-update-check             新しいバージョンの確認をしない (既定: false)
@@ -365,6 +366,8 @@ vsub batch ./videos/ --no-recursive --fail-fast
 ```bash
 vsub translate sample.ja.srt -t en -f srt,vtt
 ```
+
+`vsub translate` でも `--context <text-or-path>` で話者や場面の背景メモを渡せます（[話者や場面の背景メモを渡す](#話者や場面の背景メモを渡す)）。
 
 ### 5. 動画への字幕の焼き込み（`--burn` と `vsub burn`）
 FFmpeg で、字幕を焼き込んだ `.mp4` 動画を作ります。
@@ -438,6 +441,19 @@ vsub video.mp4 -t ja,zh --glossary ./glossary.json
 vsub video.mp4 -t ja --prompt "ITエンジニア向けに、丁寧なです・ます調で翻訳してください。各行は簡潔にまとめてください。"
 ```
 
+#### 話者や場面の背景メモを渡す
+```bash
+vsub talk.mp4 -t ja --context ./cast.txt
+```
+
+`cast.txt` の例:
+```text
+Alex は店長、Sam は新人のアルバイト。
+Sam は Alex に敬語で話す。Alex は Sam を呼び捨てにする。
+```
+
+`--prompt` には訳し方の指示を、`--context` には話者・関係・場面の背景を書きます（指示としては扱いません）。背景メモは短く書くと効果的で、存在するファイルなら UTF-8 の中身を、そうでなければ指定した文字列を使います。直前の字幕を何行渡すかを決める `--context-window` とは別の指定です。
+
 ### 9. AI によるチャプターと要約（`vsub chapters` と `vsub summarize`）
 動画・音声・既存の `.srt` ファイルから、YouTube 用のチャプターや、構造化した Markdown の要約を作ります。チャプターと要約は 1 つの言語で作ります。翻訳先が複数あるとき（たとえば `vsub config set --target-lang ja,en`）は、先頭の言語だけを使います。すでに `vsub` で処理したメディアなら、文字起こしのキャッシュを使うので数秒で終わります。
 ```bash
@@ -489,7 +505,7 @@ vsub video.mp4 --no-translate --refine
 * **直すもの**: 同音異義語や漢字の誤変換、聞き違えた固有名詞や専門用語、語の区切りの誤りなど、明らかな音声認識の誤りを直します。
 * **提供元とモデル**: 設定している文章の生成の提供元とモデル（`--llm-provider`、`--llm-model`、`--gemini-model`）を使います。
 * **いつも有効にする**: `vsub config set --refine true` または `VSUB_REFINE=true` で既定を有効にできます。1 回だけ切るには `--no-refine` を付けます。優先順位は `--refine`/`--no-refine` → `VSUB_REFINE` → 設定ファイルです。効くのはメインのコマンドと `vsub batch` だけです。
-* **用語集と指示**: `--glossary` と組み合わせるのがいちばん効果的です（用語集がないと、改善はかなり小さくなります）。`--prompt` の指示も背景の情報として渡します。言語ごとに分けた用語集ファイルでは、最初の翻訳先の言語の表を使って、用語の正しい書き方を伝えます。
+* **用語集と指示**: `--glossary` と組み合わせるのがいちばん効果的です（用語集がないと、改善はかなり小さくなります）。`--prompt` の指示と `--context` の背景メモも背景の情報として渡します。言語ごとに分けた用語集ファイルでは、最初の翻訳先の言語の表を使って、用語の正しい書き方を伝えます。
 * **時刻と構成は変えない**: 字幕のタイムスタンプ、番号、行数は変わりません。50 行ずつのまとまりのどこかで、モデルの答えが元の行と対応しなかったときは、そのまとまりは元の文章のまま残し、警告を表示します。
 * **できないこと**: **文字起こしで抜け落ちた発話は戻りません。字幕の時刻も直りません。**
 * **後の出力への反映**: `--save-original`、`--bilingual`、`--no-translate` の原文と、翻訳に渡す原文には、すべて修正後の文章を使います。

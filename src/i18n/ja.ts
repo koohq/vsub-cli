@@ -4,6 +4,8 @@ export const ja: typeof en = {
   common: {
     glossaryParseFailed: (file: string, reason: string) =>
       `用語集ファイル（${file}）を読み込めませんでした: ${reason}`,
+    contextReadFailed: (fileName: string, reason: string) =>
+      `背景メモのファイル「${fileName}」を読めませんでした: ${reason}`,
   },
   summary: {
     title: "  vsub-cli 処理サマリー  ",
