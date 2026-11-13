@@ -466,6 +466,14 @@ function addTranslationOptions(command: Command): Command {
         "Background notes about the speakers, their relationships, and the setting, as text or a text file path (passed to translation and --refine as context, not as instructions)",
       )
       .option(
+        "--auto-context",
+        "Have the text generation model write short scene notes (speakers, relationships, politeness) from the whole transcript and pass them to translation, once per target language (default: VSUB_AUTO_CONTEXT, config, or off; ignored when --context is given)",
+      )
+      .option(
+        "--no-auto-context",
+        "Do not write scene notes, even if VSUB_AUTO_CONTEXT or the config turns them on",
+      )
+      .option(
         "--glossary <path-or-terms>",
         "Glossary file path (JSON) or inline terms (key=val,key=val)",
       )
@@ -651,6 +659,7 @@ export function createProgram(): Command {
         [labels.textGeneration, textGenText],
         [labels.refine, resolvedConfig.refine === true ? m.enabled : m.disabled],
         [labels.diarize, resolvedConfig.diarize === true ? m.enabled : m.disabled],
+        [labels.autoContext, resolvedConfig.autoContext === true ? m.enabled : m.disabled],
         [labels.ffmpegPath, `${resolvedConfig.ffmpegPath}`],
         [
           labels.whisperPrompt,
@@ -708,7 +717,7 @@ export function createProgram(): Command {
   configCmd
     .command("set")
     .description(
-      "Save API Keys, models, OpenAI-compatible endpoints, prompts, glossary, concurrency, language, target language, transcript refinement, speaker labels, or FFmpeg path to global config",
+      "Save API Keys, models, OpenAI-compatible endpoints, prompts, glossary, concurrency, language, target language, transcript refinement, speaker labels, scene notes, or FFmpeg path to global config",
     )
     .option("-l, --lang <lang>", "UI display language (en, ja)")
     .option(
@@ -782,6 +791,10 @@ export function createProgram(): Command {
       "Ask OpenRouter's elevenlabs/scribe models for speaker labels by default in the main command, batch, chapters, and summarize (true/false)",
     )
     .option("--max-length <chars>", "Default max characters per subtitle entry (e.g. 60)")
+    .option(
+      "--auto-context <boolean>",
+      "Write scene notes for translation by default in the main command, batch, and translate (true/false)",
+    )
     .option("--burn-position <position>", "Default subtitle burn position (bottom, top, center)")
     .option(
       "--burn-font-size <size>",
@@ -815,6 +828,7 @@ export function createProgram(): Command {
         disableUpdateCheck?: string;
         refine?: string;
         diarize?: string;
+        autoContext?: string;
         maxLength?: string;
         burnPosition?: string;
         burnFontSize?: string;
@@ -844,6 +858,11 @@ export function createProgram(): Command {
 
         const refineVal = parseBooleanSetting(options.refine);
         const diarizeVal = parseBooleanSetting(options.diarize);
+        const autoContextVal = parseBooleanSetting(options.autoContext);
+        if (options.autoContext !== undefined && autoContextVal === undefined) {
+          console.error(pc.red(`\n✖ ${m.invalidAutoContext(options.autoContext)}\n`));
+          return process.exit(1);
+        }
         if (options.diarize !== undefined && diarizeVal === undefined) {
           console.error(pc.red(`\n✖ ${m.invalidDiarize(options.diarize)}\n`));
           return process.exit(1);
@@ -954,6 +973,7 @@ export function createProgram(): Command {
           disableUpdateCheckVal === undefined &&
           refineVal === undefined &&
           diarizeVal === undefined &&
+          autoContextVal === undefined &&
           maxLengthNum === undefined &&
           burnPositionVal === undefined &&
           burnFontSizeVal === undefined
@@ -969,6 +989,7 @@ export function createProgram(): Command {
               ...(normalizedLang ? { lang: normalizedLang } : {}),
               ...(refineVal !== undefined ? { refine: refineVal } : {}),
               ...(diarizeVal !== undefined ? { diarize: diarizeVal } : {}),
+              ...(autoContextVal !== undefined ? { autoContext: autoContextVal } : {}),
               ...(targetLangVal !== undefined ? { targetLang: targetLangVal } : {}),
               ...(options.groqKey ? { groqApiKey: options.groqKey.trim() } : {}),
               ...(options.geminiKey ? { geminiApiKey: options.geminiKey.trim() } : {}),

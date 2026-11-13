@@ -20,6 +20,7 @@ import {
   type AppConfig,
   ensureApiKeys,
   getConfig,
+  resolveAutoContext,
   resolveDiarize,
   resolveRefine,
   resolveReflowLimits,
@@ -217,6 +218,7 @@ export function findOutputPathConflict(
 }
 
 export interface ProcessMediaOptions {
+  autoContext?: boolean | undefined;
   diarize?: boolean | undefined;
   mediaFile: string;
   targetLang?: string | undefined;
@@ -822,6 +824,7 @@ export async function processMediaPipeline(
       cacheDir: options.cacheDir,
       prompt: translationPrompt,
       contextNotes: contextNotes?.text,
+      autoContext: resolveAutoContext(options.autoContext, rawConfig.autoContext),
       glossaryInput,
       contextWindowSize: resolvedContextWindow,
       concurrency: resolvedConcurrency,

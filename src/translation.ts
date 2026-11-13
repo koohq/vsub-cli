@@ -1,10 +1,14 @@
 import {
+  createCachedSceneNotes,
   createCachedTranslation,
   createPartialTranslation,
+  type GeneratedCacheContext,
   getPartialTranslationChunks,
+  isSceneNotesCacheValid,
   isTranslationCacheValid,
   loadMediaCache,
   type MediaCacheData,
+  saveSceneNotesCache,
   saveTranslationCache,
   type TranslationCacheContext,
 } from "./cache.js";
@@ -17,6 +21,8 @@ import { LLM_PROVIDER_LABELS, type LlmProvider } from "./text/providers.js";
 import {
   DEFAULT_CHUNK_SIZE,
   DEFAULT_CONTEXT_WINDOW_SIZE,
+  generateSceneNotes,
+  SCENE_NOTES_PROMPT_ID,
   translateSrtEntries,
 } from "./text/tasks.js";
 import { type ProgressSpinner, showSpinnerNotice } from "./ui.js";
@@ -32,6 +38,7 @@ export interface TranslateToTargetsParams {
   cacheDir?: string | undefined;
   prompt?: string | undefined;
   contextNotes?: string | undefined;
+  autoContext?: boolean | undefined;
   glossaryInput?: string | undefined;
   contextWindowSize: number;
   concurrency?: number | undefined;
@@ -139,7 +146,9 @@ export async function translateToTargets(
   const totalChunks = Math.max(1, Math.ceil(params.sourceEntries.length / DEFAULT_CHUNK_SIZE));
   let totalGlossaryTerms = 0;
   const i18n = getI18n(params.lang);
-  const contextHash = params.contextNotes ? computeContextHash(params.contextNotes) : undefined;
+  if (params.autoContext && params.contextNotes && params.verbose) {
+    console.error("[Context] --auto-context is ignored because --context is given.");
+  }
 
   for (let i = 0; i < params.targetLanguages.length; i++) {
     const targetL = params.targetLanguages[i] ?? "ja";
@@ -159,6 +168,64 @@ export async function translateToTargets(
     }
 
     const providerLabel = LLM_PROVIDER_LABELS[params.llm.provider];
+
+    let contextNotes = params.contextNotes;
+    if (params.autoContext && !contextNotes && params.sourceEntries.length > 0) {
+      const sceneContext: GeneratedCacheContext = {
+        sourceEntries: params.sourceEntries,
+        ...params.llm,
+        prompt: SCENE_NOTES_PROMPT_ID,
+      };
+      const cachedNotes = params.mediaCache?.sceneNotes?.[targetL.toLowerCase()];
+      const label = targetL.toUpperCase();
+      try {
+        if (
+          params.useCache &&
+          !params.noCache &&
+          isSceneNotesCacheValid(cachedNotes, sceneContext) &&
+          cachedNotes
+        ) {
+          contextNotes = cachedNotes.notes;
+          showSpinnerNotice(
+            params.spinner,
+            params.verbose,
+            "info",
+            `${params.prefix}${i18n.pipeline.sceneNotesCached(label, contextNotes.length)}`,
+          );
+        } else {
+          params.spinner.start(`${params.prefix}${i18n.pipeline.sceneNotesCreating(label)}`);
+          textModel ??= await params.getTextModel();
+          contextNotes = await generateSceneNotes(params.sourceEntries, targetL, textModel, {
+            verbose: params.verbose,
+            lang: params.lang,
+          });
+          showSpinnerNotice(
+            params.spinner,
+            params.verbose,
+            "info",
+            `${params.prefix}${i18n.pipeline.sceneNotesCreated(label, contextNotes.length)}`,
+          );
+          if (!params.noCache) {
+            saveSceneNotesCache(
+              params.cacheFilePath,
+              targetL,
+              createCachedSceneNotes(targetL, sceneContext, contextNotes),
+              params.cacheDir,
+            );
+          }
+        }
+        if (params.verbose) console.error(`[Context] Scene notes for ${label}:\n${contextNotes}`);
+      } catch (error) {
+        contextNotes = undefined;
+        showSpinnerNotice(
+          params.spinner,
+          params.verbose,
+          "warn",
+          `${params.prefix}${i18n.pipeline.sceneNotesFailed(label, error instanceof Error ? error.message : String(error))}`,
+        );
+      }
+    }
+    const contextHash = contextNotes ? computeContextHash(contextNotes) : undefined;
 
     const cacheContext: TranslationCacheContext = {
       sourceEntries: params.sourceEntries,
@@ -243,7 +310,7 @@ export async function translateToTargets(
           },
           {
             prompt: params.prompt,
-            contextNotes: params.contextNotes,
+            contextNotes,
             glossary: glossaryMap,
             concurrency: params.concurrency,
             lang: params.lang,

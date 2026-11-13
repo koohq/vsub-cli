@@ -105,6 +105,9 @@ vsub config set --openrouter-key "your_openrouter_key" --gemini-key "your_gemini
 
 # Using Groq instead:
 vsub config set --stt-provider groq --groq-key "your_groq_key" --gemini-key "your_gemini_key"
+
+# Optional: write scene notes for translation by default (main command, batch, and translate):
+vsub config set --auto-context true
 ```
 
 ### Method 2: Environment Variables (`VSUB_` Prefix)
@@ -118,6 +121,9 @@ export VSUB_OPENROUTER_API_KEY="your_openrouter_api_key_here"
 
 # Optional: keep using OpenRouter even when a Gemini key is set:
 # export VSUB_LLM_PROVIDER="openrouter"
+
+# Optional: write scene notes for translation by default (true/false, default: off):
+# export VSUB_AUTO_CONTEXT="true"
 
 # Or for Groq:
 # export VSUB_STT_PROVIDER="groq"
@@ -282,6 +288,8 @@ Options:
   --whisper-prompt <text>       Prompt hint for Groq Whisper speech recognition (Groq and openai-compatible; not sent to OpenRouter)
   --prompt <instruction>        Additional instruction prompt for translation
   --context <text-or-path>      Background notes about the speakers, their relationships, and the setting, as text or a text file path (passed to translation and --refine as context, not as instructions)
+  --auto-context                Have the text generation model write short scene notes (speakers, relationships, politeness) from the whole transcript and pass them to translation, once per target language (default: VSUB_AUTO_CONTEXT, config, or off; ignored when --context is given)
+  --no-auto-context             Do not write scene notes, even if VSUB_AUTO_CONTEXT or the config turns them on
   --glossary <path-or-terms>    Glossary file path (JSON) or inline terms (Key=Val,Key=Val)
   --concurrency <number>        Number of concurrent translation requests (default: 3)
   --gemini-model <model>        Gemini model to use for translation (Gemini provider only)
@@ -361,6 +369,8 @@ vsub batch ./podcasts/ -t ja -o ./subtitles/
 vsub batch ./videos/ --no-recursive --fail-fast
 ```
 
+`vsub batch` accepts `--auto-context` and `--no-auto-context` with the same behavior as the main command.
+
 ### 4. Direct Subtitle Translation (`vsub translate`)
 Translate an existing `.srt` file without needing media files or transcription APIs:
 ```bash
@@ -368,6 +378,7 @@ vsub translate sample.ja.srt -t en -f srt,vtt
 ```
 
 `vsub translate` also accepts `--context <text-or-path>` (background notes about the speakers and the setting; see [Background Notes about Speakers and the Setting](#background-notes-about-speakers-and-the-setting)).
+It also accepts `--auto-context` and `--no-auto-context` to enable or disable automatic scene notes.
 
 ### 5. Video Subtitle Hardsub / Burn-in (`--burn` & `vsub burn`)
 Bake subtitles directly into an `.mp4` video with FFmpeg:
@@ -453,6 +464,16 @@ Sam speaks politely to Alex. Alex calls Sam by their first name.
 ```
 
 Use `--prompt` for translation instructions and `--context` for background about the speakers, their relationships, and the setting; these notes are passed as context only, not as instructions. Keep the notes short; an existing file is read as UTF-8, otherwise the value is used as inline text. This is separate from `--context-window`, which controls how many preceding subtitle lines are supplied to each translation chunk.
+
+#### Automatic Scene Notes (`--auto-context`)
+
+This is opt-in for the main command, `batch`, and `translate`: use `--auto-context`, `VSUB_AUTO_CONTEXT=true`, or `vsub config set --auto-context true`. `--no-auto-context` overrides the environment and config for one run. Priority is CLI → environment → config → off.
+
+The translation model writes short background notes about speakers, relationships, and politeness from the whole transcript (up to the first 60,000 characters, keeping whole lines). This adds one text generation request per target language; notes are cached and passed to each translation chunk. When `--context` is given, your notes take priority and automatic notes are skipped. Notes can be wrong and can make the translation consistently use the wrong tone. Inspect them with `--verbose`; correct them and pass them through `--context` if needed. They are not used by `--refine`, `chapters`, or `summarize`.
+
+```bash
+vsub talk.mp4 -t ja --auto-context --verbose
+```
 
 #### Speaker Labels (`--diarize`)
 

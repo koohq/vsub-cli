@@ -50,6 +50,7 @@ import * as selectModule from "./text/select.js";
 import {
   DEFAULT_CONTEXT_WINDOW_SIZE,
   generateChapters,
+  generateSceneNotes,
   generateSummary,
   refineSrtEntries,
   translateSrtEntries,
@@ -69,6 +70,7 @@ vi.mock("./text/tasks.js", async (importOriginal) => {
       totalChunks: entries.length === 0 ? 0 : Math.ceil(entries.length / 50),
     })),
     translateSrtEntries: vi.fn().mockImplementation(async (entries: unknown[]) => entries),
+    generateSceneNotes: vi.fn().mockResolvedValue("Scene notes"),
     generateChapters: vi.fn().mockResolvedValue([
       { timestamp: "00:00", seconds: 0, title: "Introduction" },
       { timestamp: "01:23", seconds: 83, title: "Getting Started" },
@@ -4064,6 +4066,39 @@ describe("pipeline.ts", () => {
       vi.spyOn(console, "log").mockImplementation(() => {});
       vi.spyOn(process.stdout, "write").mockReturnValue(true);
     });
+
+    it.each([
+      { saved: true, env: undefined, cli: undefined, enabled: true },
+      { saved: false, env: "true", cli: undefined, enabled: true },
+      { saved: true, env: "true", cli: false, enabled: false },
+    ])(
+      "resolves scene notes after refinement ($saved, $env, $cli)",
+      async ({ saved, env, cli, enabled }) => {
+        saveGlobalConfig({ autoContext: saved });
+        if (env !== undefined) process.env["VSUB_AUTO_CONTEXT"] = env;
+        seedTranscriptionCache();
+        vi.mocked(refineSrtEntries).mockResolvedValueOnce({
+          entries: refinedEntries,
+          fallbackChunks: 0,
+          totalChunks: 1,
+        });
+        await processMediaPipeline({
+          mediaFile,
+          cacheDir,
+          targetLang: "ja",
+          stdout: true,
+          refine: true,
+          autoContext: cli,
+        });
+        expect(generateSceneNotes).toHaveBeenCalledTimes(enabled ? 1 : 0);
+        expect(vi.mocked(refineSrtEntries).mock.calls[0]?.[4]?.contextNotes).toBeUndefined();
+        if (enabled)
+          expect(vi.mocked(generateSceneNotes).mock.calls[0]?.[0]).toEqual(refinedEntries);
+        expect(vi.mocked(translateSrtEntries).mock.calls[0]?.[5]?.contextNotes).toBe(
+          enabled ? "Scene notes" : undefined,
+        );
+      },
+    );
 
     it.each([
       { saved: true, env: undefined, refine: undefined, expected: 1 },

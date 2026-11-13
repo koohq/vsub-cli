@@ -105,6 +105,9 @@ vsub config set --openrouter-key "your_openrouter_key" --gemini-key "your_gemini
 
 # Groq を使う場合:
 vsub config set --stt-provider groq --groq-key "your_groq_key" --gemini-key "your_gemini_key"
+
+# 任意: メイン・batch・translate の翻訳で、場面メモを既定で作る場合:
+vsub config set --auto-context true
 ```
 
 ### 方法 2: 環境変数（`VSUB_` で始まる名前）
@@ -118,6 +121,9 @@ export VSUB_OPENROUTER_API_KEY="your_openrouter_api_key_here"
 
 # 任意: Gemini のキーがあっても OpenRouter を使い続ける場合:
 # export VSUB_LLM_PROVIDER="openrouter"
+
+# 任意: 翻訳の場面メモを既定で作る (true/false、既定は無効):
+# export VSUB_AUTO_CONTEXT="true"
 
 # Groq を使う場合:
 # export VSUB_STT_PROVIDER="groq"
@@ -284,6 +290,8 @@ Options:
   --whisper-prompt <text>       Groq の Whisper に渡す認識のヒント (Groq と openai-compatible のみ。OpenRouter には送らない)
   --prompt <instruction>        翻訳への追加の指示
   --context <text-or-path>      話者・関係・場面の背景メモを文字列またはテキストファイルのパスで指定 (翻訳と --refine に、指示ではなく背景として渡す)
+  --auto-context                文章の生成モデルが字幕全体から話者・関係・丁寧さの短い場面メモを翻訳先ごとに 1 回作り、翻訳に渡す (既定: VSUB_AUTO_CONTEXT、設定ファイル、または無効。--context があれば作らない)
+  --no-auto-context             VSUB_AUTO_CONTEXT や設定ファイルで有効になっていても、場面メモを作らない
   --glossary <path-or-terms>    用語集の JSON ファイルのパス、または直接指定の用語 (Key=Val,Key=Val)
   --concurrency <number>        翻訳のリクエストを同時にいくつ送るか (既定: 3)
   --gemini-model <model>        翻訳に使う Gemini のモデル (提供元が Gemini のときだけ)
@@ -363,6 +371,8 @@ vsub batch ./podcasts/ -t ja -o ./subtitles/
 vsub batch ./videos/ --no-recursive --fail-fast
 ```
 
+`vsub batch` でも、メインと同じ `--auto-context` / `--no-auto-context` を使えます。
+
 ### 4. 既存の字幕の翻訳（`vsub translate`）
 メディアファイルや文字起こし API を使わずに、既存の `.srt` ファイルを翻訳します。
 ```bash
@@ -370,6 +380,7 @@ vsub translate sample.ja.srt -t en -f srt,vtt
 ```
 
 `vsub translate` でも `--context <text-or-path>` で話者や場面の背景メモを渡せます（[話者や場面の背景メモを渡す](#話者や場面の背景メモを渡す)）。
+`--auto-context` / `--no-auto-context` で、自動の場面メモの作成も切り替えられます。
 
 ### 5. 動画への字幕の焼き込み（`--burn` と `vsub burn`）
 FFmpeg で、字幕を焼き込んだ `.mp4` 動画を作ります。
@@ -455,6 +466,16 @@ Sam は Alex に敬語で話す。Alex は Sam を呼び捨てにする。
 ```
 
 `--prompt` には訳し方の指示を、`--context` には話者・関係・場面の背景を書きます（指示としては扱いません）。背景メモは短く書くと効果的で、存在するファイルなら UTF-8 の中身を、そうでなければ指定した文字列を使います。直前の字幕を何行渡すかを決める `--context-window` とは別の指定です。
+
+#### 自動の場面メモ（`--auto-context`）
+
+メイン・`batch`・`translate` で、`--auto-context`、`VSUB_AUTO_CONTEXT=true`、または `vsub config set --auto-context true` を指定すると有効になります。既定では無効です。1 回だけ外すには `--no-auto-context` を使います。優先順位はコマンドライン → 環境変数 → 設定ファイル → 無効です。
+
+翻訳と同じ文章の生成モデルが、字幕の全文（長いときは行の途中を切らず、先頭から 60,000 字まで）から、話者・関係・丁寧さの短いメモを翻訳先ごとに 1 回作り、各まとまりの翻訳に背景として渡します。翻訳先ごとに文章の生成を 1 回ずつ多く使います。メモはキャッシュされます。`--context` があればそちらを使い、自動のメモは作りません。メモは外れることがあり、その場合は訳の口調がそろって外れるおそれがあります。`--verbose` で中身を確かめ、違えば直して `--context` に渡してください。`--refine`・`chapters`・`summarize` には使いません。
+
+```bash
+vsub talk.mp4 -t ja --auto-context --verbose
+```
 
 #### 話者の判別（`--diarize`）
 

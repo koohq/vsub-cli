@@ -79,6 +79,10 @@ export interface CachedSummary {
   createdAt: number;
 }
 
+export interface CachedSceneNotes extends Omit<CachedChapters, "chapters"> {
+  notes: string;
+}
+
 export interface TranscriptionCacheContext {
   diarize?: boolean | undefined;
   provider?: SttProvider | undefined;
@@ -399,7 +403,7 @@ export function isSummaryCacheValid(
 }
 
 function isGeneratedCacheValid(
-  cached: CachedChapters | CachedSummary | undefined,
+  cached: CachedChapters | CachedSummary | CachedSceneNotes | undefined,
   context: GeneratedCacheContext,
 ): boolean {
   return (
@@ -408,11 +412,9 @@ function isGeneratedCacheValid(
   );
 }
 
-function createCachedTextTask<T extends { chapters: ChapterItem[] } | { summary: SummaryResult }>(
-  targetLang: string,
-  context: GeneratedCacheContext,
-  content: T,
-) {
+function createCachedTextTask<
+  T extends { chapters: ChapterItem[] } | { summary: SummaryResult } | { notes: string },
+>(targetLang: string, context: GeneratedCacheContext, content: T) {
   return {
     targetLang,
     provider: context.provider,
@@ -448,6 +450,21 @@ export function createCachedSummary(
   return createCachedTextTask(targetLang, context, { summary });
 }
 
+export function isSceneNotesCacheValid(
+  cached: CachedSceneNotes | undefined,
+  context: GeneratedCacheContext,
+): boolean {
+  return isGeneratedCacheValid(cached, context);
+}
+
+export function createCachedSceneNotes(
+  targetLang: string,
+  context: GeneratedCacheContext,
+  notes: string,
+): CachedSceneNotes {
+  return createCachedTextTask(targetLang, context, { notes });
+}
+
 export interface MediaCacheData {
   version: 2;
   /** Absolute path where the media was last seen (informational; not part of the key). */
@@ -458,6 +475,7 @@ export interface MediaCacheData {
   translations?: Record<string, CachedTranslation> | undefined;
   chapters?: Record<string, CachedChapters> | undefined;
   summaries?: Record<string, CachedSummary> | undefined;
+  sceneNotes?: Record<string, CachedSceneNotes> | undefined;
   createdAt: number;
   updatedAt: number;
 }
@@ -631,6 +649,7 @@ function updateMediaCache(
       translations: existing?.translations,
       chapters: existing?.chapters,
       summaries: existing?.summaries,
+      sceneNotes: existing?.sceneNotes,
       ...patch,
       createdAt: existing?.createdAt ?? now,
       updatedAt: now,
@@ -698,6 +717,19 @@ export function saveChaptersCache(
     const chapters = existing?.chapters ?? {};
     chapters[targetLang.toLowerCase()] = chaptersData;
     return { chapters };
+  });
+}
+
+export function saveSceneNotesCache(
+  filePath: string,
+  targetLang: string,
+  cached: CachedSceneNotes,
+  customCacheDir?: string,
+): void {
+  updateMediaCache(filePath, customCacheDir, (existing) => {
+    const sceneNotes = existing?.sceneNotes ?? {};
+    sceneNotes[targetLang.toLowerCase()] = cached;
+    return { sceneNotes };
   });
 }
 

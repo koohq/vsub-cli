@@ -55,6 +55,13 @@ export const ja: typeof en = {
     skippedBadge: "(スキップ)",
   },
   pipeline: {
+    sceneNotesCreating: (lang: string) => `${lang} の場面メモを作っています...`,
+    sceneNotesCreated: (lang: string, chars: number) =>
+      `${lang} の場面メモを作りました（${chars} 字）`,
+    sceneNotesCached: (lang: string, chars: number) =>
+      `${lang} の場面メモ: キャッシュを使います（${chars} 字）`,
+    sceneNotesFailed: (lang: string, reason: string) =>
+      `${lang} の場面メモを作れませんでした。メモなしで翻訳します（${reason}）`,
     diarizeUnsupported: (model: string) =>
       `話者の判別（--diarize）は、OpenRouter の elevenlabs/scribe のモデルにだけ頼みます。「${model}」には頼みません。`,
     translationSaved: (lang: string, saved: number, total: number) =>
@@ -375,6 +382,7 @@ export const ja: typeof en = {
       textGeneration: "文章の生成",
       refine: "文字起こしの修正",
       diarize: "話者の判別",
+      autoContext: "自動の場面メモ",
       ffmpegPath: "FFmpeg のパス",
       whisperPrompt: "認識ヒント",
       prompt: "翻訳指示",
@@ -409,6 +417,8 @@ export const ja: typeof en = {
       `${flag} の URL が正しくありません: "${value}"。${example} のような http:// か https:// の URL を指定してください。`,
     invalidDiarize: (value: string) =>
       `--diarize の値が正しくありません: "${value}"。true か false を指定してください。`,
+    invalidAutoContext: (value: string) =>
+      `--auto-context の値が正しくありません: "${value}"。true か false を指定してください。`,
     invalidRefine: (value: string) =>
       `--refine の値が正しくありません: "${value}"。true か false を指定してください。`,
     setSaved: (path: string) => `✅ 設定を保存しました: ${path}`,

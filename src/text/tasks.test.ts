@@ -6,11 +6,14 @@ import type { TextModel } from "./model.js";
 import {
   asyncPool,
   buildRefinePrompt,
+  buildSceneNotesPrompt,
   buildTranslationPrompt,
   DEFAULT_CONTEXT_WINDOW_SIZE,
   generateChapters,
+  generateSceneNotes,
   generateSummary,
   refineSrtEntries,
+  SCENE_NOTES_MAX_INPUT_CHARS,
   translateSrtEntries,
 } from "./tasks.js";
 
@@ -54,6 +57,60 @@ vi.mock("@google/genai", () => {
 });
 
 describe("src/text/tasks.ts", () => {
+  it("builds numbered scene notes without timestamps or speaker labels", () => {
+    const entries = makeEntries(1).map((entry) => ({
+      ...entry,
+      text: "Hello\r\nthere",
+      speaker: "speaker_0",
+    }));
+    const prompt = buildSceneNotesPrompt(entries, "ja");
+    expect(prompt).toContain("Write the notes in Japanese, 2 to 4 sentences, under 200 characters");
+    expect(prompt).toContain("do not judge politeness from friendliness alone");
+    expect(prompt).toContain("do not add a character count");
+    expect(prompt).toContain('Return ONLY a JSON object with one field, "notes"');
+    expect(prompt).toContain("TRANSCRIPT:\n1: Hello there");
+    expect(prompt).not.toContain("speaker_0");
+    expect(prompt).not.toContain("00:00:");
+  });
+
+  it("limits scene notes input at whole line boundaries including separators", () => {
+    const entries = makeEntries(3);
+    const first = entries[0];
+    if (!first) throw new Error("Missing first entry");
+    first.text = "a".repeat(SCENE_NOTES_MAX_INPUT_CHARS - 3);
+    const prompt = buildSceneNotesPrompt(entries, "ko");
+    expect(prompt).toContain("TRANSCRIPT (the first 1 of 3 lines):\n1: ");
+    expect(prompt).not.toContain("2: Original");
+    expect(buildSceneNotesPrompt(entries.slice(0, 1), "ja")).toContain("TRANSCRIPT:\n");
+  });
+
+  it.each(["（168字）", "(168 characters)", "（ 168 文字 ）", "(168 chars)", ""])(
+    "cleans the scene notes suffix %s",
+    async (suffix) => {
+      mockGenerateContent.mockResolvedValue({
+        text: JSON.stringify({ notes: `  Notes. ${suffix}  ` }),
+      });
+      expect(await generateSceneNotes(makeEntries(1), "ja", defaultModel)).toBe("Notes.");
+    },
+  );
+
+  it.each([{}, { notes: 1 }, { notes: "  " }, { notes: "（168字）" }])(
+    "rejects invalid scene notes %j after retrying",
+    async (value) => {
+      vi.useFakeTimers();
+      try {
+        mockGenerateContent.mockResolvedValue({ text: JSON.stringify(value) });
+        const result = expect(
+          generateSceneNotes(makeEntries(1), "ja", defaultModel),
+        ).rejects.toThrow();
+        await vi.runAllTimersAsync();
+        await result;
+        expect(mockGenerateContent).toHaveBeenCalledTimes(4);
+      } finally {
+        vi.useRealTimers();
+      }
+    },
+  );
   it("passes speakers only to translation, including preceding context, and preserves them", async () => {
     const entries = makeEntries(51).map((entry, i) =>
       i === 49 ? { ...entry, speaker: "speaker_0" } : entry,

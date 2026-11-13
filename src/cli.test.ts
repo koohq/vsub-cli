@@ -24,7 +24,11 @@ import {
 import * as safetyModule from "./safety.js";
 import { parseSrt, reflowSrtEntries, stringifySrt } from "./srt.js";
 import { isolateConfigAndEnv } from "./test-support/isolate-config-env.js";
-import { DEFAULT_CONTEXT_WINDOW_SIZE, translateSrtEntries } from "./text/tasks.js";
+import {
+  DEFAULT_CONTEXT_WINDOW_SIZE,
+  generateSceneNotes,
+  translateSrtEntries,
+} from "./text/tasks.js";
 import { getTranslationResumeHint, TranslationStoppedError } from "./translation.js";
 import * as ui from "./ui.js";
 import { notifyUpdateIfAvailable } from "./updater.js";
@@ -65,6 +69,7 @@ vi.mock("./text/tasks.js", async (importOriginal) => {
   return {
     ...actual,
     translateSrtEntries: vi.fn().mockImplementation(async (entries: unknown[]) => entries),
+    generateSceneNotes: vi.fn().mockResolvedValue("Scene notes"),
   };
 });
 
@@ -173,6 +178,36 @@ describe("CLI integration harness", () => {
     const program = createProgram();
     await program.parseAsync(["node", "vsub", ...args]);
   }
+
+  it.each(["main", "batch", "translate"])("forwards scene flags for %s", async (name) => {
+    const cmd =
+      name === "main" ? createProgram() : createProgram().commands.find((c) => c.name() === name);
+    expect(cmd?.options.some((o) => o.long === "--auto-context")).toBe(true);
+    expect(cmd?.options.some((o) => o.long === "--no-auto-context")).toBe(true);
+    for (const enabled of [true, false]) {
+      vi.clearAllMocks();
+      const args =
+        name === "main"
+          ? [dummyVideoPath]
+          : name === "batch"
+            ? ["batch", "videos"]
+            : ["translate", dummySrtPath, "--stdout"];
+      await runCli(...args, enabled ? "--auto-context" : "--no-auto-context");
+      if (name === "translate") expect(generateSceneNotes).toHaveBeenCalledTimes(enabled ? 1 : 0);
+      else
+        expect(
+          vi.mocked(name === "main" ? processMediaPipeline : runBatchPipeline).mock.calls[0]?.[0],
+        ).toMatchObject({ autoContext: enabled });
+      expect(exitSpy).not.toHaveBeenCalled();
+    }
+  });
+  it.each(["chapters", "summarize"])("omits scene flags for %s", (name) => {
+    expect(
+      createProgram()
+        .commands.find((c) => c.name() === name)
+        ?.options.some((o) => o.long?.includes("auto-context")),
+    ).toBe(false);
+  });
 
   describe.each([
     { command: "main", args: ["video.mp4"], run: () => processMediaPipeline },
@@ -2091,7 +2126,7 @@ describe("CLI integration harness", () => {
           const rows: string[] = logSpy.mock.calls
             .map(([text]: unknown[]) => stripVTControlCharacters(String(text)))
             .filter((line: string) => line.includes(":") && !line.includes("Config File:"));
-          expect(rows.length).toBe(withOptional ? 22 : 11);
+          expect(rows.length).toBe(withOptional ? 23 : 12);
           expect(rows.map((line) => ui.displayWidth(line.slice(0, line.indexOf(":"))))).toEqual(
             rows.map(
               () => (withOptional ? "OpenRouter STT Model" : "OpenRouter API Key").length + 1,
@@ -2213,6 +2248,27 @@ describe("CLI integration harness", () => {
       fs.mkdirSync(path.dirname(configPath), { recursive: true });
       fs.writeFileSync(configPath, JSON.stringify(config), "utf8");
     }
+
+    it.each(["true", "false"])("saves scene notes default %s", async (value) => {
+      placeConfig({});
+      await runCli("config", "set", "--auto-context", value);
+      expect(JSON.parse(fs.readFileSync(configPath, "utf8"))).toEqual({
+        autoContext: value === "true",
+      });
+    });
+    it.each(["en", "ja"] as const)("validates and displays scene notes in %s", async (lang) => {
+      placeConfig({ lang, autoContext: true });
+      await runCli("config", "set", "--auto-context", "yes", "--prompt", "Changed");
+      expect(exitSpy).toHaveBeenCalledWith(1);
+      expect(stripVTControlCharacters(errorSpy.mock.calls.flat().join("\n"))).toContain(
+        getI18n(lang).config.invalidAutoContext("yes"),
+      );
+      expect(JSON.parse(fs.readFileSync(configPath, "utf8"))).toEqual({ lang, autoContext: true });
+      await runCli("config", "show");
+      expect(stripVTControlCharacters(logSpy.mock.calls.flat().join("\n"))).toContain(
+        getI18n(lang).config.showLabels.autoContext,
+      );
+    });
 
     it.each(["true", "false"])("saves speaker default %s without other options", async (value) => {
       placeConfig({ prompt: "test prompt" });

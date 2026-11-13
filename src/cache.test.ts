@@ -11,6 +11,7 @@ import {
   computeEntriesHash,
   createCachedChapters,
   createCachedRefinement,
+  createCachedSceneNotes,
   createCachedSummary,
   createCachedTranscription,
   createCachedTranslation,
@@ -22,6 +23,7 @@ import {
   getPartialTranslationChunks,
   isChaptersCacheValid,
   isRefinementCacheValid,
+  isSceneNotesCacheValid,
   isSummaryCacheValid,
   isTranscriptionCacheValid,
   isTranslationCacheValid,
@@ -29,6 +31,7 @@ import {
   type RefinementCacheContext,
   saveChaptersCache,
   saveRefinementCache,
+  saveSceneNotesCache,
   saveSummaryCache,
   saveTranscriptionCache,
   saveTranslationCache,
@@ -42,6 +45,47 @@ import { DEFAULT_CONTEXT_WINDOW_SIZE } from "./text/tasks.js";
 import { DEFAULT_OPENROUTER_STT_MODEL } from "./transcribe/openrouter.js";
 
 describe("cache module", () => {
+  it("stores scene notes per language and preserves them through other cache writes", () => {
+    const context: GeneratedCacheContext = {
+      sourceEntries: [{ id: 1, startTime: "00:00:00,000", endTime: "00:00:01,000", text: "Hello" }],
+      provider: "openai-compatible",
+      model: "test-model",
+      baseUrl: "https://example.invalid/v1",
+      prompt: "scene-notes/1",
+    };
+    const cached = createCachedSceneNotes("ja", context, "Notes");
+    expect(cached).toMatchObject({
+      targetLang: "ja",
+      notes: "Notes",
+      prompt: context.prompt,
+      sourceHash: computeEntriesHash(context.sourceEntries),
+    });
+    expect(isSceneNotesCacheValid(cached, context)).toBe(true);
+    for (const change of [
+      { sourceEntries: [] },
+      { provider: "gemini" as const },
+      { model: "other" },
+      { prompt: "scene-notes/2" },
+      { baseUrl: "https://other.invalid/v1" },
+    ])
+      expect(isSceneNotesCacheValid(cached, { ...context, ...change })).toBe(false);
+    expect(isSceneNotesCacheValid(undefined, context)).toBe(false);
+    saveSceneNotesCache(testMediaFile, "JA", cached, customCacheDir);
+    saveSceneNotesCache(
+      testMediaFile,
+      "KO",
+      createCachedSceneNotes("ko", context, "Other"),
+      customCacheDir,
+    );
+    saveChaptersCache(testMediaFile, "ja", createCachedChapters("ja", context, []), customCacheDir);
+    const saved = loadMediaCache(testMediaFile, customCacheDir);
+    expect(saved?.sceneNotes).toEqual({
+      ja: cached,
+      ko: expect.objectContaining({ notes: "Other" }),
+    });
+    expect(saved?.chapters?.["ja"]).toBeDefined();
+    expect(saved?.version).toBe(2);
+  });
   it("matches diarize symmetrically while preserving legacy hashes and cache shape", () => {
     const entry = { id: 1, startTime: "00:00:00,000", endTime: "00:00:01,000", text: "Hello" };
     const old = createCachedTranscription({}, [entry]);

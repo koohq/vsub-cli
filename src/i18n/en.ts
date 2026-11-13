@@ -53,6 +53,13 @@ export const en = {
     skippedBadge: "(skipped)",
   },
   pipeline: {
+    sceneNotesCreating: (lang: string) => `Writing scene notes for ${lang}...`,
+    sceneNotesCreated: (lang: string, chars: number) =>
+      `Scene notes for ${lang}: written (${chars} chars)`,
+    sceneNotesCached: (lang: string, chars: number) =>
+      `Scene notes for ${lang}: using cache (${chars} chars)`,
+    sceneNotesFailed: (lang: string, reason: string) =>
+      `Could not write scene notes for ${lang}; translating without them (${reason})`,
     diarizeUnsupported: (model: string) =>
       `Speaker labels (--diarize) are only requested from OpenRouter's elevenlabs/scribe models; not requested for "${model}".`,
     translationSaved: (lang: string, saved: number, total: number) =>
@@ -373,6 +380,7 @@ export const en = {
       textGeneration: "Text Generation",
       refine: "Refine Transcript",
       diarize: "Speaker Labels",
+      autoContext: "Auto Scene Notes",
       ffmpegPath: "FFmpeg Path",
       whisperPrompt: "Whisper Prompt",
       prompt: "Translate Prompt",
@@ -408,6 +416,8 @@ export const en = {
     invalidRefine: (value: string) => `Invalid value for --refine: "${value}". Use true or false.`,
     invalidDiarize: (value: string) =>
       `Invalid value for --diarize: "${value}". Use true or false.`,
+    invalidAutoContext: (value: string) =>
+      `Invalid value for --auto-context: "${value}". Use true or false.`,
     setSaved: (path: string) => `✅ Configuration updated and saved: ${path}`,
     missingKeysHeader: "\n🔑 API keys missing. Starting interactive setup.",
     requiredKeysMissing: (items: string[]) =>

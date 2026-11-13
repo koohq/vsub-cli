@@ -2,7 +2,7 @@ import fs from "node:fs";
 import path from "node:path";
 import pc from "picocolors";
 import { loadMediaCache } from "./cache.js";
-import { ensureApiKeys, getConfig, resolveReflowLimits } from "./config.js";
+import { ensureApiKeys, getConfig, resolveAutoContext, resolveReflowLimits } from "./config.js";
 import { resolveContextNotes } from "./context-notes.js";
 import { formatEntries, parseOutputFormats } from "./formatter.js";
 import { DEFAULT_LANGUAGE, getI18n, normalizeLanguage } from "./i18n/index.js";
@@ -22,6 +22,7 @@ import { createSpinner, formatSummaryBox, showSpinnerNotice } from "./ui.js";
 import { notifyUpdateIfAvailable } from "./updater.js";
 
 export interface TranslateCommandOptions {
+  autoContext?: boolean | undefined;
   targetLang?: string | undefined;
   format: string;
   output?: string | undefined;
@@ -224,6 +225,7 @@ export async function runTranslateCommand(
       cacheDir: options.cacheDir,
       prompt: translationPrompt,
       contextNotes: contextNotes?.text,
+      autoContext: resolveAutoContext(options.autoContext, rawConfig.autoContext),
       glossaryInput,
       contextWindowSize: resolvedContextWindow,
       concurrency: resolvedConcurrency,

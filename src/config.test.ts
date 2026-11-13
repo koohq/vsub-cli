@@ -7,6 +7,7 @@ import {
   getGlobalConfigPath,
   parseBooleanSetting,
   parsePositiveInteger,
+  resolveAutoContext,
   resolveDiarize,
   resolveRefine,
   resolveReflowLimits,
@@ -29,6 +30,27 @@ vi.mock("node:fs", async (importOriginal) => {
 });
 
 describe("config.ts", () => {
+  it.each([
+    [true, undefined, true],
+    [false, "true", true],
+    [true, "false", false],
+    [true, "invalid", true],
+    ["true", undefined, undefined],
+    [undefined, undefined, undefined],
+  ])("resolves auto context config %s and env %s", (saved, env, expected) => {
+    vi.mocked(fs.existsSync).mockReturnValue(true);
+    vi.mocked(fs.readFileSync).mockReturnValue(JSON.stringify({ autoContext: saved }));
+    vi.stubEnv("VSUB_AUTO_CONTEXT", env === undefined ? undefined : String(env));
+    expect(getConfig().autoContext).toBe(expected);
+  });
+  it.each([
+    [true, false, true],
+    [false, true, false],
+    [undefined, true, true],
+    [undefined, undefined, false],
+  ])("resolves auto context CLI %s before config %s", (cli, config, expected) => {
+    expect(resolveAutoContext(cli, config)).toBe(expected);
+  });
   it.each([
     [true, false, true],
     [false, true, false],

@@ -6,11 +6,86 @@ import {
 } from "../formatter.js";
 import { type FlatGlossary, formatGlossaryPrompt } from "../glossary.js";
 import type { SupportedLanguage } from "../i18n/index.js";
+import { getLanguageDisplayName } from "../languages.js";
 import type { SrtEntry } from "../srt.js";
 import { generateJsonWithRetry, type JsonSchema, type TextModel } from "./model.js";
 
 export const DEFAULT_CHUNK_SIZE = 50;
 export const DEFAULT_CONTEXT_WINDOW_SIZE = 5;
+
+export const SCENE_NOTES_PROMPT_ID = "scene-notes/1";
+export const SCENE_NOTES_MAX_INPUT_CHARS = 60_000;
+
+export function buildSceneNotesPrompt(entries: SrtEntry[], targetLang: string): string {
+  const language = getLanguageDisplayName(targetLang);
+  const lines: string[] = [];
+  let chars = 0;
+  for (const entry of entries) {
+    const line = `${entry.id}: ${entry.text.replace(/\r\n|[\r\n]/gu, " ")}`;
+    const length = line.length + (lines.length > 0 ? 1 : 0);
+    if (chars + length > SCENE_NOTES_MAX_INPUT_CHARS) break;
+    lines.push(line);
+    chars += length;
+  }
+  const heading =
+    lines.length === entries.length
+      ? "TRANSCRIPT:"
+      : `TRANSCRIPT (the first ${lines.length} of ${entries.length} lines):`;
+  return `You will read the full transcript of a video (subtitle lines, numbered). A translator will translate it into ${language} in small chunks and cannot see the whole transcript at once. Write short background notes that help them keep the tone consistent across chunks.
+
+Write the notes in ${language}, 2 to 4 sentences, under 200 characters in total. Cover:
+- who speaks (names as they would be written in ${language}),
+- how they relate to each other,
+- how politely each person would speak to each of the others in ${language}.
+
+Decide politeness from cues across the whole conversation: titles and honorifics in the original (Mr., Ms., sir), mentions of age, school, work, or retirement, and roles such as staff and customer. In ${language}, people who are close may still speak politely to someone much older or of higher status, so do not judge politeness from friendliness alone.
+
+Only state what the transcript supports. Describe age or status only as a relative difference that the transcript clearly shows (for example, "much older"); do not give exact ages. Do not summarize the plot, do not list words, do not write instructions, and do not add a character count.
+
+Return ONLY a JSON object with one field, "notes", that holds the notes.
+
+${heading}
+${lines.join("\n")}`;
+}
+
+export async function generateSceneNotes(
+  entries: SrtEntry[],
+  targetLang: string,
+  model: TextModel,
+  options?: { verbose?: boolean | undefined; lang?: SupportedLanguage | undefined },
+): Promise<string> {
+  return generateJsonWithRetry(
+    model,
+    {
+      prompt: buildSceneNotesPrompt(entries, targetLang),
+      schemaName: "scene_notes",
+      schema: {
+        type: "object",
+        properties: {
+          notes: { type: "string", description: "Short background notes in the target language" },
+        },
+        required: ["notes"],
+      },
+    },
+    (value) => {
+      if (
+        !value ||
+        typeof value !== "object" ||
+        !("notes" in value) ||
+        typeof value.notes !== "string"
+      ) {
+        throw new Error("Invalid scene notes: expected a notes string");
+      }
+      const notes = value.notes
+        .trim()
+        .replace(/\s*[（(]\s*\d+\s*(?:字|文字|characters?|chars?)\s*[）)]\s*$/u, "")
+        .trim();
+      if (!notes) throw new Error("Invalid scene notes: notes are empty");
+      return notes;
+    },
+    { ...options, task: "scene notes" },
+  );
+}
 
 interface TextItem {
   speaker?: string | undefined;
