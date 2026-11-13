@@ -107,6 +107,12 @@ export const en = {
     step2NoEntries: "⚠️ [2/4] No valid subtitle entries detected from transcription result",
     step2Done: (lang: string, count: number) =>
       `🎙️ [2/4] Transcription complete${lang} - generated ${count} subtitle lines`,
+    textTaskRefining: (provider: string, model: string, current: number, total: number) =>
+      `Refining transcript via ${provider} (${model}) [${current}/${total} chunks]...`,
+    textTaskRefined: (changed: number, total: number, cached = false) =>
+      `Transcript refined - ${changed}/${total} lines changed${cached ? " [⚡ Cached]" : ""}`,
+    textTaskRefineFallbackWarn: (fallbackChunks: number, totalChunks: number) =>
+      `Refinement kept the original text for ${fallbackChunks}/${totalChunks} chunks (the model's answer did not match the input lines)`,
     step2Refining: (provider: string, model: string, current: number, total: number) =>
       `✍️ [2/4] Refining transcript via ${provider} (${model}) [${current}/${total} chunks]...`,
     step2Refined: (changed: number, total: number, cached = false) =>
@@ -164,6 +170,12 @@ export const en = {
   },
 
   translate: {
+    step1Refining: (provider: string, model: string, current: number, total: number) =>
+      `✍️ [1/3] Refining subtitle text via ${provider} (${model}) [${current}/${total} chunks]...`,
+    step1Refined: (changed: number, total: number, cached = false) =>
+      `✍️ [1/3] Subtitle text refined - ${changed}/${total} lines changed${cached ? " [⚡ Cached]" : ""}`,
+    step1RefineFallbackWarn: (fallbackChunks: number, totalChunks: number) =>
+      `⚠️ [1/3] Refinement kept the original text for ${fallbackChunks}/${totalChunks} chunks (the model's answer did not match the input lines)`,
     started: (name: string) => `vsub-cli translate - Subtitle translation started: ${name}`,
     step1Parsing: "📖 [1/3] Reading and parsing subtitle file...",
     step1Parsed: (count: number) => `📖 [1/3] Subtitle file parsed - detected ${count} entries`,

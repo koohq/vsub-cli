@@ -9,6 +9,7 @@ import {
   createCachedTranslation,
   getCacheStats,
   loadMediaCache,
+  saveRefinementCache,
   saveTranslationCache,
 } from "./cache.js";
 import { createProgram } from "./cli.js";
@@ -24,9 +25,11 @@ import {
 import * as safetyModule from "./safety.js";
 import { parseSrt, reflowSrtEntries, stringifySrt } from "./srt.js";
 import { isolateConfigAndEnv } from "./test-support/isolate-config-env.js";
+import * as selectModule from "./text/select.js";
 import {
   DEFAULT_CONTEXT_WINDOW_SIZE,
   generateSceneNotes,
+  refineSrtEntries,
   SCENE_NOTES_CANDIDATES,
   translateSrtEntries,
 } from "./text/tasks.js";
@@ -71,6 +74,9 @@ vi.mock("./text/tasks.js", async (importOriginal) => {
     ...actual,
     translateSrtEntries: vi.fn().mockImplementation(async (entries: unknown[]) => entries),
     generateSceneNotes: vi.fn().mockResolvedValue({ notes: "Scene notes", politeness: [] }),
+    refineSrtEntries: vi
+      .fn()
+      .mockImplementation(async (entries) => ({ entries, fallbackChunks: 0, totalChunks: 1 })),
   };
 });
 
@@ -80,6 +86,8 @@ vi.mock("./cache.js", async (importOriginal) => {
     ...actual,
     loadMediaCache: vi.fn().mockReturnValue(null),
     saveTranslationCache: vi.fn(),
+    saveRefinementCache: vi.fn(),
+    saveSceneNotesCache: vi.fn(),
     getCacheStats: vi.fn().mockImplementation((cacheDir?: string) => ({
       cacheDir,
       count: 0,
@@ -1530,7 +1538,206 @@ describe("CLI integration harness", () => {
     });
   });
 
+  describe.each([
+    { name: "chapters", pipeline: processChaptersPipeline },
+    { name: "summarize", pipeline: processSummaryPipeline },
+  ])("$name refinement flags", ({ name, pipeline }) => {
+    it.each([
+      { flags: [], expected: undefined },
+      { flags: ["--refine"], expected: true },
+      { flags: ["--no-refine"], expected: false },
+      { flags: ["--refine", "--no-refine"], expected: false },
+      { flags: ["--no-refine", "--refine"], expected: true },
+    ])("forwards $flags as $expected", async ({ flags, expected }) => {
+      await runCli(name, dummyVideoPath, ...flags);
+      expect(vi.mocked(pipeline).mock.calls[0]?.[0].refine).toBe(expected);
+    });
+  });
+
+  it.each(["translate", "chapters", "summarize", "config"])(
+    "documents refinement in %s help",
+    (name) => {
+      const command = createProgram().commands.find((command) => command.name() === name);
+      const help =
+        name === "config"
+          ? command?.commands.find((command) => command.name() === "set")?.helpInformation()
+          : command?.helpInformation();
+      const text = stripVTControlCharacters(help ?? "").replace(/\s+/g, " ");
+      if (name === "config") {
+        expect(text).toContain(
+          "Refine the transcript with the text generation model by default in the main command, batch, translate, chapters, and summarize (true/false)",
+        );
+      } else {
+        expect(text).toContain(
+          name === "translate"
+            ? "before translation (default: VSUB_REFINE, config, or off; uses --glossary, --prompt, and --context; timing and line count are kept)"
+            : `before ${name === "chapters" ? "generating chapters" : "summarizing"} (default: VSUB_REFINE, config, or off; uses --glossary; timing and line count are kept)`,
+        );
+        expect(text).toContain(
+          name === "translate"
+            ? "Do not refine the subtitle text, even if VSUB_REFINE or the config turns it on"
+            : "Do not refine the transcript, even if VSUB_REFINE or the config turns it on",
+        );
+      }
+    },
+  );
+
   describe("translate flags", () => {
+    describe("translate refinement", () => {
+      const originalEnv = process.env;
+      beforeEach(() => {
+        process.env = { ...originalEnv };
+        isolateConfigAndEnv(tmpDir);
+        vi.mocked(refineSrtEntries).mockImplementation(async (entries) => ({
+          entries: entries.map((entry) => ({ ...entry, text: `Corrected ${entry.text}` })),
+          fallbackChunks: 0,
+          totalChunks: 1,
+        }));
+      });
+
+      afterEach(() => {
+        process.env = originalEnv;
+        vi.mocked(getConfig).mockReturnValue(mockConfig);
+        vi.mocked(loadMediaCache).mockReturnValue(null);
+        vi.restoreAllMocks();
+      });
+
+      it.each([false, true])(
+        "refines before translation, scene notes and bilingual stdout (no reflow: %s)",
+        async (noReflow) => {
+          fs.writeFileSync(
+            dummySrtPath,
+            "1\n00:00:01,000 --> 00:00:06,000\nFirst subtitle sentence. Second subtitle sentence.\n",
+          );
+          const input = fs.readFileSync(dummySrtPath, "utf8");
+          const stdout = vi.spyOn(process.stdout, "write").mockReturnValue(true);
+          const create = vi.spyOn(selectModule, "createTextModel");
+          vi.mocked(translateSrtEntries).mockImplementationOnce(async (entries) =>
+            entries.map((entry) => ({ ...entry, text: "Translated text" })),
+          );
+          const glossary = JSON.stringify({ ja: { World: "世界" }, en: { World: "World" } });
+          await runCli(
+            "translate",
+            dummySrtPath,
+            "--refine",
+            "--stdout",
+            "--bilingual",
+            "--auto-context",
+            "--prompt",
+            " Notes ",
+            "--context",
+            "Background",
+            "--glossary",
+            glossary,
+            "--concurrency",
+            "2",
+            "--max-length",
+            "24",
+            ...(noReflow ? ["--no-reflow"] : []),
+          );
+          expect(exitSpy).not.toHaveBeenCalled();
+          const source = noReflow
+            ? parseSrt(input)
+            : vi.mocked(reflowSrtEntries).mock.results[0]?.value;
+          expect(vi.mocked(refineSrtEntries).mock.calls[0]?.[0]).toEqual(source);
+          expect(vi.mocked(refineSrtEntries).mock.calls[0]?.[4]).toMatchObject({
+            notes: "Notes",
+            contextNotes: "Background",
+            glossary: { World: "世界" },
+            concurrency: 2,
+          });
+          expect(vi.mocked(refineSrtEntries).mock.calls[0]?.[4]?.language).toBeUndefined();
+          const corrected = source.map((entry: ReturnType<typeof parseSrt>[number]) => ({
+            ...entry,
+            text: `Corrected ${entry.text}`,
+          }));
+          expect(vi.mocked(translateSrtEntries).mock.calls[0]?.[0]).toEqual(corrected);
+          expect(create).toHaveBeenCalledTimes(1);
+          const written = stdout.mock.calls.map(([text]) => String(text)).join("");
+          expect(written).toContain(`${corrected[0]?.text}\nTranslated text`);
+          expect(fs.readFileSync(dummySrtPath, "utf8")).toBe(input);
+          vi.mocked(translateSrtEntries).mockImplementationOnce(async (entries) =>
+            entries.map((entry) => ({ ...entry, text: "Translated text" })),
+          );
+          await runCli(
+            "translate",
+            dummySrtPath,
+            "--refine",
+            "--bilingual",
+            "--auto-context",
+            "--no-cache",
+            "--max-length",
+            "24",
+            ...(noReflow ? ["--no-reflow"] : []),
+          );
+          expect(vi.mocked(generateSceneNotes).mock.calls[0]?.[0]).toEqual(corrected);
+          expect(vi.mocked(refineSrtEntries).mock.calls[1]?.[4]?.contextNotes).toBeUndefined();
+          expect(fs.readFileSync(path.join(tmpDir, "sample.ja.bilingual.srt"), "utf8")).toContain(
+            `${corrected[0]?.text}\nTranslated text`,
+          );
+        },
+      );
+
+      it("reuses subtitle refinement cache and reports step one progress", async () => {
+        const create = vi.spyOn(selectModule, "createTextModel");
+        const spinner = ui.createSpinner("", { isSilent: true });
+        const succeed = vi.spyOn(spinner, "succeed");
+        vi.spyOn(ui, "createSpinner").mockReturnValue(spinner);
+        vi.spyOn(process.stdout, "write").mockReturnValue(true);
+        await runCli("translate", dummySrtPath, "--refine", "--stdout");
+        expect(saveRefinementCache).toHaveBeenCalledTimes(1);
+        vi.mocked(loadMediaCache).mockReturnValue({
+          version: 2,
+          mediaPath: "sample.srt",
+          mediaSize: 100,
+          createdAt: 1,
+          updatedAt: 1,
+          refinement: vi.mocked(saveRefinementCache).mock.calls[0]?.[1],
+          translations: {
+            ja: vi.mocked(saveTranslationCache).mock.calls[0]?.[2] as ReturnType<
+              typeof createCachedTranslation
+            >,
+          },
+        });
+        await runCli("translate", dummySrtPath, "--refine", "--stdout");
+        expect(refineSrtEntries).toHaveBeenCalledTimes(1);
+        expect(create).toHaveBeenCalledTimes(1);
+        expect(translateSrtEntries).toHaveBeenCalledTimes(1);
+        expect(
+          succeed.mock.calls.map(([text]) => stripVTControlCharacters(String(text))),
+        ).toContain("✍️ [1/3] Subtitle text refined - 2/2 lines changed [⚡ Cached]");
+      });
+
+      it.each([
+        { config: false, env: undefined, flags: [], expected: 0 },
+        { config: true, env: undefined, flags: [], expected: 1 },
+        { config: false, env: "1", flags: [], expected: 1 },
+        { config: true, env: "1", flags: ["--no-refine"], expected: 0 },
+        { config: false, env: undefined, flags: ["--no-refine", "--refine"], expected: 1 },
+      ])(
+        "resolves refine config $config env $env flags $flags",
+        async ({ config, env, flags, expected }) => {
+          const actual = await vi.importActual<typeof import("./config.js")>("./config.js");
+          actual.saveGlobalConfig({ refine: config, prompt: "Saved instructions" });
+          if (env !== undefined) process.env["VSUB_REFINE"] = env;
+          const resolved = actual.getConfig();
+          vi.mocked(getConfig).mockReturnValue({
+            ...mockConfig,
+            refine: resolved.refine,
+            prompt: resolved.prompt,
+          });
+          await runCli("translate", dummySrtPath, "--no-cache", ...flags);
+          expect(refineSrtEntries).toHaveBeenCalledTimes(expected);
+          expect(saveRefinementCache).not.toHaveBeenCalled();
+          if (expected)
+            expect(vi.mocked(refineSrtEntries).mock.calls[0]?.[4]?.notes).toBe(
+              "Saved instructions",
+            );
+          expect(exitSpy).not.toHaveBeenCalled();
+        },
+      );
+    });
+
     describe.each([
       {
         flag: "--no-cache",
@@ -2757,7 +2964,7 @@ describe("CLI integration harness", () => {
         },
         expectedPhrases: [
           "transcript refinement",
-          "--refine <boolean> Refine the transcript with the text generation model by default in the main command and batch (true/false)",
+          "--refine <boolean> Refine the transcript with the text generation model by default in the main command, batch, translate, chapters, and summarize (true/false)",
           "Default translation instruction prompt",
           "Default concurrent translation requests (e.g. 3)",
           "OpenRouter API Key (for transcription and text generation)",

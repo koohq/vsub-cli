@@ -499,6 +499,8 @@ export interface MediaCacheData {
   mediaSize: number;
   transcription?: CachedTranscription | undefined;
   refinement?: CachedRefinement | undefined;
+  /** Raw transcript refinement for chapters/summarize, separate from the main refinement. */
+  textTaskRefinement?: CachedRefinement | undefined;
   translations?: Record<string, CachedTranslation> | undefined;
   chapters?: Record<string, CachedChapters> | undefined;
   summaries?: Record<string, CachedSummary> | undefined;
@@ -673,6 +675,7 @@ function updateMediaCache(
       mediaSize: stat.size,
       transcription: existing?.transcription,
       refinement: existing?.refinement,
+      textTaskRefinement: existing?.textTaskRefinement,
       translations: existing?.translations,
       chapters: existing?.chapters,
       summaries: existing?.summaries,
@@ -709,9 +712,10 @@ export function saveRefinementCache(
   filePath: string,
   refinement: CachedRefinement,
   customCacheDir?: string,
+  cacheSlot: "refinement" | "textTaskRefinement" = "refinement",
 ): void {
   updateMediaCache(filePath, customCacheDir, () => ({
-    refinement,
+    [cacheSlot]: refinement,
   }));
 }
 

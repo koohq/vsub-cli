@@ -382,10 +382,12 @@ vsub batch ./videos/ --no-recursive --fail-fast
 メディアファイルや文字起こし API を使わずに、既存の `.srt` ファイルを翻訳します。
 ```bash
 vsub translate sample.ja.srt -t en -f srt,vtt
+vsub translate video.en.srt -t ja --glossary ./glossary.json --refine
 ```
 
 `vsub translate` でも `--context <text-or-path>` で話者や場面の背景メモを渡せます（[話者や場面の背景メモを渡す](#話者や場面の背景メモを渡す)）。
 `--auto-context` / `--no-auto-context` で、自動の場面メモの作成も切り替えられます。
+`--refine` を付けると翻訳の前に字幕の文字を直します（詳しくは [文字起こしの修正](#12-文字起こしの修正--refine)）。
 
 ### 5. 動画への字幕の焼き込み（`--burn` と `vsub burn`）
 FFmpeg で、字幕を焼き込んだ `.mp4` 動画を作ります。
@@ -503,6 +505,7 @@ vsub talk.mp4 -t ja --diarize --context "speaker_0 は店長のアレックス�
 # YouTube にそのまま使えるチャプターを作る (00:00 タイトルの形式。[名前].chapters.txt に保存)
 vsub chapters video.mp4 -t ja
 vsub chapters video.mp4 -t ja --glossary ./glossary.json
+vsub chapters video.mp4 -t ja --glossary ./glossary.json --refine
 vsub chapters subtitle.srt -f json  # 構造化した JSON 配列で出力する
 
 # 構造化した要約を作る (既定は Markdown。[名前].summary.md に保存)
@@ -511,6 +514,7 @@ vsub summarize interview.srt -f txt # プレーンテキストで出力する
 ```
 
 `--glossary`（省略時は `VSUB_GLOSSARY` または `vsub config set --glossary` で保存した用語集）を出力の言語で読み、章の題と要約の名前・用語の書き方にも使います。Groq では認識のヒントにもなるので、メインのコマンドと同じ `--glossary` を付ければ文字起こしのキャッシュを使い回せます。
+章・要約に `--refine` を付けると、作成の前に文字起こしを直します（詳しくは [文字起こしの修正](#12-文字起こしの修正--refine)）。
 
 ### 10. 標準出力と UNIX パイプでの連携（`--stdout` / `-o -`）
 字幕・テキスト・チャプター・要約を、ファイルに書かずに `stdout` へ直接出力します（進み具合の表示と、`--verbose` のログは `stderr` に出るので、パイプに流れるデータは汚れません）。
@@ -547,7 +551,8 @@ vsub video.mp4 --no-translate --refine
 ```
 * **直すもの**: 同音異義語や漢字の誤変換、聞き違えた固有名詞や専門用語、語の区切りの誤りなど、明らかな音声認識の誤りを直します。
 * **提供元とモデル**: 設定している文章の生成の提供元とモデル（`--llm-provider`、`--llm-model`、`--gemini-model`）を使います。
-* **いつも有効にする**: `vsub config set --refine true` または `VSUB_REFINE=true` で既定を有効にできます。1 回だけ切るには `--no-refine` を付けます。優先順位は `--refine`/`--no-refine` → `VSUB_REFINE` → 設定ファイルです。効くのはメインのコマンドと `vsub batch` だけです。
+* **いつも有効にする**: `vsub config set --refine true` または `VSUB_REFINE=true` で既定を有効にできます。1 回だけ切るには `--no-refine` を付けます。優先順位は `--refine`/`--no-refine` → `VSUB_REFINE` → 設定ファイルです。メインのコマンド・`vsub batch`・`vsub translate`・`vsub chapters`・`vsub summarize` に効きます。
+* **ほかのコマンド**: `vsub translate` は `--glossary`・`--prompt`・`--context` を使い、翻訳の前に字幕ファイルの文字を直します。直した文字は翻訳・自動の場面メモ・`--bilingual` の原文に使い、入力ファイルは書き換えず、修正後の原文ファイルも作りません。`vsub chapters` / `vsub summarize` は用語集だけを使い、章・要約を作る前に文字起こしを直します。直した文は章・要約の入力にだけ使います。修正の結果は、`translate` では字幕ファイルごとに、`chapters` と `summarize` ではメディアごとに 1 つ（2 つで共有、メインの修正とは別）キャッシュします。常時有効にしているときは、これらのコマンドでもキャッシュが外れると修正の分の費用がかかります。
 * **用語集と指示**: `--glossary` と組み合わせるのがいちばん効果的です（用語集がないと、改善はかなり小さくなります）。`--prompt` の指示と `--context` の背景メモも背景の情報として渡します。言語ごとに分けた用語集ファイルでは、最初の翻訳先の言語の表を使って、用語の正しい書き方を伝えます。
 * **時刻と構成は変えない**: 字幕のタイムスタンプ、番号、行数は変わりません。50 行ずつのまとまりのどこかで、モデルの答えが元の行と対応しなかったときは、そのまとまりは元の文章のまま残し、警告を表示します。
 * **できないこと**: **文字起こしで抜け落ちた発話は戻りません。字幕の時刻も直りません。**

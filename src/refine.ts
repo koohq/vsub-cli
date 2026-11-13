@@ -6,7 +6,7 @@ import {
   saveRefinementCache,
 } from "./cache.js";
 import { computeContextHash } from "./context-notes.js";
-import { computeGlossaryHash, parseGlossary } from "./glossary.js";
+import { computeGlossaryHash, type FlatGlossary, parseGlossary } from "./glossary.js";
 import { getI18n, type SupportedLanguage } from "./i18n/index.js";
 import type { SrtEntry } from "./srt.js";
 import type { TextModel } from "./text/model.js";
@@ -22,7 +22,7 @@ export interface RefineSourceEntriesParams {
   sourceEntries: SrtEntry[];
   detectedLanguage?: string | undefined;
   glossaryTargetLang?: string | undefined;
-  /** File the refinement cache belongs to (the media file). */
+  /** Input file the refinement cache belongs to. */
   cacheFilePath: string;
   mediaCache: MediaCacheData | null;
   useCache: boolean; // !noCache && !fresh
@@ -31,6 +31,16 @@ export interface RefineSourceEntriesParams {
   prompt?: string | undefined;
   contextNotes?: string | undefined;
   glossaryInput?: string | undefined;
+  glossary?: FlatGlossary | undefined;
+  cacheSlot?: "refinement" | "textTaskRefinement" | undefined;
+  messages?:
+    | {
+        refining(provider: string, model: string, current: number, total: number): string;
+        refined(changed: number, total: number, cached: boolean): string;
+        fallbackWarn(fallbackChunks: number, totalChunks: number): string;
+      }
+    | undefined;
+  warn?: ((message: string) => void) | undefined;
   concurrency?: number | undefined;
   /** LLM provider and model shown in the spinner and stored in the cache. */
   llm: {
@@ -65,6 +75,50 @@ function countChangedLines(source: SrtEntry[], refined: SrtEntry[]): number {
   return changed;
 }
 
+type RefinementLookupParams = Pick<
+  RefineSourceEntriesParams,
+  | "sourceEntries"
+  | "llm"
+  | "prompt"
+  | "contextNotes"
+  | "glossary"
+  | "glossaryInput"
+  | "glossaryTargetLang"
+  | "lang"
+  | "mediaCache"
+  | "useCache"
+  | "cacheSlot"
+>;
+
+function resolveGlossary(params: RefinementLookupParams): FlatGlossary | undefined {
+  return (
+    params.glossary ??
+    (params.glossaryInput
+      ? parseGlossary(params.glossaryInput, params.glossaryTargetLang, params.lang)
+      : undefined)
+  );
+}
+
+function refinementCacheContext(params: RefinementLookupParams): RefinementCacheContext {
+  const glossary = resolveGlossary(params);
+  return {
+    sourceEntries: params.sourceEntries,
+    ...params.llm,
+    prompt: params.prompt,
+    glossaryHash: glossary ? computeGlossaryHash(glossary) : undefined,
+    contextHash: params.contextNotes ? computeContextHash(params.contextNotes) : undefined,
+  };
+}
+
+/** Looks up corrected entries without creating a model or changing the cache. */
+export function findCachedRefinement(params: RefinementLookupParams): SrtEntry[] | undefined {
+  if (!params.useCache) return undefined;
+  const cached = params.mediaCache?.[params.cacheSlot ?? "refinement"];
+  return cached && isRefinementCacheValid(cached, refinementCacheContext(params))
+    ? cached.entries
+    : undefined;
+}
+
 /**
  * Refines ASR transcript entries before saving original subtitles or translating,
  * using cache when valid and resolving the text model lazily on cache miss.
@@ -83,35 +137,21 @@ export async function refineSourceEntries(
   }
 
   const i18n = getI18n(params.lang);
-  const glossaryMap = params.glossaryInput
-    ? parseGlossary(params.glossaryInput, params.glossaryTargetLang, params.lang)
-    : undefined;
-  const glossaryHash = glossaryMap ? computeGlossaryHash(glossaryMap) : undefined;
-  const contextHash = params.contextNotes ? computeContextHash(params.contextNotes) : undefined;
-
-  const cacheContext: RefinementCacheContext = {
-    sourceEntries: params.sourceEntries,
-    provider: params.llm.provider,
-    baseUrl: params.llm.baseUrl,
-    reasoningEffort: params.llm.reasoningEffort,
-    model: params.llm.model,
-    prompt: params.prompt,
-    glossaryHash,
-    contextHash,
+  const messages = params.messages ?? {
+    refining: i18n.pipeline.step2Refining,
+    refined: i18n.pipeline.step2Refined,
+    fallbackWarn: i18n.pipeline.step2RefineFallbackWarn,
   };
-
-  const cachedRefinement = params.mediaCache?.refinement;
-  if (
-    params.useCache &&
-    cachedRefinement &&
-    isRefinementCacheValid(cachedRefinement, cacheContext)
-  ) {
-    const changedLines = countChangedLines(params.sourceEntries, cachedRefinement.entries);
+  const glossaryMap = resolveGlossary(params);
+  const cacheParams = { ...params, glossary: glossaryMap };
+  const cachedEntries = findCachedRefinement(cacheParams);
+  if (cachedEntries) {
+    const changedLines = countChangedLines(params.sourceEntries, cachedEntries);
     params.spinner.succeed(
-      `${params.prefix}${i18n.pipeline.step2Refined(changedLines, params.sourceEntries.length, true)}`,
+      `${params.prefix}${messages.refined(changedLines, params.sourceEntries.length, true)}`,
     );
     return {
-      entries: cachedRefinement.entries,
+      entries: cachedEntries,
       changedLines,
       totalLines: params.sourceEntries.length,
       cached: true,
@@ -124,7 +164,7 @@ export async function refineSourceEntries(
   const totalChunks = Math.max(1, Math.ceil(params.sourceEntries.length / DEFAULT_CHUNK_SIZE));
 
   params.spinner.start(
-    `${params.prefix}${i18n.pipeline.step2Refining(providerLabel, params.llm.model, 1, totalChunks)}`,
+    `${params.prefix}${messages.refining(providerLabel, params.llm.model, 1, totalChunks)}`,
   );
 
   const refined = await refineSrtEntries(
@@ -133,7 +173,7 @@ export async function refineSourceEntries(
     params.verbose,
     (currentChunk, chunksCount) => {
       params.spinner.updateText(
-        `${params.prefix}${i18n.pipeline.step2Refining(providerLabel, params.llm.model, currentChunk, chunksCount)}`,
+        `${params.prefix}${messages.refining(providerLabel, params.llm.model, currentChunk, chunksCount)}`,
       );
     },
     {
@@ -149,23 +189,21 @@ export async function refineSourceEntries(
   if (!params.noCache && refined.fallbackChunks === 0) {
     saveRefinementCache(
       params.cacheFilePath,
-      createCachedRefinement(cacheContext, refined.entries),
+      createCachedRefinement(refinementCacheContext(cacheParams), refined.entries),
       params.cacheDir,
+      ...(params.cacheSlot ? ([params.cacheSlot] as const) : []),
     );
   }
 
   const changedLines = countChangedLines(params.sourceEntries, refined.entries);
   params.spinner.succeed(
-    `${params.prefix}${i18n.pipeline.step2Refined(changedLines, params.sourceEntries.length, false)}`,
+    `${params.prefix}${messages.refined(changedLines, params.sourceEntries.length, false)}`,
   );
 
   if (refined.fallbackChunks > 0) {
-    showSpinnerNotice(
-      params.spinner,
-      params.verbose,
-      "warn",
-      `${params.prefix}${i18n.pipeline.step2RefineFallbackWarn(refined.fallbackChunks, refined.totalChunks)}`,
-    );
+    const message = `${params.prefix}${messages.fallbackWarn(refined.fallbackChunks, refined.totalChunks)}`;
+    if (params.warn) params.warn(message);
+    else showSpinnerNotice(params.spinner, params.verbose, "warn", message);
   }
 
   return {

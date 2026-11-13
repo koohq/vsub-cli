@@ -380,10 +380,12 @@ vsub batch ./videos/ --no-recursive --fail-fast
 Translate an existing `.srt` file without needing media files or transcription APIs:
 ```bash
 vsub translate sample.ja.srt -t en -f srt,vtt
+vsub translate video.en.srt -t ja --glossary ./glossary.json --refine
 ```
 
 `vsub translate` also accepts `--context <text-or-path>` (background notes about the speakers and the setting; see [Background Notes about Speakers and the Setting](#background-notes-about-speakers-and-the-setting)).
 It also accepts `--auto-context` and `--no-auto-context` to enable or disable automatic scene notes.
+Use `--refine` to correct subtitle text before translation (see [Transcript refinement](#12-transcript-refinement---refine)).
 
 ### 5. Video Subtitle Hardsub / Burn-in (`--burn` & `vsub burn`)
 Bake subtitles directly into an `.mp4` video with FFmpeg:
@@ -500,6 +502,7 @@ Generate YouTube chapters or structured Markdown summaries from any video, audio
 # Generate YouTube-compatible chapters (00:00 Title format, saved to [name].chapters.txt)
 vsub chapters video.mp4 -t ja
 vsub chapters video.mp4 -t ja --glossary ./glossary.json
+vsub chapters video.mp4 -t ja --glossary ./glossary.json --refine
 vsub chapters subtitle.srt -f json  # Output as structured JSON array
 
 # Generate structured executive summary (Markdown by default, saved to [name].summary.md)
@@ -508,6 +511,7 @@ vsub summarize interview.srt -f txt # Output plain text summary
 ```
 
 `--glossary` (or, when omitted, `VSUB_GLOSSARY` or the glossary saved with `vsub config set --glossary`) also controls names and terms in chapter titles and summaries, using the output language's glossary entries. On Groq it also supplies recognition hints, so use the same `--glossary` as the main command to reuse its transcription cache.
+Use `--refine` with chapters or summaries to correct the transcript first (see [Transcript refinement](#12-transcript-refinement---refine)).
 
 ### 10. Standard Output Streaming & UNIX Pipe Integration (`--stdout` / `-o -`)
 Stream subtitles, transcripts, chapters, or summaries directly to `stdout` without writing files to disk (progress spinners and `--verbose` logs are routed to `stderr` so piped data stays clean):
@@ -544,7 +548,8 @@ vsub video.mp4 --no-translate --refine
 ```
 * **What it fixes**: Corrects clear ASR recognition errors such as homophones / wrong kanji, misheard proper nouns and technical terms, and split or merged words.
 * **Provider & model**: Uses your configured text generation provider and model (`--llm-provider`, `--llm-model`, `--gemini-model`).
-* **Enable by default**: Use `vsub config set --refine true` or `VSUB_REFINE=true`; use `--no-refine` to turn it off for one run. Priority is `--refine`/`--no-refine` → `VSUB_REFINE` → the config file. This applies only to the main command and `vsub batch`.
+* **Enable by default**: Use `vsub config set --refine true` or `VSUB_REFINE=true`; use `--no-refine` to turn it off for one run. Priority is `--refine`/`--no-refine` → `VSUB_REFINE` → the config file. This applies to the main command, `vsub batch`, `vsub translate`, `vsub chapters`, and `vsub summarize`.
+* **Other commands**: `vsub translate` corrects subtitle text before translation using `--glossary`, `--prompt`, and `--context`. The corrected text is used for translation, automatic scene notes, and the original side of `--bilingual`; the input file is never rewritten and no corrected source file is created. `vsub chapters` and `vsub summarize` correct the transcript before generation using only the glossary, and use the corrected text only as generation input. Refinement is cached per subtitle file for `translate`, and per media file in one shared slot for `chapters` and `summarize`, separate from the main command's refinement. Enabling refinement by default also incurs refinement costs for these commands when the cache misses.
 * **Glossary & notes**: Works best when paired with `--glossary` (improvements are much smaller without one). Your `--prompt` notes and `--context` background notes are also passed as background context, and when using a language-keyed glossary file, the table for the first target language is used to supply the correct spellings of terms.
 * **Timing & structure guarantees**: Subtitle timestamps, entry IDs, and line counts are never changed. If the model's answer does not match the input lines for any 50-line chunk, vsub keeps the original text for that chunk and prints a warning.
 * **Limitations**: **Speech completely dropped during transcription will not be recovered, and subtitle timing will not be adjusted.**

@@ -241,6 +241,7 @@ function addReflowOptions(command: Command): Command {
 }
 
 interface TextTaskOptionTexts {
+  refine: string;
   targetLang: string;
   format: string;
   defaultFormat: string;
@@ -259,6 +260,11 @@ function addTextTaskOptions(command: Command, texts: TextTaskOptionTexts): Comma
     .option("--stdout", texts.stdout, false)
     .option("--prompt <instruction>", texts.prompt)
     .option("--glossary <path-or-terms>", texts.glossary)
+    .option("--refine", texts.refine)
+    .option(
+      "--no-refine",
+      "Do not refine the transcript, even if VSUB_REFINE or the config turns it on",
+    )
     .option("--gemini-model <model>", texts.geminiModel);
 
   return addLlmProviderOptions(command)
@@ -295,6 +301,7 @@ function addTextTaskOptions(command: Command, texts: TextTaskOptionTexts): Comma
 }
 
 interface TextTaskActionOptions {
+  refine?: boolean | undefined;
   diarize?: boolean | undefined;
   targetLang?: string;
   format?: string;
@@ -335,6 +342,7 @@ function createTextTaskAction<Format>(
       const format = parseFormat(options.format, lang);
       await run({
         inputFile: file,
+        refine: options.refine,
         diarize: options.diarize,
         targetLang: options.targetLang,
         format,
@@ -807,7 +815,7 @@ export function createProgram(): Command {
     .option("--disable-update-check <boolean>", "Disable periodic update checks (true/false)")
     .option(
       "--refine <boolean>",
-      "Refine the transcript with the text generation model by default in the main command and batch (true/false)",
+      "Refine the transcript with the text generation model by default in the main command, batch, translate, chapters, and summarize (true/false)",
     )
     .option(
       "--diarize <boolean>",
@@ -1134,6 +1142,8 @@ export function createProgram(): Command {
     .argument("<file>", "Media file (.mp4, .mp3, etc.) or subtitle file (.srt)");
 
   addTextTaskOptions(chaptersCmd, {
+    refine:
+      "Correct speech recognition errors in the transcript with the text generation model before generating chapters (default: VSUB_REFINE, config, or off; uses --glossary; timing and line count are kept)",
     targetLang:
       "Target language for chapter titles; only the first is used if several are given (default: config or ja)",
     format: "Output format: txt (YouTube format), json, vtt (default: txt)",
@@ -1155,6 +1165,8 @@ export function createProgram(): Command {
     .argument("<file>", "Media file (.mp4, .mp3, etc.) or subtitle file (.srt)");
 
   addTextTaskOptions(summarizeCmd, {
+    refine:
+      "Correct speech recognition errors in the transcript with the text generation model before summarizing (default: VSUB_REFINE, config, or off; uses --glossary; timing and line count are kept)",
     targetLang:
       "Target language for summary; only the first is used if several are given (default: config or ja)",
     format: "Output format: md (Markdown), txt, json (default: md)",
@@ -1198,6 +1210,14 @@ export function createProgram(): Command {
     );
 
   addTranslationOptions(translateCmd)
+    .option(
+      "--refine",
+      "Correct speech recognition errors in the subtitle text with the text generation model before translation (default: VSUB_REFINE, config, or off; uses --glossary, --prompt, and --context; timing and line count are kept)",
+    )
+    .option(
+      "--no-refine",
+      "Do not refine the subtitle text, even if VSUB_REFINE or the config turns it on",
+    )
     .option("--no-cache", "Do not use or save intermediate translation cache")
     .option(
       "--fresh",

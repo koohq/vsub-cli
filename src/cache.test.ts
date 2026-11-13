@@ -1861,5 +1861,54 @@ describe("cache module", () => {
       const loaded = loadMediaCache(testMediaFile, customCacheDir);
       expect(loaded?.refinement).toEqual(refinement);
     });
+
+    it("saves text task refinement without losing any other cache slots", () => {
+      for (const { runSave } of saveCases) runSave();
+      const refinement = createCachedRefinement(baseContext, defaultRefined);
+      saveRefinementCache(testMediaFile, refinement, customCacheDir);
+      saveSceneNotesCache(
+        testMediaFile,
+        "ja",
+        createCachedSceneNotes("ja", baseContext, "Notes"),
+        customCacheDir,
+      );
+      const before = loadMediaCache(testMediaFile, customCacheDir);
+      saveRefinementCache(testMediaFile, refinement, customCacheDir, "textTaskRefinement");
+      const after = loadMediaCache(testMediaFile, customCacheDir);
+      expect(after?.textTaskRefinement).toEqual(refinement);
+      expect({ ...after, textTaskRefinement: undefined, updatedAt: undefined }).toEqual({
+        ...before,
+        textTaskRefinement: undefined,
+        updatedAt: undefined,
+      });
+    });
+
+    it.each([
+      ...saveCases,
+      {
+        name: "saveRefinementCache",
+        runSave: () =>
+          saveRefinementCache(
+            testMediaFile,
+            createCachedRefinement(baseContext, defaultRefined),
+            customCacheDir,
+          ),
+      },
+      {
+        name: "saveSceneNotesCache",
+        runSave: () =>
+          saveSceneNotesCache(
+            testMediaFile,
+            "ja",
+            createCachedSceneNotes("ja", baseContext, "Notes"),
+            customCacheDir,
+          ),
+      },
+    ])("$name preserves text task refinement", ({ runSave }) => {
+      const refinement = createCachedRefinement(baseContext, defaultRefined);
+      saveRefinementCache(testMediaFile, refinement, customCacheDir, "textTaskRefinement");
+      runSave();
+      expect(loadMediaCache(testMediaFile, customCacheDir)?.textTaskRefinement).toEqual(refinement);
+    });
   });
 });

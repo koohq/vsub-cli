@@ -53,7 +53,7 @@ import {
 import { computeGlossaryHash, extractWhisperPromptHints, parseGlossary } from "./glossary.js";
 import { getI18n, type I18nMessages, type SupportedLanguage } from "./i18n/index.js";
 import { getLanguageDisplayName, parseTargetLanguages, resolveTargetLang } from "./languages.js";
-import { refineSourceEntries } from "./refine.js";
+import { findCachedRefinement, refineSourceEntries } from "./refine.js";
 import { type EnsureWritableResult, ensureWritableTargets } from "./safety.js";
 import {
   type BilingualOrder,
@@ -1229,6 +1229,7 @@ export async function resolveTranscriptEntries(
 }
 
 interface TextTaskOptions {
+  refine?: boolean | undefined;
   diarize?: boolean | undefined;
   inputFile: string;
   targetLang?: string | undefined;
@@ -1365,6 +1366,20 @@ async function prepareTextTask<Format extends string>(
 
   const isTranscriptionValid =
     !isSrt && isTranscriptionCacheValid(mediaCache?.transcription, transcriptionContext);
+  const refine = resolveRefine(options.refine, rawConfig.refine);
+  const concurrency = refine ? resolveConcurrency(undefined, rawConfig.concurrency) : undefined;
+  let cachedSourceEntries = isTranscriptionValid ? mediaCache?.transcription?.entries : undefined;
+  if (refine && cachedSourceEntries) {
+    cachedSourceEntries = findCachedRefinement({
+      sourceEntries: cachedSourceEntries,
+      mediaCache,
+      useCache,
+      llm,
+      glossary,
+      cacheSlot: "textTaskRefinement",
+      lang,
+    });
+  }
   function generatedCacheContext(sourceEntries: SrtEntry[]): GeneratedCacheContext {
     return {
       sourceEntries,
@@ -1392,7 +1407,9 @@ async function prepareTextTask<Format extends string>(
     useCache,
     isSrt,
     mediaCache,
-    cachedSourceEntries: isTranscriptionValid ? mediaCache?.transcription?.entries : undefined,
+    refine,
+    concurrency,
+    cachedSourceEntries,
     generatedCacheContext,
   };
 }
@@ -1438,6 +1455,35 @@ async function resolveTextTaskTranscript(
     throw new Error(texts.noEntries);
   }
   spinner.succeed(texts.step1Parsed(transcriptResult.entries.length));
+
+  if (prepared.refine) {
+    const messages = getI18n(lang).pipeline;
+    const refined = await refineSourceEntries({
+      sourceEntries: transcriptResult.entries,
+      detectedLanguage: transcriptResult.detectedLanguage,
+      cacheFilePath: resolvedInput,
+      mediaCache: prepared.mediaCache,
+      useCache: prepared.useCache,
+      noCache: Boolean(options.noCache) || prepared.isSrt,
+      cacheDir: options.cacheDir,
+      glossary: prepared.glossary,
+      concurrency: prepared.concurrency,
+      llm,
+      getTextModel: async () => textModel,
+      cacheSlot: "textTaskRefinement",
+      messages: {
+        refining: messages.textTaskRefining,
+        refined: messages.textTaskRefined,
+        fallbackWarn: messages.textTaskRefineFallbackWarn,
+      },
+      warn: (message) => warnTextTask(spinner, prepared.isStdout || verbose, message),
+      spinner,
+      prefix: "",
+      verbose,
+      lang,
+    });
+    transcriptResult.entries = refined.entries;
+  }
 
   return { textModel, transcriptResult };
 }

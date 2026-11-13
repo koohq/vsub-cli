@@ -2,14 +2,22 @@ import fs from "node:fs";
 import path from "node:path";
 import pc from "picocolors";
 import { loadMediaCache } from "./cache.js";
-import { ensureApiKeys, getConfig, resolveAutoContext, resolveReflowLimits } from "./config.js";
+import {
+  ensureApiKeys,
+  getConfig,
+  resolveAutoContext,
+  resolveRefine,
+  resolveReflowLimits,
+} from "./config.js";
 import { resolveContextNotes } from "./context-notes.js";
 import { formatEntries, parseOutputFormats } from "./formatter.js";
 import { DEFAULT_LANGUAGE, getI18n, normalizeLanguage } from "./i18n/index.js";
 import { parseTargetLanguages, resolveTargetLang } from "./languages.js";
 import { parseBilingualOrder, resolveOutputFilePaths } from "./pipeline.js";
+import { refineSourceEntries } from "./refine.js";
 import { ensureWritableTargets } from "./safety.js";
 import { mergeBilingualEntries, parseSrt, reflowSrtEntries } from "./srt.js";
+import type { TextModel } from "./text/model.js";
 import { LLM_PROVIDER_LABELS } from "./text/providers.js";
 import { assertLlmSettingsReady, createTextModel, resolveLlmSettings } from "./text/select.js";
 import {
@@ -22,6 +30,7 @@ import { createSpinner, formatSummaryBox, showSpinnerNotice } from "./ui.js";
 import { notifyUpdateIfAvailable } from "./updater.js";
 
 export interface TranslateCommandOptions {
+  refine?: boolean | undefined;
   autoContext?: boolean | undefined;
   targetLang?: string | undefined;
   format: string;
@@ -218,6 +227,39 @@ export async function runTranslateCommand(
     const resolvedConcurrency = resolveConcurrency(options.concurrency, config.concurrency);
     const resolvedContextWindow = resolveContextWindowSize(options.contextWindow);
 
+    let textModel: TextModel | undefined;
+    const getTextModel = async () => {
+      textModel ??= createTextModel(config, llm, { lang: normalizeLanguage(lang) });
+      return textModel;
+    };
+    if (resolveRefine(options.refine, rawConfig.refine)) {
+      const refined = await refineSourceEntries({
+        sourceEntries: srtEntries,
+        glossaryTargetLang: targetLanguages[0],
+        cacheFilePath: resolvedSubtitlePath,
+        mediaCache: subtitleCache,
+        useCache,
+        noCache: Boolean(options.noCache),
+        cacheDir: options.cacheDir,
+        prompt: translationPrompt,
+        contextNotes: contextNotes?.text,
+        glossaryInput,
+        concurrency: resolvedConcurrency,
+        llm,
+        getTextModel,
+        messages: {
+          refining: tm.step1Refining,
+          refined: tm.step1Refined,
+          fallbackWarn: tm.step1RefineFallbackWarn,
+        },
+        spinner,
+        prefix: "",
+        verbose,
+        lang: normalizeLanguage(lang) ?? DEFAULT_LANGUAGE,
+      });
+      srtEntries = refined.entries;
+    }
+
     const translationResult = await translateToTargets({
       sourceEntries: srtEntries,
       targetLanguages,
@@ -238,7 +280,7 @@ export async function runTranslateCommand(
         reasoningEffort: llm.reasoningEffort,
         model: llm.model,
       },
-      getTextModel: async () => createTextModel(config, llm, { lang: normalizeLanguage(lang) }),
+      getTextModel,
       messages: {
         translatingSingle: (provider, model, targetL, cur, tot) =>
           tm.step2TranslatingSingle(provider, model, targetL, cur, tot),

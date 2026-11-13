@@ -1,7 +1,12 @@
 import { stripVTControlCharacters } from "node:util";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import * as cacheModule from "./cache.js";
-import { type RefineSourceEntriesParams, refineSourceEntries } from "./refine.js";
+import { computeGlossaryHash } from "./glossary.js";
+import {
+  findCachedRefinement,
+  type RefineSourceEntriesParams,
+  refineSourceEntries,
+} from "./refine.js";
 import type { SrtEntry } from "./srt.js";
 import type { TextModel } from "./text/model.js";
 import * as tasksModule from "./text/tasks.js";
@@ -88,6 +93,82 @@ describe("src/refine.ts", () => {
       totalChunks: 1,
     });
     saveCacheSpy = vi.spyOn(cacheModule, "saveRefinementCache").mockImplementation(() => {});
+  });
+
+  it("uses custom messages for start, progress, completion and cached completion", async () => {
+    const messages = {
+      refining: vi.fn(() => "Custom progress"),
+      refined: vi.fn(
+        (_changed: number, _total: number, cached: boolean) => `Custom done ${cached}`,
+      ),
+      fallbackWarn: vi.fn(() => "Custom warning"),
+    };
+    refineSpy.mockImplementationOnce(
+      async (
+        _entries: SrtEntry[],
+        _model: TextModel,
+        _verbose: boolean,
+        progress: (current: number, total: number) => void,
+      ) => {
+        progress(2, 3);
+        return { entries: refinedSampleEntries, fallbackChunks: 0, totalChunks: 3 };
+      },
+    );
+    await refineSourceEntries(createParams({ messages, prefix: "Prefix " }));
+    expect(mockSpinner.start).toHaveBeenCalledWith("Prefix Custom progress");
+    expect(mockSpinner.updateText).toHaveBeenCalledWith("Prefix Custom progress");
+    expect(messages.refining).toHaveBeenCalledWith("Gemini", "gemini-3.8-flash", 2, 3);
+    expect(mockSpinner.succeed).toHaveBeenCalledWith("Prefix Custom done false");
+    await refineSourceEntries(
+      createParams({ messages, mediaCache: createMediaCacheWithRefinement(refinedSampleEntries) }),
+    );
+    expect(mockSpinner.succeed).toHaveBeenCalledWith("Custom done true");
+    expect(messages.refined).toHaveBeenCalledWith(1, 2, true);
+  });
+
+  it("routes a custom fallback warning exactly once without spinner notices", async () => {
+    const warn = vi.fn();
+    refineSpy.mockResolvedValueOnce({ entries: sampleEntries, fallbackChunks: 1, totalChunks: 2 });
+    await refineSourceEntries(createParams({ warn }));
+    expect(warn).toHaveBeenCalledExactlyOnceWith(expect.stringContaining("1/2 chunks"));
+    expect(mockSpinner.warn).not.toHaveBeenCalled();
+    expect(saveCacheSpy).not.toHaveBeenCalled();
+  });
+
+  it("uses a prepared glossary without parsing glossaryInput and hashes it", async () => {
+    const glossary = { "Term A": "用語A" };
+    await refineSourceEntries(createParams({ glossary, glossaryInput: "missing-glossary.json" }));
+    expect(refineSpy.mock.calls[0]?.[4]?.glossary).toBe(glossary);
+    expect(saveCacheSpy.mock.calls[0]?.[1]?.glossaryHash).toBe(computeGlossaryHash(glossary));
+  });
+
+  it("isolates text task refinement reads and writes from the main slot", async () => {
+    const mediaCache = createMediaCacheWithRefinement(refinedSampleEntries);
+    await refineSourceEntries(createParams({ mediaCache, cacheSlot: "textTaskRefinement" }));
+    expect(refineSpy).toHaveBeenCalledTimes(1);
+    expect(saveCacheSpy).toHaveBeenCalledWith(
+      "dummy.mp4",
+      expect.anything(),
+      undefined,
+      "textTaskRefinement",
+    );
+    mediaCache.textTaskRefinement = mediaCache.refinement;
+    const result = await refineSourceEntries(
+      createParams({ mediaCache, cacheSlot: "textTaskRefinement" }),
+    );
+    expect(result.cached).toBe(true);
+    expect(refineSpy).toHaveBeenCalledTimes(1);
+    expect(mediaCache.refinement?.entries).toEqual(refinedSampleEntries);
+  });
+
+  it("exports the same cache lookup for shortcuts, including disabled and invalid caches", () => {
+    const params = createParams({
+      mediaCache: createMediaCacheWithRefinement(refinedSampleEntries),
+    });
+    expect(findCachedRefinement(params)).toEqual(refinedSampleEntries);
+    expect(findCachedRefinement({ ...params, useCache: false })).toBeUndefined();
+    expect(findCachedRefinement({ ...params, prompt: "Different instructions" })).toBeUndefined();
+    expect(findCachedRefinement({ ...params, cacheSlot: "textTaskRefinement" })).toBeUndefined();
   });
 
   it("binds refinement cache reads and writes to the configured server", async () => {

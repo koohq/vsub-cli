@@ -112,6 +112,12 @@ export const ja: typeof en = {
     step2NoEntries: "⚠️ [2/4] 文字起こし結果から有効な字幕エントリが検出されませんでした",
     step2Done: (lang: string, count: number) =>
       `🎙️ [2/4] 文字起こし完了${lang} - ${count} 行の字幕を生成`,
+    textTaskRefining: (provider: string, model: string, current: number, total: number) =>
+      `${provider} (${model}) で文字起こしを修正中 [${current}/${total} チャンク]...`,
+    textTaskRefined: (changed: number, total: number, cached = false) =>
+      `文字起こしの修正完了 - ${changed}/${total} 行を変更${cached ? " [⚡ キャッシュ利用]" : ""}`,
+    textTaskRefineFallbackWarn: (fallbackChunks: number, totalChunks: number) =>
+      `${fallbackChunks}/${totalChunks} チャンクはモデルの答えが元の行と対応しなかったため、元の文字をそのまま使いました`,
     step2Refining: (provider: string, model: string, current: number, total: number) =>
       `✍️ [2/4] ${provider} (${model}) で文字起こしを修正中 [${current}/${total} チャンク]...`,
     step2Refined: (changed: number, total: number, cached = false) =>
@@ -169,6 +175,12 @@ export const ja: typeof en = {
   },
 
   translate: {
+    step1Refining: (provider: string, model: string, current: number, total: number) =>
+      `✍️ [1/3] ${provider} (${model}) で字幕の文字を修正中 [${current}/${total} チャンク]...`,
+    step1Refined: (changed: number, total: number, cached = false) =>
+      `✍️ [1/3] 字幕の文字の修正完了 - ${changed}/${total} 行を変更${cached ? " [⚡ キャッシュ利用]" : ""}`,
+    step1RefineFallbackWarn: (fallbackChunks: number, totalChunks: number) =>
+      `⚠️ [1/3] ${fallbackChunks}/${totalChunks} チャンクはモデルの答えが元の行と対応しなかったため、元の文字をそのまま使いました`,
     started: (name: string) => `vsub-cli translate - 字幕翻訳開始: ${name}`,
     step1Parsing: "📖 [1/3] 字幕ファイルを読み込み・パース中...",
     step1Parsed: (count: number) =>

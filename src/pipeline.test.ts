@@ -1259,6 +1259,202 @@ describe("pipeline.ts", () => {
         getGenerator: () => generateSummary,
       },
     ] as const)("$task", ({ task, suffix, formats, run, getGenerator }) => {
+      describe("transcript refinement", () => {
+        const source: SrtEntry[] = [
+          { id: 1, startTime: "00:00:00,000", endTime: "00:00:04,000", text: "Hello wrld" },
+        ];
+        const corrected = source.map((entry) => ({ ...entry, text: "Hello world" }));
+
+        function runTask(options: Partial<TaskOptions> = {}) {
+          return run({ inputFile, cacheDir, stdout: true, sttProvider: "groq", ...options });
+        }
+
+        function generated() {
+          const cache = loadMediaCache(inputFile, cacheDir);
+          return task === "chapters" ? cache?.chapters?.["ja"] : cache?.summaries?.["ja"];
+        }
+
+        beforeEach(() => {
+          vi.spyOn(process.stdout, "write").mockReturnValue(true);
+          saveTranscriptionCache(
+            inputFile,
+            cacheModule.createCachedTranscription(
+              { provider: "groq", model: DEFAULT_GROQ_MODEL },
+              source,
+              "en",
+            ),
+            cacheDir,
+          );
+          vi.mocked(refineSrtEntries).mockImplementation(async (entries) => ({
+            entries: entries.map((entry) => ({ ...entry, text: "Hello world" })),
+            fallbackChunks: 0,
+            totalChunks: 1,
+          }));
+        });
+
+        afterEach(() => {
+          vi.mocked(refineSrtEntries)
+            .mockReset()
+            .mockImplementation(async (entries) => ({
+              entries,
+              fallbackChunks: 0,
+              totalChunks: 1,
+            }));
+        });
+
+        it("refines raw transcript entries with the prepared glossary and caches corrected generation inputs", async () => {
+          const glossaryPath = path.join(tempDir, "refinement-glossary.json");
+          fs.writeFileSync(
+            glossaryPath,
+            JSON.stringify({ ja: { World: "世界" }, en: { World: "World" } }),
+          );
+          const parse = vi.spyOn(glossaryModule, "parseGlossary");
+          saveTranscriptionCache(
+            inputFile,
+            cacheModule.createCachedTranscription(
+              { provider: "groq", model: DEFAULT_GROQ_MODEL, prompt: "Fixed" },
+              source,
+              "en",
+            ),
+            cacheDir,
+          );
+          const mainRefinement = cacheModule.createCachedRefinement(
+            { sourceEntries: source },
+            source,
+          );
+          cacheModule.saveRefinementCache(inputFile, mainRefinement, cacheDir);
+          saveGlobalConfig({ concurrency: 2 });
+          await runTask({
+            refine: true,
+            glossary: glossaryPath,
+            whisperPrompt: "Fixed",
+            prompt: "Generation only",
+          });
+          expect(parse).toHaveBeenCalledExactlyOnceWith(glossaryPath, "ja", "en");
+          expect(vi.mocked(refineSrtEntries).mock.calls[0]?.[0]).toEqual(source);
+          expect(vi.mocked(refineSrtEntries).mock.calls[0]?.[4]).toMatchObject({
+            language: "en",
+            glossary: { World: "世界" },
+            concurrency: 2,
+          });
+          expect(vi.mocked(refineSrtEntries).mock.calls[0]?.[4]?.notes).toBeUndefined();
+          expect(vi.mocked(refineSrtEntries).mock.calls[0]?.[4]?.contextNotes).toBeUndefined();
+          expect(getGenerator()).toHaveBeenCalledWith(
+            corrected,
+            expect.anything(),
+            expect.anything(),
+          );
+          const cache = loadMediaCache(inputFile, cacheDir);
+          expect(cache?.refinement).toEqual(mainRefinement);
+          expect(cache?.textTaskRefinement?.entries).toEqual(corrected);
+          expect(cache?.textTaskRefinement?.glossaryHash).toBe(
+            computeGlossaryHash({ World: "世界" }),
+          );
+          expect(generated()?.sourceHash).toBe(cacheModule.computeEntriesHash(corrected));
+        });
+
+        it("reuses all caches without creating a model and shares refinement across text tasks", async () => {
+          await runTask({ refine: true });
+          const create = vi.spyOn(selectModule, "createTextModel");
+          expect((await runTask({ refine: true })).fromCache).toBe(true);
+          expect(create).not.toHaveBeenCalled();
+          expect(refineSrtEntries).toHaveBeenCalledTimes(1);
+          expect(getGenerator()).toHaveBeenCalledTimes(1);
+          expect(transcribeAudioSegments).not.toHaveBeenCalled();
+          const other = task === "chapters" ? processSummaryPipeline : processChaptersPipeline;
+          await other({ inputFile, cacheDir, stdout: true, sttProvider: "groq", refine: true });
+          expect(refineSrtEntries).toHaveBeenCalledTimes(1);
+        });
+
+        it.each([
+          { saved: undefined, env: undefined, flag: undefined, enabled: false },
+          { saved: true, env: undefined, flag: undefined, enabled: true },
+          { saved: undefined, env: "1", flag: undefined, enabled: true },
+          { saved: true, env: "1", flag: false, enabled: false },
+        ])(
+          "resolves refinement from config $saved, env $env, flag $flag",
+          async ({ saved, env, flag, enabled }) => {
+            if (saved !== undefined) saveGlobalConfig({ refine: saved });
+            if (env !== undefined) process.env["VSUB_REFINE"] = env;
+            await runTask({ refine: flag });
+            expect(refineSrtEntries).toHaveBeenCalledTimes(enabled ? 1 : 0);
+            expect(generated()?.sourceHash).toBe(
+              cacheModule.computeEntriesHash(enabled ? corrected : source),
+            );
+            if (!enabled) {
+              const files = fs.readdirSync(cacheDir);
+              const raw = JSON.parse(
+                fs.readFileSync(path.join(cacheDir, files[0] ?? "missing"), "utf8"),
+              );
+              expect(Object.hasOwn(raw, "textTaskRefinement")).toBe(false);
+            }
+          },
+        );
+
+        it("skips the generated cache shortcut when refinement is missing or invalid", async () => {
+          await runTask();
+          expect(generated()?.sourceHash).toBe(cacheModule.computeEntriesHash(source));
+          expect((await runTask({ refine: true })).fromCache).toBe(false);
+          expect(getGenerator()).toHaveBeenCalledTimes(2);
+          expect(refineSrtEntries).toHaveBeenCalledTimes(1);
+          const cached = loadMediaCache(inputFile, cacheDir)?.textTaskRefinement;
+          expect(cached).toBeDefined();
+          if (cached) {
+            cacheModule.saveRefinementCache(
+              inputFile,
+              { ...cached, sourceHash: "stale-source-hash" },
+              cacheDir,
+              "textTaskRefinement",
+            );
+          }
+          expect((await runTask({ refine: true })).fromCache).toBe(false);
+          expect(refineSrtEntries).toHaveBeenCalledTimes(2);
+          expect(getGenerator()).toHaveBeenCalledTimes(3);
+        });
+
+        it.each(["srt", "no-cache", "fresh"])(
+          "refines %s inputs with the appropriate cache policy",
+          async (mode) => {
+            const subtitle = path.join(tempDir, "refine.srt");
+            fs.writeFileSync(subtitle, srtModule.stringifySrt(source));
+            await runTask({
+              refine: true,
+              inputFile: mode === "srt" ? subtitle : inputFile,
+              noCache: mode === "no-cache",
+              fresh: mode === "fresh",
+            });
+            expect(getGenerator()).toHaveBeenCalledWith(
+              expect.arrayContaining([expect.objectContaining({ text: "Hello world" })]),
+              expect.anything(),
+              expect.anything(),
+            );
+            expect(
+              loadMediaCache(mode === "srt" ? subtitle : inputFile, cacheDir)?.textTaskRefinement,
+            ).toEqual(mode === "fresh" ? expect.anything() : undefined);
+            if (mode === "srt") {
+              expect(vi.mocked(refineSrtEntries).mock.calls[0]?.[4]?.language).toBeUndefined();
+            }
+          },
+        );
+
+        it("warns once to stderr on stdout fallback and does not save refinement", async () => {
+          vi.mocked(refineSrtEntries).mockResolvedValueOnce({
+            entries: source,
+            fallbackChunks: 1,
+            totalChunks: 1,
+          });
+          await runTask({ refine: true });
+          const warnings = vi
+            .mocked(console.error)
+            .mock.calls.map(([text]) => stripVTControlCharacters(String(text)))
+            .filter((text) => text.includes("Refinement kept"));
+          expect(warnings).toEqual([
+            "⚠ Refinement kept the original text for 1/1 chunks (the model's answer did not match the input lines)",
+          ]);
+          expect(loadMediaCache(inputFile, cacheDir)?.textTaskRefinement).toBeUndefined();
+        });
+      });
+
       describe("glossary options", () => {
         const glossary = "Term A=用語A";
 
