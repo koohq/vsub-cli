@@ -13,7 +13,7 @@ import { generateJsonWithRetry, type JsonSchema, type TextModel } from "./model.
 export const DEFAULT_CHUNK_SIZE = 50;
 export const DEFAULT_CONTEXT_WINDOW_SIZE = 5;
 
-export const SCENE_NOTES_PROMPT_ID = "scene-notes/1";
+export const SCENE_NOTES_PROMPT_ID = "scene-notes/2";
 export const SCENE_NOTES_MAX_INPUT_CHARS = 60_000;
 
 export function buildSceneNotesPrompt(entries: SrtEntry[], targetLang: string): string {
@@ -40,7 +40,9 @@ Write the notes in ${language}, 2 to 4 sentences, under 200 characters in total.
 
 Decide politeness from cues across the whole conversation: titles and honorifics in the original (Mr., Ms., sir), mentions of age, school, work, or retirement, and roles such as staff and customer. In ${language}, people who are close may still speak politely to someone much older or of higher status, so do not judge politeness from friendliness alone.
 
-Only state what the transcript supports. Describe age or status only as a relative difference that the transcript clearly shows (for example, "much older"); do not give exact ages. Do not summarize the plot, do not list words, do not write instructions, and do not add a character count.
+Only state what the transcript supports. Describe age or status only as a relative difference that the transcript clearly shows (for example, "much older" or "younger sister"). Never write a number for anyone's age, not even as an estimate or in parentheses.
+
+Write every sentence as a description of the people, such as "A speaks casually to B". Do not address the translator: no requests, commands, or advice (for example "please", "keep", "make sure", "use"). Do not summarize the plot, do not list words, and do not add a character count.
 
 Return ONLY a JSON object with one field, "notes", that holds the notes.
 

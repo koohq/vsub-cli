@@ -136,31 +136,50 @@ describe("src/translation.ts", () => {
         expect(saveNotes).toHaveBeenCalledTimes(2);
       });
 
-      it("reuses both caches without loading a model", async () => {
-        const params = createParams({ autoContext: true });
-        await translateToTargets(params);
-        const cachedNotes = saveNotes.mock.calls[0]?.[2];
-        const cachedTranslation = save.mock.calls[0]?.[2];
-        if (!cachedNotes || !cachedTranslation) throw new Error("Missing saved caches");
-        params.mediaCache = {
-          version: 2,
-          mediaPath: "dummy.mp4",
-          mediaSize: 1,
-          createdAt: 0,
-          updatedAt: 0,
-          sceneNotes: { ja: cachedNotes },
-          translations: { ja: cachedTranslation },
-        };
-        vi.mocked(params.getTextModel).mockClear();
-        notes.mockClear();
-        task.mockClear();
-        const result = await translateToTargets(params);
-        expect(result.cachedLanguages).toEqual(["ja"]);
-        expect(params.getTextModel).not.toHaveBeenCalled();
-        expect(notes).not.toHaveBeenCalled();
-        expect(task).not.toHaveBeenCalled();
-        expect(mockSpinner.info).toHaveBeenCalledWith("Scene notes for JA: using cache (8 chars)");
-      });
+      it.each(["scene-notes/2", "scene-notes/1"])(
+        "reuses translation cache and refreshes scene notes only for an old prompt (%s)",
+        async (prompt) => {
+          const params = createParams({ autoContext: true });
+          await translateToTargets(params);
+          const cachedNotes = saveNotes.mock.calls[0]?.[2];
+          const cachedTranslation = save.mock.calls[0]?.[2];
+          if (!cachedNotes || !cachedTranslation) throw new Error("Missing saved caches");
+          params.mediaCache = {
+            version: 2,
+            mediaPath: "dummy.mp4",
+            mediaSize: 1,
+            createdAt: 0,
+            updatedAt: 0,
+            sceneNotes: { ja: { ...cachedNotes, prompt } },
+            translations: { ja: cachedTranslation },
+          };
+          vi.mocked(params.getTextModel).mockClear();
+          notes.mockClear();
+          task.mockClear();
+          saveNotes.mockClear();
+          save.mockClear();
+          const result = await translateToTargets(params);
+          expect(result.cachedLanguages).toEqual(["ja"]);
+          expect(task).not.toHaveBeenCalled();
+          expect(save).not.toHaveBeenCalled();
+          const refreshNotes = prompt === "scene-notes/1";
+          expect(params.getTextModel).toHaveBeenCalledTimes(Number(refreshNotes));
+          expect(notes).toHaveBeenCalledTimes(Number(refreshNotes));
+          expect(saveNotes).toHaveBeenCalledTimes(Number(refreshNotes));
+          if (refreshNotes) {
+            expect(saveNotes).toHaveBeenCalledWith(
+              params.cacheFilePath,
+              "ja",
+              expect.objectContaining({ prompt: "scene-notes/2", notes: "Notes ja" }),
+              params.cacheDir,
+            );
+          } else {
+            expect(mockSpinner.info).toHaveBeenCalledWith(
+              "Scene notes for JA: using cache (8 chars)",
+            );
+          }
+        },
+      );
 
       it.each([false, true])(
         "preserves manual context and default behavior (auto: %s)",

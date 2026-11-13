@@ -14,6 +14,7 @@ import {
   generateSummary,
   refineSrtEntries,
   SCENE_NOTES_MAX_INPUT_CHARS,
+  SCENE_NOTES_PROMPT_ID,
   translateSrtEntries,
 } from "./tasks.js";
 
@@ -57,6 +58,10 @@ vi.mock("@google/genai", () => {
 });
 
 describe("src/text/tasks.ts", () => {
+  it("uses scene notes prompt version 2", () => {
+    expect(SCENE_NOTES_PROMPT_ID).toBe("scene-notes/2");
+  });
+
   it("builds numbered scene notes without timestamps or speaker labels", () => {
     const entries = makeEntries(1).map((entry) => ({
       ...entry,
@@ -66,6 +71,13 @@ describe("src/text/tasks.ts", () => {
     const prompt = buildSceneNotesPrompt(entries, "ja");
     expect(prompt).toContain("Write the notes in Japanese, 2 to 4 sentences, under 200 characters");
     expect(prompt).toContain("do not judge politeness from friendliness alone");
+    expect(
+      prompt,
+    ).toContain(`Only state what the transcript supports. Describe age or status only as a relative difference that the transcript clearly shows (for example, "much older" or "younger sister"). Never write a number for anyone's age, not even as an estimate or in parentheses.
+
+Write every sentence as a description of the people, such as "A speaks casually to B". Do not address the translator: no requests, commands, or advice (for example "please", "keep", "make sure", "use"). Do not summarize the plot, do not list words, and do not add a character count.`);
+    expect(prompt).not.toContain("do not give exact ages");
+    expect(prompt).not.toContain("do not write instructions");
     expect(prompt).toContain("do not add a character count");
     expect(prompt).toContain('Return ONLY a JSON object with one field, "notes"');
     expect(prompt).toContain("TRANSCRIPT:\n1: Hello there");
