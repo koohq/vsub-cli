@@ -5,7 +5,7 @@ import {
   normalizeBaseUrl,
 } from "../config.js";
 import { getI18n, type SupportedLanguage } from "../i18n/index.js";
-import { createGeminiTextModel } from "./gemini.js";
+import { buildThinkingConfig, createGeminiTextModel } from "./gemini.js";
 import type { TextModel } from "./model.js";
 import { createGenericOpenAICompatibleTextModel } from "./openai-compatible-provider.js";
 import { createOpenRouterTextModel, DEFAULT_OPENROUTER_LLM_MODEL } from "./openrouter.js";
@@ -47,6 +47,44 @@ export interface LlmSettings {
   reasoningEffort?: Exclude<LlmReasoningEffort, "low"> | undefined;
 }
 
+export interface LlmReasoningInfo {
+  effort: LlmReasoningEffort;
+  source: "option" | "setting" | "default";
+}
+
+export function formatTextModelVerboseLine(
+  model: Pick<TextModel, "logLabel" | "model">,
+  provider: LlmProvider,
+  reasoning: LlmReasoningInfo,
+  dedicatedEffort?: string | undefined,
+): string {
+  const source =
+    reasoning.source === "option"
+      ? "from --llm-reasoning-effort"
+      : reasoning.source === "setting"
+        ? "from VSUB_LLM_REASONING_EFFORT or config"
+        : "default";
+  const explicitEffort = `reasoning effort "${reasoning.effort}" ${source}`;
+  let detail: string;
+  if (provider === "openai-compatible") {
+    const effort = dedicatedEffort?.trim();
+    detail = effort
+      ? `reasoning_effort=${effort} (from VSUB_OPENAI_COMPATIBLE_LLM_REASONING_EFFORT or config)`
+      : "reasoning_effort not sent";
+    if (reasoning.source !== "default") {
+      detail += `; ${explicitEffort} not used by openai-compatible`;
+    }
+  } else if (provider === "gemini") {
+    const { thinkingConfig } = buildThinkingConfig(model.model, reasoning.effort);
+    detail = thinkingConfig
+      ? `thinkingLevel=${thinkingConfig.thinkingLevel} (${source})`
+      : `thinkingLevel not sent (not Gemini 3 or newer${reasoning.source !== "default" ? `; ${explicitEffort} ignored` : ""})`;
+  } else {
+    detail = `reasoning.effort=${reasoning.effort} (${source})`;
+  }
+  return `[${model.logLabel}] Text generation: model ${model.model}, ${detail}`;
+}
+
 export function parseLlmProvider(
   raw: string,
   lang?: SupportedLanguage | string | undefined,
@@ -70,14 +108,16 @@ export function resolveLlmSettings(
     geminiModel?: string | undefined;
   },
   lang?: SupportedLanguage | string | undefined,
-): { config: AppConfig; llm: LlmSettings } {
+): { config: AppConfig; llm: LlmSettings; reasoning: LlmReasoningInfo } {
   let provider: LlmProvider;
   let source: "option" | "setting" | "auto";
   const rawEffort = overrides.llmReasoningEffort?.trim() || config.llmReasoningEffort?.trim();
   let effort: LlmReasoningEffort = "low";
+  let reasoningSource: LlmReasoningInfo["source"] = "default";
   if (rawEffort) {
     try {
       effort = parseLlmReasoningEffort(rawEffort, lang);
+      reasoningSource = overrides.llmReasoningEffort?.trim() ? "option" : "setting";
     } catch (error) {
       if (overrides.validateReasoningEffort) throw error;
     }
@@ -127,6 +167,7 @@ export function resolveLlmSettings(
 
   return {
     config: nextConfig,
+    reasoning: { effort, source: reasoningSource },
     llm: {
       provider,
       source,

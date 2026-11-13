@@ -64,7 +64,7 @@ import {
   type SrtEntry,
 } from "./srt.js";
 import { LLM_PROVIDER_LABELS, type LlmProvider } from "./text/providers.js";
-import { createTextModel, resolveLlmSettings } from "./text/select.js";
+import { createTextModel, formatTextModelVerboseLine, resolveLlmSettings } from "./text/select.js";
 import { generateChapters, generateSummary } from "./text/tasks.js";
 import {
   assertSttSettingsReady,
@@ -381,7 +381,11 @@ export async function processMediaPipeline(
     },
     lang,
   );
-  const { config: resolvedLlmConfig, llm } = resolveLlmSettings(
+  const {
+    config: resolvedLlmConfig,
+    llm,
+    reasoning,
+  } = resolveLlmSettings(
     resolvedSttConfig,
     {
       llmProvider: options.llmProvider,
@@ -721,6 +725,11 @@ export async function processMediaPipeline(
       }
       if (!sharedTextModel) {
         sharedTextModel = createTextModel(activeConfig, llm, { lang });
+        if (verbose) {
+          console.error(
+            `${prefix}${formatTextModelVerboseLine(sharedTextModel, llm.provider, reasoning, activeConfig.openaiCompatibleLlmReasoningEffort)}`,
+          );
+        }
       }
       return sharedTextModel;
     };
@@ -1297,7 +1306,11 @@ async function prepareTextTask<Format extends string>(
     },
     lang,
   );
-  const { config: resolvedLlmConfig, llm } = resolveLlmSettings(
+  const {
+    config: resolvedLlmConfig,
+    llm,
+    reasoning,
+  } = resolveLlmSettings(
     resolvedConfig,
     {
       llmProvider: options.llmProvider,
@@ -1400,6 +1413,7 @@ async function prepareTextTask<Format extends string>(
     format,
     resolvedLlmConfig,
     llm,
+    reasoning,
     targetLang,
     glossary,
     outputPath,
@@ -1430,6 +1444,16 @@ async function resolveTextTaskTranscript(
     lang,
   });
   const textModel = createTextModel(config, llm, { lang });
+  if (verbose) {
+    console.error(
+      formatTextModelVerboseLine(
+        textModel,
+        llm.provider,
+        prepared.reasoning,
+        config.openaiCompatibleLlmReasoningEffort,
+      ),
+    );
+  }
 
   // Step 1: Resolve transcript entries
   spinner.start(texts.step1Resolve);

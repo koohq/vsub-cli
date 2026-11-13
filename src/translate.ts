@@ -19,7 +19,12 @@ import { ensureWritableTargets } from "./safety.js";
 import { mergeBilingualEntries, parseSrt, reflowSrtEntries } from "./srt.js";
 import type { TextModel } from "./text/model.js";
 import { LLM_PROVIDER_LABELS } from "./text/providers.js";
-import { assertLlmSettingsReady, createTextModel, resolveLlmSettings } from "./text/select.js";
+import {
+  assertLlmSettingsReady,
+  createTextModel,
+  formatTextModelVerboseLine,
+  resolveLlmSettings,
+} from "./text/select.js";
 import {
   getTranslationResumeHint,
   resolveConcurrency,
@@ -90,7 +95,11 @@ export async function runTranslateCommand(
       rawConfig.geminiApiKey = options.geminiKey.trim();
     }
 
-    const { config: resolvedConfig, llm } = resolveLlmSettings(
+    const {
+      config: resolvedConfig,
+      llm,
+      reasoning,
+    } = resolveLlmSettings(
       rawConfig,
       {
         llmProvider: options.llmProvider,
@@ -229,7 +238,19 @@ export async function runTranslateCommand(
 
     let textModel: TextModel | undefined;
     const getTextModel = async () => {
-      textModel ??= createTextModel(config, llm, { lang: normalizeLanguage(lang) });
+      if (!textModel) {
+        textModel = createTextModel(config, llm, { lang: normalizeLanguage(lang) });
+        if (verbose) {
+          console.error(
+            formatTextModelVerboseLine(
+              textModel,
+              llm.provider,
+              reasoning,
+              config.openaiCompatibleLlmReasoningEffort,
+            ),
+          );
+        }
+      }
       return textModel;
     };
     if (resolveRefine(options.refine, rawConfig.refine)) {

@@ -929,6 +929,7 @@ describe("CLI integration harness", () => {
             );
             if (verbose) {
               expect(lines).toEqual([
+                "[Gemini API] Text generation: model gemini-3.8-flash, thinkingLevel=LOW (default)",
                 `✖ ${text}`,
                 getTranslationResumeHint(error, lang),
                 error.stack,
@@ -1583,6 +1584,41 @@ describe("CLI integration harness", () => {
   );
 
   describe("translate flags", () => {
+    it.each([false, true])(
+      "logs text generation once for translate (verbose: %s)",
+      async (verbose) => {
+        const error = vi.spyOn(console, "error").mockImplementation(() => {});
+        const create = vi.spyOn(selectModule, "createTextModel");
+        try {
+          await runCli(
+            "translate",
+            dummySrtPath,
+            "--refine",
+            "--auto-context",
+            "--no-cache",
+            "--stdout",
+            "--llm-reasoning-effort",
+            " Medium ",
+            ...(verbose ? ["--verbose"] : []),
+          );
+          const lines = error.mock.calls
+            .map(([line]) => stripVTControlCharacters(String(line)))
+            .filter((line) => line.includes("Text generation:"));
+          expect(lines).toEqual(
+            verbose
+              ? [
+                  "[Gemini API] Text generation: model gemini-3.8-flash, thinkingLevel=MEDIUM (from --llm-reasoning-effort)",
+                ]
+              : [],
+          );
+          expect(create).toHaveBeenCalledTimes(1);
+          expect(exitSpy).not.toHaveBeenCalled();
+        } finally {
+          create.mockRestore();
+          error.mockRestore();
+        }
+      },
+    );
     describe("translate refinement", () => {
       const originalEnv = process.env;
       beforeEach(() => {

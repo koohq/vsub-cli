@@ -140,6 +140,64 @@ describe("pipeline.ts", () => {
     }
 
     it.each(["media", "chapters", "summary"] as const)(
+      "logs text generation once for verbose %s only",
+      async (task) => {
+        const { options, model } = setup();
+        const error = vi.spyOn(console, "error").mockImplementation(() => {});
+        const run =
+          task === "media"
+            ? processMediaPipeline
+            : task === "chapters"
+              ? processChaptersPipeline
+              : processSummaryPipeline;
+        for (const verbose of [false, true]) {
+          error.mockClear();
+          model.mockClear();
+          await run({
+            ...options,
+            verbose,
+            noCache: true,
+            refine: true,
+            autoContext: true,
+            llmReasoningEffort: " Medium ",
+            logPrefix: "[2/3]",
+          });
+          const lines = error.mock.calls
+            .map(([line]) => stripVTControlCharacters(String(line)))
+            .filter((line) => line.includes("Text generation:"));
+          expect(lines).toEqual(
+            verbose
+              ? [
+                  `${task === "media" ? "[2/3] " : ""}[Gemini API] Text generation: model gemini-3.8-flash, thinkingLevel=MEDIUM (from --llm-reasoning-effort)`,
+                ]
+              : [],
+          );
+          expect(model).toHaveBeenCalledTimes(1);
+        }
+      },
+    );
+
+    it("keeps verbose media silent without text generation or when fully cached", async () => {
+      const { options, model } = setup();
+      const error = vi.spyOn(console, "error").mockImplementation(() => {});
+      await processMediaPipeline({
+        ...options,
+        verbose: true,
+        noTranslate: true,
+        refine: false,
+        autoContext: false,
+      });
+      expect(model).not.toHaveBeenCalled();
+      await processMediaPipeline(options);
+      model.mockClear();
+      await processMediaPipeline({ ...options, verbose: true });
+      expect(model).not.toHaveBeenCalled();
+      expect(error.mock.calls.some(([line]) => String(line).includes("Text generation:"))).toBe(
+        false,
+      );
+    });
+
+    it.each(["media", "chapters", "summary"] as const)(
       "rejects invalid %s effort before work",
       async (task) => {
         const { start, options } = setup();
@@ -1948,9 +2006,16 @@ describe("pipeline.ts", () => {
       ])("sends a single warning to stderr with $stdout/$output/$verbose", async (options) => {
         prepareChapters(chapters([0, 20]), false);
         const result = await run(options);
-        expect(console.error).toHaveBeenCalledExactlyOnceWith(
+        expect(
+          vi
+            .mocked(console.error)
+            .mock.calls.map(([line]) => stripVTControlCharacters(String(line))),
+        ).toEqual([
+          ...(options.verbose
+            ? ["[Gemini API] Text generation: model gemini-3.8-flash, thinkingLevel=LOW (default)"]
+            : []),
           `⚠ ${getI18n(options.lang).chapters.tooFewChapters(2)}`,
-        );
+        ]);
         expect(spinner.warn).not.toHaveBeenCalled();
         if (options.verbose) {
           expect(fs.readFileSync(result.outputFile ?? "", "utf8")).toBe(result.formattedOutput);

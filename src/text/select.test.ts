@@ -1,9 +1,11 @@
+import { stripVTControlCharacters } from "node:util";
 import { describe, expect, it, vi } from "vitest";
 import type { AppConfig } from "../config.js";
 import { resolveSttSettings } from "../transcribe/select.js";
 import {
   assertLlmSettingsReady,
   createTextModel,
+  formatTextModelVerboseLine,
   parseLlmProvider,
   parseLlmReasoningEffort,
   resolveLlmSettings,
@@ -41,6 +43,122 @@ describe("select.ts", () => {
     ffmpegPath: "ffmpeg",
   };
   const request = { prompt: "Test", schemaName: "test", schema: { type: "object" as const } };
+  describe("text generation verbose line", () => {
+    it.each([
+      [" Medium ", "high", "medium", "option"],
+      [" low ", "high", "low", "option"],
+      [" ", " High ", "high", "setting"],
+      [undefined, "medium", "medium", "setting"],
+      [undefined, undefined, "low", "default"],
+      [undefined, " ", "low", "default"],
+      [undefined, "invalid", "low", "default"],
+    ])("resolves effort metadata for %j / %j", (option, setting, effort, source) => {
+      const result = resolveLlmSettings(
+        { ...baseConfig, llmReasoningEffort: setting },
+        { llmReasoningEffort: option },
+      );
+      expect(result).toHaveProperty("reasoning", { effort, source });
+      expect(result.llm).not.toHaveProperty("reasoning");
+    });
+
+    const cases = [
+      {
+        provider: "openrouter",
+        model: "google/gemini-3.8-flash",
+        effort: "medium",
+        source: "option",
+        detail: "reasoning.effort=medium (from --llm-reasoning-effort)",
+      },
+      {
+        provider: "openrouter",
+        model: "my-model",
+        effort: "low",
+        source: "default",
+        detail: "reasoning.effort=low (default)",
+      },
+      {
+        provider: "openrouter",
+        model: "my-model",
+        effort: "high",
+        source: "setting",
+        detail: "reasoning.effort=high (from VSUB_LLM_REASONING_EFFORT or config)",
+      },
+      ...(["minimal", "low", "medium", "high"] as const).map((effort) => ({
+        provider: "gemini" as const,
+        model: "models/gemini-3.8-flash",
+        effort,
+        source: "setting" as const,
+        detail: `thinkingLevel=${effort.toUpperCase()} (from VSUB_LLM_REASONING_EFFORT or config)`,
+      })),
+      {
+        provider: "gemini",
+        model: "gemini-4-test",
+        effort: "low",
+        source: "default",
+        detail: "thinkingLevel=LOW (default)",
+      },
+      ...(["gemini-2.5-flash", "models/gemini-2.5-flash", "my-model"] as const).flatMap((model) => [
+        {
+          provider: "gemini" as const,
+          model,
+          effort: "medium" as const,
+          source: "option" as const,
+          detail:
+            'thinkingLevel not sent (not Gemini 3 or newer; reasoning effort "medium" from --llm-reasoning-effort ignored)',
+        },
+        {
+          provider: "gemini" as const,
+          model,
+          effort: "low" as const,
+          source: "setting" as const,
+          detail:
+            'thinkingLevel not sent (not Gemini 3 or newer; reasoning effort "low" from VSUB_LLM_REASONING_EFFORT or config ignored)',
+        },
+        {
+          provider: "gemini" as const,
+          model,
+          effort: "low" as const,
+          source: "default" as const,
+          detail: "thinkingLevel not sent (not Gemini 3 or newer)",
+        },
+      ]),
+      ...([undefined, " ", " High "] as const).flatMap((dedicated) =>
+        (["default", "option", "setting"] as const).map((source) => ({
+          provider: "openai-compatible" as const,
+          model: "my-model",
+          effort: "medium" as const,
+          source,
+          dedicated,
+          detail:
+            (dedicated?.trim()
+              ? "reasoning_effort=High (from VSUB_OPENAI_COMPATIBLE_LLM_REASONING_EFFORT or config)"
+              : "reasoning_effort not sent") +
+            (source === "default"
+              ? ""
+              : `; reasoning effort "medium" from ${source === "option" ? "--llm-reasoning-effort" : "VSUB_LLM_REASONING_EFFORT or config"} not used by openai-compatible`),
+        })),
+      ),
+    ] as const;
+    it.each(cases)("formats $provider / $model / $effort / $source", (testCase) => {
+      const { provider, model, effort, source, detail } = testCase;
+      const logLabel =
+        provider === "gemini"
+          ? "Gemini API"
+          : provider === "openrouter"
+            ? "OpenRouter API"
+            : "OpenAI-compatible API";
+      const line = formatTextModelVerboseLine(
+        { logLabel, model },
+        provider,
+        { effort, source },
+        "dedicated" in testCase ? testCase.dedicated : undefined,
+      );
+      expect(stripVTControlCharacters(line)).toBe(
+        `[${logLabel}] Text generation: model ${model}, ${detail}`,
+      );
+      expect(line).toBe(stripVTControlCharacters(line));
+    });
+  });
   function createFetch() {
     return vi
       .fn<typeof globalThis.fetch>()
