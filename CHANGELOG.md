@@ -2,6 +2,18 @@
 
 All notable changes to this project will be documented in this file. See [standard-version](https://github.com/conventional-changelog/standard-version) for commit guidelines.
 
+## [1.11.0](https://github.com/koohq/vsub-cli/compare/vsub-cli-v1.10.0...vsub-cli-v1.11.0) (2026-11-13)
+
+
+### Features
+
+* set reasoning effort for OpenRouter and Gemini text generation ([9b5b6df](https://github.com/koohq/vsub-cli/commit/9b5b6df92449301d5b4549fd2cc1f9f583454380))
+
+
+### Bug Fixes
+
+* keep ages and instructions out of auto scene notes ([1cfa3bf](https://github.com/koohq/vsub-cli/commit/1cfa3bf5281baf52d385c17542529d7cb4d6a2a0))
+
 ## [1.10.0](https://github.com/koohq/vsub-cli/compare/vsub-cli-v1.9.1...vsub-cli-v1.10.0) (2026-11-13)
 
 
