@@ -107,14 +107,17 @@ describe("src/translation.ts", () => {
       beforeEach(() => {
         notes = vi
           .spyOn(tasksModule, "generateSceneNotes")
-          .mockImplementation(async (_entries, lang) => `Notes ${lang}`);
+          .mockImplementation(async (_entries, lang) => ({
+            notes: `Notes ${lang}`,
+            politeness: [],
+          }));
         task = vi.spyOn(tasksModule, "translateSrtEntries").mockResolvedValue(sampleEntries);
         save = vi.spyOn(cacheModule, "saveTranslationCache").mockImplementation(() => {});
         saveNotes = vi.spyOn(cacheModule, "saveSceneNotesCache").mockImplementation(() => {});
       });
       afterEach(() => vi.restoreAllMocks());
 
-      it("generates once per unskipped language, shares the model, and hashes each note", async () => {
+      it("generates three times per unskipped language, shares the model, and hashes each note", async () => {
         const params = createParams({
           autoContext: true,
           targetLanguages: ["en", "ja", "ko"],
@@ -124,7 +127,14 @@ describe("src/translation.ts", () => {
         });
         const stderr = vi.spyOn(console, "error").mockImplementation(() => {});
         await translateToTargets(params);
-        expect(notes.mock.calls.map((call) => call[1])).toEqual(["ja", "ko"]);
+        expect(notes.mock.calls.map((call) => call[1])).toEqual([
+          "ja",
+          "ja",
+          "ja",
+          "ko",
+          "ko",
+          "ko",
+        ]);
         expect(params.getTextModel).toHaveBeenCalledOnce();
         for (const [index, lang] of ["ja", "ko"].entries()) {
           expect(task.mock.calls[index]?.[5]?.contextNotes).toBe(`Notes ${lang}`);
@@ -134,9 +144,15 @@ describe("src/translation.ts", () => {
           "[Context] Scene notes for JA:\nNotes ja",
         );
         expect(saveNotes).toHaveBeenCalledTimes(2);
+        expect(stderr.mock.calls.flat()).toContain(
+          "[Context] Scene notes candidate 1/3 for JA: (no politeness)",
+        );
+        expect(stderr.mock.calls.flat()).toContain(
+          "[Context] Using scene notes candidate 1/3 for JA (no majority; using the first that succeeded)",
+        );
       });
 
-      it.each(["scene-notes/2", "scene-notes/1"])(
+      it.each(["scene-notes/3", "scene-notes/2", "scene-notes/1"])(
         "reuses translation cache and refreshes scene notes only for an old prompt (%s)",
         async (prompt) => {
           const params = createParams({ autoContext: true });
@@ -162,15 +178,15 @@ describe("src/translation.ts", () => {
           expect(result.cachedLanguages).toEqual(["ja"]);
           expect(task).not.toHaveBeenCalled();
           expect(save).not.toHaveBeenCalled();
-          const refreshNotes = prompt === "scene-notes/1";
+          const refreshNotes = prompt !== "scene-notes/3";
           expect(params.getTextModel).toHaveBeenCalledTimes(Number(refreshNotes));
-          expect(notes).toHaveBeenCalledTimes(Number(refreshNotes));
+          expect(notes).toHaveBeenCalledTimes(refreshNotes ? 3 : 0);
           expect(saveNotes).toHaveBeenCalledTimes(Number(refreshNotes));
           if (refreshNotes) {
             expect(saveNotes).toHaveBeenCalledWith(
               params.cacheFilePath,
               "ja",
-              expect.objectContaining({ prompt: "scene-notes/2", notes: "Notes ja" }),
+              expect.objectContaining({ prompt: "scene-notes/3", notes: "Notes ja" }),
               params.cacheDir,
             );
           } else {
@@ -180,6 +196,72 @@ describe("src/translation.ts", () => {
           }
         },
       );
+
+      it("starts all candidates concurrently and caches the majority winner's text only", async () => {
+        const resolvers: Array<(candidate: tasksModule.SceneNotesCandidate) => void> = [];
+        notes.mockImplementation(() => new Promise((resolve) => resolvers.push(resolve)));
+        const stderr = vi.spyOn(console, "error").mockImplementation(() => {});
+        const result = translateToTargets(createParams({ autoContext: true, verbose: true }));
+        await vi.waitFor(() => expect(resolvers).toHaveLength(3));
+        for (const [index, resolve] of resolvers.entries())
+          resolve({
+            notes: `Candidate ${index + 1}`,
+            politeness: [{ from: "Alex", to: "Sam", level: index === 0 ? "plain" : "polite" }],
+          });
+        await result;
+        expect(task.mock.calls[0]?.[5]?.contextNotes).toBe("Candidate 2");
+        expect(saveNotes.mock.calls[0]?.[2]).toMatchObject({
+          notes: "Candidate 2",
+          prompt: "scene-notes/3",
+        });
+        expect(saveNotes.mock.calls[0]?.[2]).not.toHaveProperty("politeness");
+        expect(save.mock.calls[0]?.[2].contextHash).toBe(computeContextHash("Candidate 2"));
+        const lines = stderr.mock.calls.flat();
+        for (let index = 0; index < 3; index++)
+          expect(lines).toContain(
+            `[Context] Scene notes candidate ${index + 1}/3 for JA: Alex->Sam ${index === 0 ? "plain" : "polite"}`,
+          );
+        const selected =
+          "[Context] Using scene notes candidate 2/3 for JA (agrees with 1/1 majority pairs)";
+        expect(lines).toContain(selected);
+        expect(lines.indexOf(selected)).toBeLessThan(
+          lines.indexOf("[Context] Scene notes for JA:\nCandidate 2"),
+        );
+        expect(mockSpinner.warn).not.toHaveBeenCalled();
+      });
+
+      it.each([1, 2])(
+        "uses remaining candidates after %i failures without warning",
+        async (failures) => {
+          const stderr = vi.spyOn(console, "error").mockImplementation(() => {});
+          for (let index = 0; index < failures; index++)
+            notes.mockRejectedValueOnce(index === 0 ? new Error("Unavailable") : "Offline");
+          await translateToTargets(createParams({ autoContext: true, verbose: true }));
+          expect(notes).toHaveBeenCalledTimes(3);
+          expect(task.mock.calls[0]?.[5]?.contextNotes).toBe("Notes ja");
+          expect(mockSpinner.warn).not.toHaveBeenCalled();
+          const lines = stderr.mock.calls.flat();
+          expect(lines.join("\n")).not.toContain("Could not write scene notes");
+          expect(lines).toContain("[Context] Scene notes candidate 1/3 for JA failed: Unavailable");
+          if (failures === 2)
+            expect(lines).toContain("[Context] Scene notes candidate 2/3 for JA failed: Offline");
+          expect(lines).toContain(
+            `[Context] Using scene notes candidate ${failures + 1}/3 for JA (no majority; using the first that succeeded)`,
+          );
+        },
+      );
+
+      it("does not log candidate details without verbose", async () => {
+        const stderr = vi.spyOn(console, "error").mockImplementation(() => {});
+        await translateToTargets(createParams({ autoContext: true }));
+        expect(stderr).not.toHaveBeenCalled();
+      });
+
+      it("does not generate notes when auto-context is absent", async () => {
+        await translateToTargets(createParams());
+        expect(notes).not.toHaveBeenCalled();
+        expect(task.mock.calls[0]?.[5]?.contextNotes).toBeUndefined();
+      });
 
       it.each([false, true])(
         "preserves manual context and default behavior (auto: %s)",
@@ -199,9 +281,12 @@ describe("src/translation.ts", () => {
 
       it("warns once and translates without notes after failure", async () => {
         notes.mockRejectedValue(new Error("Unavailable"));
+        notes.mockRejectedValueOnce(new Error("First failure"));
         await translateToTargets(createParams({ autoContext: true }));
+        expect(notes).toHaveBeenCalledTimes(3);
+        expect(mockSpinner.warn).toHaveBeenCalledOnce();
         expect(mockSpinner.warn).toHaveBeenCalledWith(
-          "Could not write scene notes for JA; translating without them (Unavailable)",
+          "Could not write scene notes for JA; translating without them (First failure)",
         );
         expect(task.mock.calls[0]?.[5]?.contextNotes).toBeUndefined();
         expect(save.mock.calls[0]?.[2].contextHash).toBeUndefined();
@@ -210,7 +295,7 @@ describe("src/translation.ts", () => {
 
       it("generates without saving with noCache and skips empty input", async () => {
         await translateToTargets(createParams({ autoContext: true, noCache: true }));
-        expect(notes).toHaveBeenCalledOnce();
+        expect(notes).toHaveBeenCalledTimes(3);
         expect(saveNotes).not.toHaveBeenCalled();
         expect(save).not.toHaveBeenCalled();
         notes.mockClear();
@@ -317,10 +402,12 @@ describe("src/translation.ts", () => {
         params.autoContext = true;
         const answer = generateJson.getMockImplementation();
         if (!answer) throw new Error("Missing mock response");
-        generateJson
-          .mockImplementationOnce(async () => JSON.stringify({ notes: "Background notes" }))
-          .mockImplementationOnce(answer)
-          .mockRejectedValueOnce(failure);
+        for (let index = 0; index < tasksModule.SCENE_NOTES_CANDIDATES; index++) {
+          generateJson.mockImplementationOnce(async () =>
+            JSON.stringify({ notes: "Background notes" }),
+          );
+        }
+        generateJson.mockImplementationOnce(answer).mockRejectedValueOnce(failure);
         await expect(translateToTargets(params)).rejects.toMatchObject({ savedChunks: 1 });
         const cached = readCache();
         expect(cached?.sceneNotes?.["ja"]?.notes).toBe("Background notes");

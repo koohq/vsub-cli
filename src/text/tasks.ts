@@ -13,8 +13,22 @@ import { generateJsonWithRetry, type JsonSchema, type TextModel } from "./model.
 export const DEFAULT_CHUNK_SIZE = 50;
 export const DEFAULT_CONTEXT_WINDOW_SIZE = 5;
 
-export const SCENE_NOTES_PROMPT_ID = "scene-notes/2";
+export const SCENE_NOTES_PROMPT_ID = "scene-notes/3";
+export const SCENE_NOTES_CANDIDATES = 3;
 export const SCENE_NOTES_MAX_INPUT_CHARS = 60_000;
+
+export type PolitenessLevel = "polite" | "plain" | "mixed";
+
+export interface PolitenessItem {
+  from: string;
+  to: string;
+  level: PolitenessLevel;
+}
+
+export interface SceneNotesCandidate {
+  notes: string;
+  politeness: PolitenessItem[];
+}
 
 export function buildSceneNotesPrompt(entries: SrtEntry[], targetLang: string): string {
   const language = getLanguageDisplayName(targetLang);
@@ -44,7 +58,9 @@ Only state what the transcript supports. Describe age or status only as a relati
 
 Write every sentence as a description of the people, such as "A speaks casually to B". Do not address the translator: no requests, commands, or advice (for example "please", "keep", "make sure", "use"). Do not summarize the plot, do not list words, and do not add a character count.
 
-Return ONLY a JSON object with one field, "notes", that holds the notes.
+Return ONLY a JSON object with two fields:
+- "notes": the notes.
+- "politeness": one item for each pair of people where one speaks to the other, with "from" (the speaker), "to" (the person spoken to), and "level". "level" is "polite" when the speaker mostly speaks politely to that person in ${language}, "plain" when mostly casually, and "mixed" when neither clearly dominates. Write "from" and "to" as the names appear in the transcript, without titles such as Mr. or Ms. The levels must agree with the notes.
 
 ${heading}
 ${lines.join("\n")}`;
@@ -55,7 +71,7 @@ export async function generateSceneNotes(
   targetLang: string,
   model: TextModel,
   options?: { verbose?: boolean | undefined; lang?: SupportedLanguage | undefined },
-): Promise<string> {
+): Promise<SceneNotesCandidate> {
   return generateJsonWithRetry(
     model,
     {
@@ -65,8 +81,27 @@ export async function generateSceneNotes(
         type: "object",
         properties: {
           notes: { type: "string", description: "Short background notes in the target language" },
+          politeness: {
+            type: "array",
+            description: "How politely each speaker speaks to each other person",
+            items: {
+              type: "object",
+              properties: {
+                from: {
+                  type: "string",
+                  description: "The speaker, as named in the transcript, without titles",
+                },
+                to: {
+                  type: "string",
+                  description: "The person spoken to, as named in the transcript, without titles",
+                },
+                level: { type: "string", description: 'One of "polite", "plain", or "mixed"' },
+              },
+              required: ["from", "to", "level"],
+            },
+          },
         },
-        required: ["notes"],
+        required: ["notes", "politeness"],
       },
     },
     (value) => {
@@ -83,7 +118,26 @@ export async function generateSceneNotes(
         .replace(/\s*[（(]\s*\d+\s*(?:字|文字|characters?|chars?)\s*[）)]\s*$/u, "")
         .trim();
       if (!notes) throw new Error("Invalid scene notes: notes are empty");
-      return notes;
+      const politeness: PolitenessItem[] = [];
+      if ("politeness" in value && Array.isArray(value.politeness)) {
+        for (const item of value.politeness) {
+          if (
+            !item ||
+            typeof item !== "object" ||
+            typeof item.from !== "string" ||
+            typeof item.to !== "string" ||
+            typeof item.level !== "string"
+          )
+            continue;
+          const from = item.from.trim();
+          const to = item.to.trim();
+          const level = item.level.trim().toLowerCase();
+          if (from && to && (level === "polite" || level === "plain" || level === "mixed")) {
+            politeness.push({ from, to, level });
+          }
+        }
+      }
+      return { notes, politeness };
     },
     { ...options, task: "scene notes" },
   );

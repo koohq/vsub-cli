@@ -22,10 +22,12 @@ import {
   type LlmProvider,
   type LlmReasoningEffort,
 } from "./text/providers.js";
+import { selectSceneNotes } from "./text/scene-notes-vote.js";
 import {
   DEFAULT_CHUNK_SIZE,
   DEFAULT_CONTEXT_WINDOW_SIZE,
   generateSceneNotes,
+  SCENE_NOTES_CANDIDATES,
   SCENE_NOTES_PROMPT_ID,
   translateSrtEntries,
 } from "./text/tasks.js";
@@ -200,10 +202,47 @@ export async function translateToTargets(
         } else {
           params.spinner.start(`${params.prefix}${i18n.pipeline.sceneNotesCreating(label)}`);
           textModel ??= await params.getTextModel();
-          contextNotes = await generateSceneNotes(params.sourceEntries, targetL, textModel, {
-            verbose: params.verbose,
-            lang: params.lang,
+          const sceneModel = textModel;
+          const results = await Promise.allSettled(
+            Array.from({ length: SCENE_NOTES_CANDIDATES }, () =>
+              generateSceneNotes(params.sourceEntries, targetL, sceneModel, {
+                verbose: params.verbose,
+                lang: params.lang,
+              }),
+            ),
+          );
+          const candidates = results.map((result, index) => {
+            if (params.verbose) {
+              const candidateLabel = `[Context] Scene notes candidate ${index + 1}/${results.length} for ${label}`;
+              if (result.status === "fulfilled") {
+                const pairs = result.value.politeness
+                  .map(({ from, to, level }) => `${from}->${to} ${level}`)
+                  .join(", ");
+                console.error(`${candidateLabel}: ${pairs || "(no politeness)"}`);
+              } else {
+                const error: unknown = result.reason;
+                console.error(
+                  `${candidateLabel} failed: ${error instanceof Error ? error.message : String(error)}`,
+                );
+              }
+            }
+            return result.status === "fulfilled" ? result.value : undefined;
           });
+          const choice = selectSceneNotes(candidates);
+          if (!choice) {
+            const failure = results.find((result) => result.status === "rejected");
+            throw failure?.reason;
+          }
+          contextNotes = choice.candidate.notes;
+          if (params.verbose) {
+            const reason =
+              choice.majorityPairs > 0
+                ? `agrees with ${choice.agreed}/${choice.majorityPairs} majority pairs`
+                : "no majority; using the first that succeeded";
+            console.error(
+              `[Context] Using scene notes candidate ${choice.index + 1}/${results.length} for ${label} (${reason})`,
+            );
+          }
           showSpinnerNotice(
             params.spinner,
             params.verbose,

@@ -27,6 +27,7 @@ import { isolateConfigAndEnv } from "./test-support/isolate-config-env.js";
 import {
   DEFAULT_CONTEXT_WINDOW_SIZE,
   generateSceneNotes,
+  SCENE_NOTES_CANDIDATES,
   translateSrtEntries,
 } from "./text/tasks.js";
 import { getTranslationResumeHint, TranslationStoppedError } from "./translation.js";
@@ -69,7 +70,7 @@ vi.mock("./text/tasks.js", async (importOriginal) => {
   return {
     ...actual,
     translateSrtEntries: vi.fn().mockImplementation(async (entries: unknown[]) => entries),
-    generateSceneNotes: vi.fn().mockResolvedValue("Scene notes"),
+    generateSceneNotes: vi.fn().mockResolvedValue({ notes: "Scene notes", politeness: [] }),
   };
 });
 
@@ -193,7 +194,8 @@ describe("CLI integration harness", () => {
             ? ["batch", "videos"]
             : ["translate", dummySrtPath, "--stdout"];
       await runCli(...args, enabled ? "--auto-context" : "--no-auto-context");
-      if (name === "translate") expect(generateSceneNotes).toHaveBeenCalledTimes(enabled ? 1 : 0);
+      if (name === "translate")
+        expect(generateSceneNotes).toHaveBeenCalledTimes(enabled ? SCENE_NOTES_CANDIDATES : 0);
       else
         expect(
           vi.mocked(name === "main" ? processMediaPipeline : runBatchPipeline).mock.calls[0]?.[0],

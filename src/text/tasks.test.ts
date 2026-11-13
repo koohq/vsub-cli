@@ -13,6 +13,7 @@ import {
   generateSceneNotes,
   generateSummary,
   refineSrtEntries,
+  SCENE_NOTES_CANDIDATES,
   SCENE_NOTES_MAX_INPUT_CHARS,
   SCENE_NOTES_PROMPT_ID,
   translateSrtEntries,
@@ -58,8 +59,9 @@ vi.mock("@google/genai", () => {
 });
 
 describe("src/text/tasks.ts", () => {
-  it("uses scene notes prompt version 2", () => {
-    expect(SCENE_NOTES_PROMPT_ID).toBe("scene-notes/2");
+  it("uses scene notes prompt version 3 and three candidates", () => {
+    expect(SCENE_NOTES_PROMPT_ID).toBe("scene-notes/3");
+    expect(SCENE_NOTES_CANDIDATES).toBe(3);
   });
 
   it("builds numbered scene notes without timestamps or speaker labels", () => {
@@ -79,7 +81,10 @@ Write every sentence as a description of the people, such as "A speaks casually 
     expect(prompt).not.toContain("do not give exact ages");
     expect(prompt).not.toContain("do not write instructions");
     expect(prompt).toContain("do not add a character count");
-    expect(prompt).toContain('Return ONLY a JSON object with one field, "notes"');
+    expect(prompt).not.toContain('Return ONLY a JSON object with one field, "notes"');
+    expect(prompt).toContain(`Return ONLY a JSON object with two fields:
+- "notes": the notes.
+- "politeness": one item for each pair of people where one speaks to the other, with "from" (the speaker), "to" (the person spoken to), and "level". "level" is "polite" when the speaker mostly speaks politely to that person in Japanese, "plain" when mostly casually, and "mixed" when neither clearly dominates. Write "from" and "to" as the names appear in the transcript, without titles such as Mr. or Ms. The levels must agree with the notes.`);
     expect(prompt).toContain("TRANSCRIPT:\n1: Hello there");
     expect(prompt).not.toContain("speaker_0");
     expect(prompt).not.toContain("00:00:");
@@ -102,9 +107,94 @@ Write every sentence as a description of the people, such as "A speaks casually 
       mockGenerateContent.mockResolvedValue({
         text: JSON.stringify({ notes: `  Notes. ${suffix}  ` }),
       });
-      expect(await generateSceneNotes(makeEntries(1), "ja", defaultModel)).toBe("Notes.");
+      expect(await generateSceneNotes(makeEntries(1), "ja", defaultModel)).toEqual({
+        notes: "Notes.",
+        politeness: [],
+      });
     },
   );
+
+  it.each([undefined, null, {}, "invalid", 1])(
+    "ignores non-array politeness %j without retrying",
+    async (politeness) => {
+      mockGenerateContent.mockResolvedValue({
+        text: JSON.stringify({ notes: "Notes", politeness }),
+      });
+      expect(await generateSceneNotes(makeEntries(1), "ja", defaultModel)).toEqual({
+        notes: "Notes",
+        politeness: [],
+      });
+      expect(mockGenerateContent).toHaveBeenCalledOnce();
+    },
+  );
+
+  it("cleans valid politeness and drops invalid items without retrying", async () => {
+    mockGenerateContent.mockResolvedValue({
+      text: JSON.stringify({
+        notes: "Notes",
+        politeness: [
+          { from: " Alex ", to: " Sam ", level: " POLITE " },
+          { from: "Sam", to: "Alex", level: "Plain" },
+          { from: "Alex", to: "Taylor", level: "mixed" },
+          null,
+          1,
+          {},
+          { from: 1, to: "Sam", level: "plain" },
+          { from: "Alex", to: " ", level: "plain" },
+          { from: " ", to: "Sam", level: "plain" },
+          { from: "Alex", to: 1, level: "plain" },
+          { from: "Alex", to: "Sam", level: "unknown" },
+          { from: "Alex", to: "Sam", level: 1 },
+        ],
+      }),
+    });
+    expect(await generateSceneNotes(makeEntries(1), "ja", defaultModel)).toEqual({
+      notes: "Notes",
+      politeness: [
+        { from: "Alex", to: "Sam", level: "polite" },
+        { from: "Sam", to: "Alex", level: "plain" },
+        { from: "Alex", to: "Taylor", level: "mixed" },
+      ],
+    });
+    expect(mockGenerateContent).toHaveBeenCalledOnce();
+  });
+
+  it("requests the scene notes schema with structured politeness", async () => {
+    const generateJson = vi
+      .fn<TextModel["generateJson"]>()
+      .mockResolvedValue('{"notes":"Notes","politeness":[]}');
+    await generateSceneNotes(makeEntries(1), "ja", { ...defaultModel, generateJson });
+    expect(generateJson.mock.calls[0]?.[0]).toMatchObject({
+      schemaName: "scene_notes",
+      schema: {
+        type: "object",
+        properties: {
+          notes: { type: "string", description: "Short background notes in the target language" },
+          politeness: {
+            type: "array",
+            description: "How politely each speaker speaks to each other person",
+            items: {
+              type: "object",
+              properties: {
+                from: {
+                  type: "string",
+                  description: "The speaker, as named in the transcript, without titles",
+                },
+                to: {
+                  type: "string",
+                  description: "The person spoken to, as named in the transcript, without titles",
+                },
+                level: { type: "string", description: 'One of "polite", "plain", or "mixed"' },
+              },
+              required: ["from", "to", "level"],
+            },
+          },
+        },
+        required: ["notes", "politeness"],
+      },
+    });
+    expect(JSON.stringify(generateJson.mock.calls[0]?.[0].schema)).not.toContain('"enum"');
+  });
 
   it.each([{}, { notes: 1 }, { notes: "  " }, { notes: "（168字）" }])(
     "rejects invalid scene notes %j after retrying",

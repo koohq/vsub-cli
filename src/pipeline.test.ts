@@ -53,6 +53,7 @@ import {
   generateSceneNotes,
   generateSummary,
   refineSrtEntries,
+  SCENE_NOTES_CANDIDATES,
   translateSrtEntries,
 } from "./text/tasks.js";
 import { DEFAULT_OPENROUTER_STT_MODEL } from "./transcribe/openrouter.js";
@@ -70,7 +71,7 @@ vi.mock("./text/tasks.js", async (importOriginal) => {
       totalChunks: entries.length === 0 ? 0 : Math.ceil(entries.length / 50),
     })),
     translateSrtEntries: vi.fn().mockImplementation(async (entries: unknown[]) => entries),
-    generateSceneNotes: vi.fn().mockResolvedValue("Scene notes"),
+    generateSceneNotes: vi.fn().mockResolvedValue({ notes: "Scene notes", politeness: [] }),
     generateChapters: vi.fn().mockResolvedValue([
       { timestamp: "00:00", seconds: 0, title: "Introduction" },
       { timestamp: "01:23", seconds: 83, title: "Getting Started" },
@@ -182,13 +183,13 @@ describe("pipeline.ts", () => {
       await run("medium");
       expect(refineSrtEntries).toHaveBeenCalledTimes(1);
       expect(translateSrtEntries).toHaveBeenCalledTimes(1);
-      expect(generateSceneNotes).toHaveBeenCalledTimes(1);
+      expect(generateSceneNotes).toHaveBeenCalledTimes(SCENE_NOTES_CANDIDATES);
       expect(generateChapters).toHaveBeenCalledTimes(1);
       expect(generateSummary).toHaveBeenCalledTimes(1);
       await run("high");
       expect(refineSrtEntries).toHaveBeenCalledTimes(2);
       expect(translateSrtEntries).toHaveBeenCalledTimes(2);
-      expect(generateSceneNotes).toHaveBeenCalledTimes(2);
+      expect(generateSceneNotes).toHaveBeenCalledTimes(2 * SCENE_NOTES_CANDIDATES);
       expect(generateChapters).toHaveBeenCalledTimes(2);
       expect(generateSummary).toHaveBeenCalledTimes(2);
       expect(transcribeAudioSegments).toHaveBeenCalledTimes(1);
@@ -4170,7 +4171,7 @@ describe("pipeline.ts", () => {
           refine: true,
           autoContext: cli,
         });
-        expect(generateSceneNotes).toHaveBeenCalledTimes(enabled ? 1 : 0);
+        expect(generateSceneNotes).toHaveBeenCalledTimes(enabled ? SCENE_NOTES_CANDIDATES : 0);
         expect(vi.mocked(refineSrtEntries).mock.calls[0]?.[4]?.contextNotes).toBeUndefined();
         if (enabled)
           expect(vi.mocked(generateSceneNotes).mock.calls[0]?.[0]).toEqual(refinedEntries);
