@@ -9,9 +9,25 @@ import { createGeminiTextModel } from "./gemini.js";
 import type { TextModel } from "./model.js";
 import { createGenericOpenAICompatibleTextModel } from "./openai-compatible-provider.js";
 import { createOpenRouterTextModel, DEFAULT_OPENROUTER_LLM_MODEL } from "./openrouter.js";
-import { LLM_PROVIDER_LABELS, LLM_PROVIDERS, type LlmProvider } from "./providers.js";
+import {
+  LLM_PROVIDER_LABELS,
+  LLM_PROVIDERS,
+  LLM_REASONING_EFFORTS,
+  type LlmProvider,
+  type LlmReasoningEffort,
+} from "./providers.js";
 
 export { LLM_PROVIDER_LABELS, LLM_PROVIDERS, type LlmProvider };
+
+export function parseLlmReasoningEffort(
+  raw: string,
+  lang?: SupportedLanguage | string | undefined,
+): LlmReasoningEffort {
+  const normalized = raw.trim().toLowerCase();
+  if ((LLM_REASONING_EFFORTS as readonly string[]).includes(normalized))
+    return normalized as LlmReasoningEffort;
+  throw new Error(getI18n(lang).pipeline.invalidLlmReasoningEffort(raw.trim()));
+}
 
 export function assertLlmSettingsReady(
   settings: LlmSettings,
@@ -27,6 +43,8 @@ export interface LlmSettings {
   /** Model sent to the provider. */
   model: string;
   baseUrl?: string | undefined;
+  /** Low is omitted to preserve existing cache contexts. Never used by openai-compatible. */
+  reasoningEffort?: Exclude<LlmReasoningEffort, "low"> | undefined;
 }
 
 export function parseLlmProvider(
@@ -46,12 +64,24 @@ export function resolveLlmSettings(
   overrides: {
     llmProvider?: string | undefined;
     llmModel?: string | undefined;
+    llmReasoningEffort?: string | undefined;
+    /** Execution paths validate; configuration inspection and init remain tolerant. */
+    validateReasoningEffort?: boolean | undefined;
     geminiModel?: string | undefined;
   },
   lang?: SupportedLanguage | string | undefined,
 ): { config: AppConfig; llm: LlmSettings } {
   let provider: LlmProvider;
   let source: "option" | "setting" | "auto";
+  const rawEffort = overrides.llmReasoningEffort?.trim() || config.llmReasoningEffort?.trim();
+  let effort: LlmReasoningEffort = "low";
+  if (rawEffort) {
+    try {
+      effort = parseLlmReasoningEffort(rawEffort, lang);
+    } catch (error) {
+      if (overrides.validateReasoningEffort) throw error;
+    }
+  }
 
   const rawOptionProvider = overrides.llmProvider?.trim();
   const rawSettingProvider = config.llmProvider?.trim();
@@ -101,6 +131,7 @@ export function resolveLlmSettings(
       provider,
       source,
       model,
+      ...(provider !== "openai-compatible" && effort !== "low" ? { reasoningEffort: effort } : {}),
       ...(provider === "openai-compatible"
         ? { baseUrl: normalizeBaseUrl(config.openaiCompatibleLlmBaseUrl) }
         : {}),
@@ -135,11 +166,11 @@ export function createTextModel(
     if (!config.geminiApiKey) {
       throw new Error(getI18n(deps?.lang).pipeline.geminiTextKeyRequired);
     }
-    return createGeminiTextModel(config.geminiApiKey, llm.model);
+    return createGeminiTextModel(config.geminiApiKey, llm.model, llm.reasoningEffort);
   }
 
   if (!config.openrouterApiKey) {
     throw new Error(getI18n(deps?.lang).pipeline.openrouterTextKeyRequired);
   }
-  return createOpenRouterTextModel(config.openrouterApiKey, llm.model, deps);
+  return createOpenRouterTextModel(config.openrouterApiKey, llm.model, deps, llm.reasoningEffort);
 }

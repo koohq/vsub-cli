@@ -365,6 +365,56 @@ describe("CLI integration harness", () => {
       vi.mocked(getConfig).mockReturnValue(mockConfig);
     });
 
+    it("saves normalized common reasoning effort", async () => {
+      await runCli("config", "set", "--llm-reasoning-effort", " Medium ");
+      expect(saveGlobalConfig).toHaveBeenCalledWith(
+        expect.objectContaining({ llmReasoningEffort: "medium" }),
+        expect.anything(),
+      );
+    });
+    it("does not save invalid common effort", async () => {
+      await runCli("config", "set", "--llm-reasoning-effort", "Bogus");
+      expect(saveGlobalConfig).not.toHaveBeenCalled();
+      expect(exitSpy).toHaveBeenCalledWith(1);
+    });
+    it.each(["en", "ja"] as const)(
+      "shows common effort without rejecting invalid settings (%s)",
+      async (lang) => {
+        const label = lang === "en" ? "LLM Reasoning Effort" : "文章生成の推論の量";
+        for (const value of [" Medium ", " Bogus ", " "]) {
+          logSpy.mockClear();
+          vi.mocked(getConfig).mockReturnValue({
+            ...mockConfig,
+            openrouterLlmModel: "test-model",
+            llmReasoningEffort: value,
+          });
+          await runCli("config", "show", "--lang", lang);
+          const lines = stripVTControlCharacters(
+            logSpy.mock.calls.map((call: unknown[]) => String(call[0])).join("\n"),
+          ).split("\n");
+          if (value.trim()) {
+            const modelRow = lines.findIndex((line) =>
+              line.includes(getI18n(lang).config.showLabels.openrouterLlmModel),
+            );
+            expect(lines[modelRow + 1]).toMatch(
+              new RegExp(`${label}\\s+: ${value.includes("Medium") ? "medium" : "Bogus"}`),
+            );
+            expect(lines.join("\n")).not.toContain("invalid provider");
+          } else expect(lines.join("\n")).not.toContain(label);
+        }
+        expect(exitSpy).not.toHaveBeenCalled();
+      },
+    );
+    it.each(["main", "batch", "translate", "chapters", "summarize"])(
+      "offers the common effort flag on %s",
+      (name) => {
+        const program = createProgram();
+        const command =
+          name === "main" ? program : program.commands.find((entry) => entry.name() === name);
+        expect(command?.helpInformation()).toContain("--llm-reasoning-effort <level>");
+      },
+    );
+
     it.each([" low ", " High ", " "])("saves only nonblank reasoning effort %j", async (value) => {
       await runCli("config", "set", "--openai-compatible-llm-reasoning-effort", value);
       if (value.trim())
@@ -523,6 +573,7 @@ describe("CLI integration harness", () => {
       expect(
         names.slice(names.indexOf("--openrouter-llm-model") + 1, names.indexOf("--ffmpeg-path")),
       ).toEqual([
+        "--llm-reasoning-effort",
         "--openai-compatible-stt-base-url",
         "--openai-compatible-stt-key",
         "--openai-compatible-stt-model",
@@ -1568,6 +1619,62 @@ describe("CLI integration harness", () => {
         });
       });
 
+      it("rejects common effort before safety checks, keys and progress", async () => {
+        const safety = vi.spyOn(safetyModule, "ensureWritableTargets");
+        try {
+          await runCli("translate", dummySrtPath, "--llm-reasoning-effort", " Bogus ");
+          expect(exitSpy).toHaveBeenCalledWith(1);
+          expect(safety).not.toHaveBeenCalled();
+          expect(ensureApiKeys).not.toHaveBeenCalled();
+          expect(vi.mocked(ui.createSpinner).mock.results[0]?.value.start).not.toHaveBeenCalled();
+          expect(translateSrtEntries).not.toHaveBeenCalled();
+        } finally {
+          safety.mockRestore();
+        }
+      });
+
+      it("caches translate and scene notes using the common effort flag", async () => {
+        await runCli(
+          "translate",
+          dummySrtPath,
+          "--overwrite",
+          "--llm-reasoning-effort",
+          " Medium ",
+          "--auto-context",
+        );
+        expect(saveTranslationCache).toHaveBeenCalledWith(
+          dummySrtPath,
+          "ja",
+          expect.objectContaining({ reasoningEffort: "medium" }),
+          undefined,
+        );
+        expect(translateSrtEntries).toHaveBeenCalledTimes(1);
+        const cached = vi.mocked(saveTranslationCache).mock.calls[0]?.[2];
+        expect(cached).toBeDefined();
+        if (cached) mockCacheWithTranslation(cached);
+        await runCli(
+          "translate",
+          dummySrtPath,
+          "--overwrite",
+          "--llm-reasoning-effort",
+          "medium",
+          "--context",
+          "Scene notes",
+        );
+        expect(translateSrtEntries).toHaveBeenCalledTimes(1);
+        await runCli(
+          "translate",
+          dummySrtPath,
+          "--overwrite",
+          "--llm-reasoning-effort",
+          "high",
+          "--context",
+          "Scene notes",
+        );
+        expect(translateSrtEntries).toHaveBeenCalledTimes(2);
+        expect(exitSpy).not.toHaveBeenCalled();
+      });
+
       afterEach(() => {
         vi.mocked(loadMediaCache).mockReturnValue(null);
         vi.mocked(ui.createSpinner).mockRestore();
@@ -2035,8 +2142,10 @@ describe("CLI integration harness", () => {
       "passes --llm-provider and --llm-model to $cmd pipeline",
       async ({ args, getMock, expected }) => {
         const resolvedArgs = args.map((a) => (a === "dummy.mp4" ? dummyVideoPath : a));
-        await runCli(...resolvedArgs);
-        expect(getMock()).toHaveBeenCalledWith(expect.objectContaining(expected));
+        await runCli(...resolvedArgs, "--llm-reasoning-effort", "medium");
+        expect(getMock()).toHaveBeenCalledWith(
+          expect.objectContaining({ ...expected, llmReasoningEffort: "medium" }),
+        );
       },
     );
 
@@ -2652,6 +2761,7 @@ describe("CLI integration harness", () => {
           "OpenRouter API Key (for transcription and text generation)",
           "Default text generation provider: gemini, openrouter, or openai-compatible",
           "Default OpenRouter text generation model (e.g. google/gemini-3.8-flash)",
+          "--llm-reasoning-effort <level> Default reasoning effort for text generation with OpenRouter and Gemini: minimal, low, medium, or high (default: low)",
           "--openai-compatible-llm-reasoning-effort <effort> Reasoning effort sent as reasoning_effort to the OpenAI-compatible text generation API (e.g. low; passed through as-is, not sent unless set)",
         ],
       },

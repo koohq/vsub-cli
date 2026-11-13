@@ -233,6 +233,7 @@ export interface ProcessMediaOptions {
   ffmpegPath?: string | undefined;
   geminiModel?: string | undefined;
   llmProvider?: string | undefined;
+  llmReasoningEffort?: string | undefined;
   llmModel?: string | undefined;
   groqModel?: string | undefined;
   sttProvider?: string | undefined;
@@ -385,6 +386,8 @@ export async function processMediaPipeline(
     {
       llmProvider: options.llmProvider,
       llmModel: options.llmModel,
+      llmReasoningEffort: options.llmReasoningEffort,
+      validateReasoningEffort: true,
       geminiModel: options.geminiModel,
     },
     lang,
@@ -743,6 +746,7 @@ export async function processMediaPipeline(
         llm: {
           provider: llm.provider,
           baseUrl: llm.baseUrl,
+          reasoningEffort: llm.reasoningEffort,
           model: llm.model,
         },
         getTextModel,
@@ -831,6 +835,7 @@ export async function processMediaPipeline(
       llm: {
         provider: llm.provider,
         baseUrl: llm.baseUrl,
+        reasoningEffort: llm.reasoningEffort,
         model: llm.model,
       },
       getTextModel,
@@ -1233,6 +1238,7 @@ interface TextTaskOptions {
   backup?: boolean | undefined;
   geminiModel?: string | undefined;
   llmProvider?: string | undefined;
+  llmReasoningEffort?: string | undefined;
   llmModel?: string | undefined;
   groqModel?: string | undefined;
   sttProvider?: string | undefined;
@@ -1295,6 +1301,8 @@ async function prepareTextTask<Format extends string>(
     {
       llmProvider: options.llmProvider,
       llmModel: options.llmModel,
+      llmReasoningEffort: options.llmReasoningEffort,
+      validateReasoningEffort: true,
       geminiModel: options.geminiModel,
     },
     lang,
@@ -1362,6 +1370,7 @@ async function prepareTextTask<Format extends string>(
       sourceEntries,
       provider: llm.provider,
       baseUrl: llm.baseUrl,
+      reasoningEffort: llm.reasoningEffort,
       prompt: options.prompt,
       model: llm.model,
       glossaryHash,

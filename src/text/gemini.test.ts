@@ -26,7 +26,10 @@ vi.mock("@google/genai", () => {
       OBJECT: "OBJECT",
     },
     ThinkingLevel: {
+      MINIMAL: "MINIMAL",
       LOW: "LOW",
+      MEDIUM: "MEDIUM",
+      HIGH: "HIGH",
     },
   };
 });
@@ -384,6 +387,29 @@ describe("src/text/gemini.ts", () => {
   });
 
   describe("buildThinkingConfig", () => {
+    it.each(["minimal", "low", "medium", "high"] as const)(
+      "uses %s for supported models only",
+      async (effort) => {
+        expect(buildThinkingConfig("models/gemini-3-test", effort)).toEqual({
+          thinkingConfig: { thinkingLevel: effort.toUpperCase() },
+        });
+        for (const name of ["gemini-2.5-flash", "unknown"])
+          expect(buildThinkingConfig(name, effort)).toEqual({});
+        mockGenerateContent.mockResolvedValue({ text: "{}" });
+        await createGeminiTextModel("test-key-1234", "gemini-3-test", effort).generateJson({
+          prompt: "Test",
+          schemaName: "test",
+          schema: { type: "object" },
+        });
+        expect(mockGenerateContent).toHaveBeenCalledWith(
+          expect.objectContaining({
+            config: expect.objectContaining({
+              thinkingConfig: { thinkingLevel: effort.toUpperCase() },
+            }),
+          }),
+        );
+      },
+    );
     it.each([
       {
         model: "gemini-3.8-flash",

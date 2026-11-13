@@ -17,7 +17,11 @@ import { computeGlossaryHash, parseGlossary } from "./glossary.js";
 import { getI18n, type SupportedLanguage } from "./i18n/index.js";
 import type { SrtEntry } from "./srt.js";
 import type { TextModel } from "./text/model.js";
-import { LLM_PROVIDER_LABELS, type LlmProvider } from "./text/providers.js";
+import {
+  LLM_PROVIDER_LABELS,
+  type LlmProvider,
+  type LlmReasoningEffort,
+} from "./text/providers.js";
 import {
   DEFAULT_CHUNK_SIZE,
   DEFAULT_CONTEXT_WINDOW_SIZE,
@@ -47,6 +51,7 @@ export interface TranslateToTargetsParams {
     provider: LlmProvider;
     model: string;
     baseUrl?: string | undefined;
+    reasoningEffort?: LlmReasoningEffort | undefined;
   };
   /** Called at most once, on the first cache miss (pipeline checks the key lazily). */
   getTextModel: () => Promise<TextModel>;
@@ -234,6 +239,7 @@ export async function translateToTargets(
       contextHash,
       provider: params.llm.provider,
       baseUrl: params.llm.baseUrl,
+      reasoningEffort: params.llm.reasoningEffort,
       model: params.llm.model,
       contextWindowSize: params.contextWindowSize,
     };

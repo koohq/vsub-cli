@@ -13,7 +13,7 @@ export interface OpenAICompatibleTextProfile {
   /** Upper bound of output tokens per request. Also caps the cost the provider reserves. */
   maxTokens?: number | undefined; // 16384
   /** Sent as-is as `reasoning`; omitted when undefined. OpenRouter: { effort: "low" }. */
-  reasoning?: { effort: "low" | "medium" | "high" } | undefined;
+  reasoning?: { effort: "minimal" | "low" | "medium" | "high" } | undefined;
   /** Sent as-is as top-level `reasoning_effort`; omitted when unset. */
   reasoningEffort?: string | undefined;
   /** Client-side timeout of one request, in milliseconds. */

@@ -48,6 +48,7 @@ import {
   LLM_PROVIDER_LABELS,
   type LlmProvider,
   parseLlmProvider,
+  parseLlmReasoningEffort,
   resolveLlmSettings,
 } from "./text/select.js";
 import {
@@ -222,6 +223,10 @@ function addLlmProviderOptions(command: Command): Command {
     .option(
       "--llm-model <model>",
       "Model for the chosen text generation provider (default: gemini-3.8-flash on Gemini, google/gemini-3.8-flash on OpenRouter, the configured model on openai-compatible)",
+    )
+    .option(
+      "--llm-reasoning-effort <level>",
+      "Reasoning effort for text generation with OpenRouter and Gemini (Gemini 3 or newer): minimal, low, medium, or high (default: VSUB_LLM_REASONING_EFFORT, config, or low; not used by openai-compatible)",
     );
 }
 
@@ -299,6 +304,7 @@ interface TextTaskActionOptions {
   glossary?: string | undefined;
   geminiModel?: string;
   llmProvider?: string;
+  llmReasoningEffort?: string | undefined;
   llmModel?: string;
   sttProvider?: string;
   sttModel?: string;
@@ -339,6 +345,7 @@ function createTextTaskAction<Format>(
         geminiModel: options.geminiModel,
         llmProvider: options.llmProvider,
         llmModel: options.llmModel,
+        llmReasoningEffort: options.llmReasoningEffort,
         sttProvider: options.sttProvider,
         sttModel: options.sttModel,
         groqModel: options.groqModel,
@@ -671,6 +678,18 @@ export function createProgram(): Command {
         [labels.groqModel, resolvedConfig.groqModel || undefined],
         [labels.openrouterSttModel, resolvedConfig.openrouterSttModel || undefined],
         [labels.openrouterLlmModel, resolvedConfig.openrouterLlmModel || undefined],
+        [
+          labels.llmReasoningEffort,
+          (() => {
+            const raw = resolvedConfig.llmReasoningEffort?.trim();
+            if (!raw) return undefined;
+            try {
+              return parseLlmReasoningEffort(raw);
+            } catch {
+              return raw;
+            }
+          })(),
+        ],
         [labels.openaiCompatibleSttBaseUrl, resolvedConfig.openaiCompatibleSttBaseUrl || undefined],
         [
           labels.openaiCompatibleSttApiKey,
@@ -744,6 +763,10 @@ export function createProgram(): Command {
       "Default OpenRouter text generation model (e.g. google/gemini-3.8-flash)",
     )
     .option(
+      "--llm-reasoning-effort <level>",
+      "Default reasoning effort for text generation with OpenRouter and Gemini: minimal, low, medium, or high (default: low)",
+    )
+    .option(
       "--openai-compatible-stt-base-url <url>",
       "Base URL of an OpenAI-compatible transcription API (e.g. http://localhost:8000/v1; untested)",
     )
@@ -811,6 +834,7 @@ export function createProgram(): Command {
         openrouterSttModel?: string;
         llmProvider?: string;
         openrouterLlmModel?: string;
+        llmReasoningEffort?: string;
         openaiCompatibleSttBaseUrl?: string;
         openaiCompatibleSttKey?: string;
         openaiCompatibleSttModel?: string;
@@ -893,6 +917,18 @@ export function createProgram(): Command {
         }
 
         let llmProviderVal: LlmProvider | undefined;
+        let llmReasoningEffortVal: string | undefined;
+        if (options.llmReasoningEffort?.trim()) {
+          try {
+            llmReasoningEffortVal = parseLlmReasoningEffort(
+              options.llmReasoningEffort,
+              normalizedLang,
+            );
+          } catch (err) {
+            console.error(pc.red(`\n✖ ${err instanceof Error ? err.message : String(err)}\n`));
+            return process.exit(1);
+          }
+        }
         if (options.llmProvider) {
           try {
             llmProviderVal = parseLlmProvider(options.llmProvider, normalizedLang);
@@ -962,6 +998,7 @@ export function createProgram(): Command {
           !options.llmProvider &&
           !options.openrouterSttModel &&
           !options.openrouterLlmModel &&
+          !llmReasoningEffortVal &&
           Object.keys(compatibleConfig).length === 0 &&
           !options.ffmpegPath &&
           !options.geminiModel &&
@@ -999,6 +1036,7 @@ export function createProgram(): Command {
                 ? { openrouterSttModel: options.openrouterSttModel.trim() }
                 : {}),
               ...(llmProviderVal ? { llmProvider: llmProviderVal } : {}),
+              ...(llmReasoningEffortVal ? { llmReasoningEffort: llmReasoningEffortVal } : {}),
               ...(options.openrouterLlmModel
                 ? { openrouterLlmModel: options.openrouterLlmModel.trim() }
                 : {}),

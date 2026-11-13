@@ -5,6 +5,7 @@ import {
   assertLlmSettingsReady,
   createTextModel,
   parseLlmProvider,
+  parseLlmReasoningEffort,
   resolveLlmSettings,
 } from "./select.js";
 
@@ -17,6 +18,23 @@ vi.mock("@google/genai", async (importOriginal) => ({
 }));
 
 describe("select.ts", () => {
+  it.each(["minimal", "low", "medium", "high"] as const)(
+    "normalizes reasoning effort %s",
+    (effort) => {
+      expect(parseLlmReasoningEffort(` ${effort.toUpperCase()} `)).toBe(effort);
+    },
+  );
+  it.each(["max", "none", "xhigh", "bogus"])(
+    "rejects reasoning effort %s in both languages",
+    (value) => {
+      expect(() => parseLlmReasoningEffort(` ${value} `, "en")).toThrow(
+        `Unsupported reasoning effort: "${value}". Supported: minimal, low, medium, high`,
+      );
+      expect(() => parseLlmReasoningEffort(` ${value} `, "ja")).toThrow(
+        `サポートされていない推論の量です: "${value}". 利用可能な値: minimal, low, medium, high`,
+      );
+    },
+  );
   const baseConfig: AppConfig = {
     groqApiKey: "",
     geminiApiKey: "",
@@ -29,11 +47,76 @@ describe("select.ts", () => {
       .mockImplementation(async () => Response.json({ choices: [{ message: { content: "{}" } }] }));
   }
 
+  it.each(["gemini", "openrouter", "openai-compatible"] as const)(
+    "resolves and validates common effort for %s",
+    (provider) => {
+      const config = { ...baseConfig, llmProvider: provider, llmReasoningEffort: " High " };
+      const resolve = (value?: string) =>
+        resolveLlmSettings(config, { llmReasoningEffort: value, validateReasoningEffort: true })
+          .llm;
+      expect(resolve().reasoningEffort).toBe(provider === "openai-compatible" ? undefined : "high");
+      expect(resolve(" Medium ").reasoningEffort).toBe(
+        provider === "openai-compatible" ? undefined : "medium",
+      );
+      expect(resolve("low")).not.toHaveProperty("reasoningEffort");
+      expect(resolve(" ").reasoningEffort).toBe(
+        provider === "openai-compatible" ? undefined : "high",
+      );
+      expect(resolveLlmSettings(baseConfig, {}).llm).not.toHaveProperty("reasoningEffort");
+      expect(() => resolve(" Bogus ")).toThrow('"Bogus"');
+      expect(() =>
+        resolveLlmSettings({ ...config, llmReasoningEffort: "Bogus" }, {}),
+      ).not.toThrow();
+    },
+  );
+
+  it.each(["minimal", "medium", "high"] as const)(
+    "sends resolved effort %s only to supported providers",
+    async (effort) => {
+      for (const provider of ["openrouter", "gemini", "openai-compatible"] as const) {
+        generateContent.mockClear().mockResolvedValue({ text: "{}" });
+        const fetch = createFetch();
+        const config = {
+          ...baseConfig,
+          geminiApiKey: "test-key-1234",
+          openrouterApiKey: "test-key-1234",
+          llmReasoningEffort: effort,
+          openaiCompatibleLlmBaseUrl: "https://example.invalid/v1",
+          openaiCompatibleLlmModel: "test-model",
+        };
+        const { llm } = resolveLlmSettings(config, {
+          llmProvider: provider,
+          llmModel: "gemini-3-test",
+          validateReasoningEffort: true,
+        });
+        await createTextModel(config, llm, { fetch }).generateJson(request);
+        if (provider === "gemini")
+          expect(generateContent).toHaveBeenCalledWith(
+            expect.objectContaining({
+              config: expect.objectContaining({
+                thinkingConfig: { thinkingLevel: effort.toUpperCase() },
+              }),
+            }),
+          );
+        else {
+          const body = JSON.parse(String(fetch.mock.calls[0]?.[1]?.body));
+          if (provider === "openrouter") expect(body.reasoning).toEqual({ effort });
+          else expect(body).not.toHaveProperty("reasoning");
+          expect(body).not.toHaveProperty("reasoning_effort");
+        }
+      }
+    },
+  );
+
   it.each([" High ", " ", undefined])(
     "passes configured generic reasoning effort %j",
     async (effort) => {
       const fetch = createFetch();
-      const config = { ...baseConfig, openaiCompatibleLlmReasoningEffort: effort };
+      const config = {
+        ...baseConfig,
+        llmReasoningEffort: "medium",
+        openaiCompatibleLlmReasoningEffort: effort,
+      };
       await createTextModel(
         config,
         {

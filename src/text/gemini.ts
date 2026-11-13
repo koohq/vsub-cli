@@ -2,20 +2,29 @@ import { GoogleGenAI, type ThinkingConfig, ThinkingLevel, Type } from "@google/g
 import { DEFAULT_GEMINI_MODEL } from "../config.js";
 import { getI18n, type SupportedLanguage } from "../i18n/index.js";
 import type { JsonRequest, JsonSchema, TextModel, TextModelErrorKind } from "./model.js";
+import type { LlmReasoningEffort } from "./providers.js";
 
 /**
  * Builds the thinking config for models known to be Gemini 3 or newer.
- * Gemini 3 models support thinkingLevel: LOW to reduce latency and token usage
- * without degrading translation/chapter/summary quality. Non-matching or older
+ * Defaults to LOW to preserve latency and token usage. Non-matching or older
  * models (such as Gemini 2.x) are left unchanged without thinkingConfig.
  */
-export function buildThinkingConfig(modelName: string): { thinkingConfig?: ThinkingConfig } {
+export function buildThinkingConfig(
+  modelName: string,
+  effort: LlmReasoningEffort = "low",
+): { thinkingConfig?: ThinkingConfig } {
+  const levels: Record<LlmReasoningEffort, ThinkingLevel> = {
+    minimal: ThinkingLevel.MINIMAL,
+    low: ThinkingLevel.LOW,
+    medium: ThinkingLevel.MEDIUM,
+    high: ThinkingLevel.HIGH,
+  };
   const normalized = modelName.replace(/^models\//, "");
   const match = normalized.match(/^gemini-(\d+)(?:[.-]|$)/);
   if (match && match[1] !== undefined && Number.parseInt(match[1], 10) >= 3) {
     return {
       thinkingConfig: {
-        thinkingLevel: ThinkingLevel.LOW,
+        thinkingLevel: levels[effort],
       },
     };
   }
@@ -102,7 +111,11 @@ function toGeminiSchema(schema: JsonSchema): Record<string, unknown> {
 /**
  * Creates a TextModel instance powered by the Google Gemini API.
  */
-export function createGeminiTextModel(apiKey: string, model: string): TextModel {
+export function createGeminiTextModel(
+  apiKey: string,
+  model: string,
+  effort: LlmReasoningEffort = "low",
+): TextModel {
   const ai = new GoogleGenAI({ apiKey });
 
   return {
@@ -118,7 +131,7 @@ export function createGeminiTextModel(apiKey: string, model: string): TextModel 
         config: {
           responseMimeType: "application/json",
           responseSchema: toGeminiSchema(request.schema),
-          ...buildThinkingConfig(model),
+          ...buildThinkingConfig(model, effort),
         },
       });
       return response.text ?? "";

@@ -115,6 +115,86 @@ vi.mock("./transcribe/transcriber.js", async (importOriginal) => {
 });
 
 describe("pipeline.ts", () => {
+  describe("common reasoning effort", () => {
+    function setup() {
+      vi.clearAllMocks();
+      vi.spyOn(console, "log").mockImplementation(() => {});
+      const file = path.join(tempDir, "reasoning.mp4");
+      fs.writeFileSync(file, "dummy media");
+      const spinner = ui.createSpinner("", { isSilent: true });
+      vi.spyOn(ui, "createSpinner").mockReturnValue(spinner);
+      const start = vi.spyOn(spinner, "start");
+      const model = vi.spyOn(selectModule, "createTextModel");
+      const options = {
+        mediaFile: file,
+        inputFile: file,
+        cacheDir: path.join(tempDir, "cache"),
+        overwrite: true,
+        targetLang: "ja",
+        lang: "en" as const,
+        sttProvider: "groq",
+        llmProvider: "gemini",
+      };
+      return { file, start, model, options };
+    }
+
+    it.each(["media", "chapters", "summary"] as const)(
+      "rejects invalid %s effort before work",
+      async (task) => {
+        const { start, options } = setup();
+        process.env["VSUB_LLM_REASONING_EFFORT"] = " Bogus ";
+        const run =
+          task === "media"
+            ? processMediaPipeline
+            : task === "chapters"
+              ? processChaptersPipeline
+              : processSummaryPipeline;
+        await expect(run(options)).rejects.toThrow('Unsupported reasoning effort: "Bogus"');
+        expect(start).not.toHaveBeenCalled();
+        expect(checkFfmpeg).not.toHaveBeenCalled();
+        expect(transcribeAudioSegments).not.toHaveBeenCalled();
+      },
+    );
+
+    it("passes effort through refinement, translation, scene notes, chapters and summaries without invalidating transcription", async () => {
+      const { file, model, options } = setup();
+      const run = async (effort: string) => {
+        await processMediaPipeline({
+          ...options,
+          llmReasoningEffort: effort,
+          refine: true,
+          autoContext: true,
+        });
+        await processChaptersPipeline({ ...options, llmReasoningEffort: effort });
+        await processSummaryPipeline({ ...options, llmReasoningEffort: effort });
+      };
+      await run(" Medium ");
+      const cache = loadMediaCache(file, options.cacheDir);
+      for (const cached of [
+        cache?.refinement,
+        cache?.translations?.["ja"],
+        cache?.sceneNotes?.["ja"],
+        cache?.chapters?.["ja"],
+        cache?.summaries?.["ja"],
+      ])
+        expect(cached?.reasoningEffort).toBe("medium");
+      for (const call of model.mock.calls) expect(call[1].reasoningEffort).toBe("medium");
+      await run("medium");
+      expect(refineSrtEntries).toHaveBeenCalledTimes(1);
+      expect(translateSrtEntries).toHaveBeenCalledTimes(1);
+      expect(generateSceneNotes).toHaveBeenCalledTimes(1);
+      expect(generateChapters).toHaveBeenCalledTimes(1);
+      expect(generateSummary).toHaveBeenCalledTimes(1);
+      await run("high");
+      expect(refineSrtEntries).toHaveBeenCalledTimes(2);
+      expect(translateSrtEntries).toHaveBeenCalledTimes(2);
+      expect(generateSceneNotes).toHaveBeenCalledTimes(2);
+      expect(generateChapters).toHaveBeenCalledTimes(2);
+      expect(generateSummary).toHaveBeenCalledTimes(2);
+      expect(transcribeAudioSegments).toHaveBeenCalledTimes(1);
+      expect(loadMediaCache(file, options.cacheDir)?.transcription).toEqual(cache?.transcription);
+    });
+  });
   it.each(["groq", "openrouter", "openai-compatible"] as const)(
     "gates speaker requests for %s",
     (provider) => {

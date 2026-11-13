@@ -6,7 +6,7 @@ import { DEFAULT_GEMINI_MODEL, DEFAULT_GROQ_MODEL } from "./config.js";
 import type { ChapterItem, SummaryResult } from "./formatter.js";
 import type { SrtEntry } from "./srt.js";
 import { DEFAULT_OPENROUTER_LLM_MODEL } from "./text/openrouter.js";
-import type { LlmProvider } from "./text/providers.js";
+import type { LlmProvider, LlmReasoningEffort } from "./text/providers.js";
 import { DEFAULT_OPENROUTER_STT_MODEL } from "./transcribe/openrouter.js";
 import type { SttProvider } from "./transcribe/providers.js";
 import type { WordChunk } from "./transcribe/words.js";
@@ -27,6 +27,7 @@ export interface CachedTranscription {
 export interface CachedRefinement {
   contextHash?: string | undefined;
   provider?: LlmProvider | undefined;
+  reasoningEffort?: LlmReasoningEffort | undefined;
   model?: string | undefined;
   baseUrl?: string | undefined;
   prompt?: string | undefined;
@@ -41,6 +42,7 @@ export interface CachedTranslation {
   contextHash?: string | undefined;
   targetLang: string;
   provider?: LlmProvider | undefined;
+  reasoningEffort?: LlmReasoningEffort | undefined;
   model?: string | undefined;
   baseUrl?: string | undefined;
   prompt?: string | undefined;
@@ -58,6 +60,7 @@ export interface CachedTranslation {
 export interface CachedChapters {
   targetLang: string;
   provider?: LlmProvider | undefined;
+  reasoningEffort?: LlmReasoningEffort | undefined;
   model?: string | undefined;
   baseUrl?: string | undefined;
   prompt?: string | undefined;
@@ -70,6 +73,7 @@ export interface CachedChapters {
 export interface CachedSummary {
   targetLang: string;
   provider?: LlmProvider | undefined;
+  reasoningEffort?: LlmReasoningEffort | undefined;
   model?: string | undefined;
   baseUrl?: string | undefined;
   prompt?: string | undefined;
@@ -176,6 +180,7 @@ export interface TranslationCacheContext {
   contextHash?: string | undefined;
   sourceEntries: SrtEntry[];
   provider?: LlmProvider | undefined;
+  reasoningEffort?: LlmReasoningEffort | undefined;
   prompt?: string | undefined;
   glossaryHash?: string | undefined;
   model?: string | undefined;
@@ -187,6 +192,7 @@ export interface RefinementCacheContext {
   contextHash?: string | undefined;
   sourceEntries: SrtEntry[];
   provider?: LlmProvider | undefined;
+  reasoningEffort?: LlmReasoningEffort | undefined;
   model?: string | undefined;
   baseUrl?: string | undefined;
   prompt?: string | undefined;
@@ -196,10 +202,22 @@ export interface RefinementCacheContext {
 export interface GeneratedCacheContext {
   sourceEntries: SrtEntry[];
   provider?: LlmProvider | undefined;
+  reasoningEffort?: LlmReasoningEffort | undefined;
   prompt?: string | undefined;
   glossaryHash?: string | undefined;
   model?: string | undefined;
   baseUrl?: string | undefined;
+}
+
+function reasoningCacheFields(context: {
+  provider?: LlmProvider | undefined;
+  reasoningEffort?: LlmReasoningEffort | undefined;
+}) {
+  return context.provider !== "openai-compatible" &&
+    context.reasoningEffort &&
+    context.reasoningEffort !== "low"
+    ? { reasoningEffort: context.reasoningEffort }
+    : {};
 }
 
 function isLlmSourceCacheValid(
@@ -207,6 +225,7 @@ function isLlmSourceCacheValid(
     | {
         sourceHash?: string | undefined;
         provider?: LlmProvider | undefined;
+        reasoningEffort?: LlmReasoningEffort | undefined;
         prompt?: string | undefined;
         model?: string | undefined;
         baseUrl?: string | undefined;
@@ -223,6 +242,11 @@ function isLlmSourceCacheValid(
   }
   const cachedProvider: LlmProvider = cached.provider ?? "gemini";
   const contextProvider: LlmProvider = context.provider ?? "gemini";
+  if (
+    contextProvider !== "openai-compatible" &&
+    (cached.reasoningEffort ?? "low") !== (context.reasoningEffort ?? "low")
+  )
+    return false;
   if (
     contextProvider === "openai-compatible" &&
     normalizeCacheString(cached.baseUrl) !== normalizeCacheString(context.baseUrl)
@@ -270,6 +294,7 @@ export function createCachedRefinement(
   refinedEntries: SrtEntry[],
 ): CachedRefinement {
   return {
+    ...reasoningCacheFields(context),
     provider: context.provider,
     baseUrl: context.provider === "openai-compatible" ? context.baseUrl : undefined,
     model: context.model,
@@ -368,6 +393,7 @@ export function createCachedTranslation(
   translatedEntries: SrtEntry[],
 ): CachedTranslation {
   return {
+    ...reasoningCacheFields(context),
     targetLang,
     provider: context.provider,
     baseUrl: context.provider === "openai-compatible" ? context.baseUrl : undefined,
@@ -416,6 +442,7 @@ function createCachedTextTask<
   T extends { chapters: ChapterItem[] } | { summary: SummaryResult } | { notes: string },
 >(targetLang: string, context: GeneratedCacheContext, content: T) {
   return {
+    ...reasoningCacheFields(context),
     targetLang,
     provider: context.provider,
     baseUrl: context.provider === "openai-compatible" ? context.baseUrl : undefined,

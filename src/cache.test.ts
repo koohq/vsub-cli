@@ -45,6 +45,68 @@ import { DEFAULT_CONTEXT_WINDOW_SIZE } from "./text/tasks.js";
 import { DEFAULT_OPENROUTER_STT_MODEL } from "./transcribe/openrouter.js";
 
 describe("cache module", () => {
+  it.each(["gemini", "openrouter", "openai-compatible"] as const)(
+    "keys all text caches by non-low effort for %s",
+    (provider) => {
+      const sourceEntries = [
+        { id: 1, startTime: "00:00:00,000", endTime: "00:00:01,000", text: "Hello" },
+      ];
+      const context = { provider, sourceEntries, contextWindowSize: 0 };
+      const factories = [
+        (reasoningEffort?: "low" | "medium" | "high") =>
+          createCachedRefinement({ ...context, reasoningEffort }, sourceEntries),
+        (reasoningEffort?: "low" | "medium" | "high") =>
+          createCachedTranslation("ja", { ...context, reasoningEffort }, sourceEntries),
+        (reasoningEffort?: "low" | "medium" | "high") =>
+          createCachedChapters("ja", { ...context, reasoningEffort }, []),
+        (reasoningEffort?: "low" | "medium" | "high") =>
+          createCachedSummary(
+            "ja",
+            { ...context, reasoningEffort },
+            { title: "Test", summary: "Test", keyPoints: [], topics: [] },
+          ),
+        (reasoningEffort?: "low" | "medium" | "high") =>
+          createCachedSceneNotes("ja", { ...context, reasoningEffort }, "Notes"),
+      ];
+      const validators = [
+        isRefinementCacheValid,
+        isTranslationCacheValid,
+        isChaptersCacheValid,
+        isSummaryCacheValid,
+        isSceneNotesCacheValid,
+      ];
+      for (const [index, create] of factories.entries()) {
+        // Each validator receives the cache produced by its corresponding factory.
+        const valid = validators[index] as (
+          cached: unknown,
+          context: GeneratedCacheContext,
+        ) => boolean;
+        expect(create()).not.toHaveProperty("reasoningEffort");
+        expect(create("low")).not.toHaveProperty("reasoningEffort");
+        for (const saved of [undefined, "low", "medium", "high"] as const) {
+          const cached = create(saved);
+          if (provider === "openai-compatible")
+            expect(cached).not.toHaveProperty("reasoningEffort");
+          else if (saved === "medium" || saved === "high")
+            expect(cached).toHaveProperty("reasoningEffort", saved);
+          for (const current of [undefined, "low", "medium", "high"] as const) {
+            expect(valid(cached, { ...context, reasoningEffort: current })).toBe(
+              provider === "openai-compatible" || (saved ?? "low") === (current ?? "low"),
+            );
+          }
+        }
+      }
+      const partial = createPartialTranslation("ja", { ...context, reasoningEffort: "medium" }, 1, {
+        "0": ["Translated"],
+      });
+      expect(
+        getPartialTranslationChunks(partial, "ja", { ...context, reasoningEffort: "medium" }, 1),
+      ).toEqual({ "0": ["Translated"] });
+      expect(getPartialTranslationChunks(partial, "ja", context, 1)).toEqual(
+        provider === "openai-compatible" ? { "0": ["Translated"] } : {},
+      );
+    },
+  );
   it("stores scene notes per language and preserves them through other cache writes", () => {
     const context: GeneratedCacheContext = {
       sourceEntries: [{ id: 1, startTime: "00:00:00,000", endTime: "00:00:01,000", text: "Hello" }],

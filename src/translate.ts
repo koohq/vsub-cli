@@ -37,6 +37,7 @@ export interface TranslateCommandOptions {
   concurrency?: string | undefined;
   geminiModel?: string | undefined;
   llmProvider?: string | undefined;
+  llmReasoningEffort?: string | undefined;
   llmModel?: string | undefined;
   noCache?: boolean | undefined;
   fresh?: boolean | undefined;
@@ -76,6 +77,22 @@ export async function runTranslateCommand(
         `[Context] Background notes from ${contextNotes.fileName ?? "--context"} (${contextNotes.text.length} chars)`,
       );
     }
+    if (options.geminiKey) {
+      rawConfig.geminiApiKey = options.geminiKey.trim();
+    }
+
+    const { config: resolvedConfig, llm } = resolveLlmSettings(
+      rawConfig,
+      {
+        llmProvider: options.llmProvider,
+        llmModel: options.llmModel,
+        llmReasoningEffort: options.llmReasoningEffort,
+        validateReasoningEffort: true,
+        geminiModel: options.geminiModel,
+      },
+      lang,
+    );
+
     const outputFormats = parseOutputFormats(options.format, lang);
     const targetLanguages = parseTargetLanguages(
       resolveTargetLang(options.targetLang, rawConfig.targetLang),
@@ -150,20 +167,6 @@ export async function runTranslateCommand(
       }
     }
 
-    if (options.geminiKey) {
-      rawConfig.geminiApiKey = options.geminiKey.trim();
-    }
-
-    const { config: resolvedConfig, llm } = resolveLlmSettings(
-      rawConfig,
-      {
-        llmProvider: options.llmProvider,
-        llmModel: options.llmModel,
-        geminiModel: options.geminiModel,
-      },
-      lang,
-    );
-
     // Ensure API key for chosen LLM provider (Groq key not required for translate subcommand)
     const config = await ensureApiKeys(resolvedConfig, {
       requireGroq: false,
@@ -232,6 +235,7 @@ export async function runTranslateCommand(
       llm: {
         provider: llm.provider,
         baseUrl: llm.baseUrl,
+        reasoningEffort: llm.reasoningEffort,
         model: llm.model,
       },
       getTextModel: async () => createTextModel(config, llm, { lang: normalizeLanguage(lang) }),

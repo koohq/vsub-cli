@@ -122,6 +122,9 @@ export VSUB_OPENROUTER_API_KEY="your_openrouter_api_key_here"
 # Optional: keep using OpenRouter even when a Gemini key is set:
 # export VSUB_LLM_PROVIDER="openrouter"
 
+# Optional: text generation reasoning effort (minimal/low/medium/high, default: low):
+# export VSUB_LLM_REASONING_EFFORT="medium"
+
 # Optional: write scene notes for translation by default (true/false, default: off):
 # export VSUB_AUTO_CONTEXT="true"
 
@@ -219,6 +222,7 @@ Existing Gemini users can update `vsub-cli` and continue using Gemini directly w
   - `--llm-model <model>` overrides the model for the chosen text generation provider.
   - `--gemini-model <model>` / `VSUB_GEMINI_MODEL` (config: `geminiModel`) sets the Gemini model (used only when the provider is Gemini).
   - `VSUB_OPENROUTER_LLM_MODEL` (config: `openrouterLlmModel`, default: `google/gemini-3.8-flash`) sets the default OpenRouter model.
+  - `--llm-reasoning-effort <level>` / `VSUB_LLM_REASONING_EFFORT` (config: `llmReasoningEffort`) selects `minimal`, `low`, `medium`, or `high` (default: `low`). Priority is flag → environment → config → `low`; values ignore case and surrounding whitespace. This applies to OpenRouter and Gemini directly (Gemini 3 or newer) for translation, refinement, chapters, summaries, and automatic scene notes. Higher levels can be slower and more expensive (reasoning tokens are billed as output tokens), and do not guarantee better translations. Changing the level rebuilds text generation caches; `low` preserves existing caches. For openai-compatible, use the dedicated `VSUB_OPENAI_COMPATIBLE_LLM_REASONING_EFFORT` instead.
   - **The only tested OpenRouter model is `google/gemini-3.8-flash`**. While other models can be specified with `--llm-model`, they are untested and may fail if they do not support JSON schema structured outputs.
 * **OpenRouter Credits & Concurrency**:
   - For each request, OpenRouter temporarily holds an amount corresponding to the maximum output tokens (`max_tokens: 16384`). If your account credit balance is insufficient, requests halt with a 402 Insufficient Credits error and instructions. Lowering `--concurrency` (default: 3) reduces the amount held simultaneously.
@@ -295,6 +299,7 @@ Options:
   --gemini-model <model>        Gemini model to use for translation (Gemini provider only)
   --llm-provider <provider>     Text generation provider for translation, chapters and summaries: gemini, openrouter, or openai-compatible (default: VSUB_LLM_PROVIDER, config, or chosen from your API keys)
   --llm-model <model>           Model for the chosen text generation provider (default: gemini-3.8-flash on Gemini, google/gemini-3.8-flash on OpenRouter, the configured model on openai-compatible)
+  --llm-reasoning-effort <level> Reasoning effort for OpenRouter and Gemini 3+: minimal, low, medium, high (default: VSUB_LLM_REASONING_EFFORT, config, or low)
   --no-cache                    Do not use or save intermediate cache (default: false)
   --fresh                       Ignore existing cache and generate fresh output, overwriting cache (default: false)
   --cache-dir <path>            Custom cache directory path
@@ -562,6 +567,7 @@ vsub config set --diarize true
 vsub config set --max-length 32 --burn-position bottom --burn-font-size medium
 vsub config set --stt-provider openrouter --openrouter-key "your_openrouter_key"
 vsub config set --llm-provider openrouter
+vsub config set --llm-reasoning-effort medium
 vsub config set --stt-provider openai-compatible --openai-compatible-stt-base-url http://localhost:8000/v1 --openai-compatible-stt-model whisper-1
 
 # Disable automatic version update checks

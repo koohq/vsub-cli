@@ -83,6 +83,8 @@ export const en = {
       `Unsupported transcription provider: "${provider}". Supported: openrouter, groq, openai-compatible`,
     invalidLlmProvider: (provider: string) =>
       `Unsupported text generation provider: "${provider}". Supported: gemini, openrouter, openai-compatible`,
+    invalidLlmReasoningEffort: (value: string) =>
+      `Unsupported reasoning effort: "${value}". Supported: minimal, low, medium, high`,
     geminiTextKeyRequired: "Gemini API key is required for Gemini text generation.",
     openrouterTextKeyRequired: "OpenRouter API key is required for OpenRouter text generation.",
     openrouterSttKeyRequired: "OpenRouter API key is required for OpenRouter transcription.",
@@ -389,6 +391,7 @@ export const en = {
       groqModel: "Groq Model",
       openrouterSttModel: "OpenRouter STT Model",
       openrouterLlmModel: "OpenRouter LLM Model",
+      llmReasoningEffort: "LLM Reasoning Effort",
       openaiCompatibleSttBaseUrl: "OpenAI-compatible STT URL",
       openaiCompatibleSttApiKey: "OpenAI-compatible STT API Key",
       openaiCompatibleSttModel: "OpenAI-compatible STT Model",

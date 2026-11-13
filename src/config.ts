@@ -130,6 +130,8 @@ export interface AppConfig {
   llmProvider?: string | undefined;
   /** OpenRouter text generation model: VSUB_OPENROUTER_LLM_MODEL, then the config file. */
   openrouterLlmModel?: string | undefined;
+  /** VSUB_LLM_REASONING_EFFORT, then config file; minimal/low/medium/high, validated when running. */
+  llmReasoningEffort?: string | undefined;
   /** VSUB_OPENAI_COMPATIBLE_STT_BASE_URL, then the config file; never falls back to another API. */
   openaiCompatibleSttBaseUrl?: string | undefined;
   /** VSUB_OPENAI_COMPATIBLE_STT_API_KEY, then the config file; never falls back to another API. */
@@ -389,6 +391,10 @@ export function getConfig(cliFfmpegPath?: string, cliLang?: string): AppConfig {
 
   const llmProvider =
     process.env["VSUB_LLM_PROVIDER"]?.trim() || globalConfig.llmProvider?.trim() || undefined;
+  const llmReasoningEffort =
+    process.env["VSUB_LLM_REASONING_EFFORT"]?.trim() ||
+    globalConfig.llmReasoningEffort?.trim() ||
+    undefined;
 
   const openrouterLlmModel =
     process.env["VSUB_OPENROUTER_LLM_MODEL"]?.trim() ||
@@ -426,6 +432,7 @@ export function getConfig(cliFfmpegPath?: string, cliLang?: string): AppConfig {
     sttProvider,
     openrouterSttModel,
     llmProvider,
+    llmReasoningEffort,
     openrouterLlmModel,
   };
 }

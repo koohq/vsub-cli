@@ -31,6 +31,18 @@ vi.mock("node:fs", async (importOriginal) => {
 
 describe("config.ts", () => {
   it.each([
+    [" Medium ", "high", "Medium"],
+    [undefined, " High ", "High"],
+    [" ", " medium ", "medium"],
+    [" ", " ", undefined],
+    [" Bogus ", "high", "Bogus"],
+  ])("reads common reasoning effort env %j before saved %j", (env, saved, expected) => {
+    vi.mocked(fs.existsSync).mockReturnValue(true);
+    vi.mocked(fs.readFileSync).mockReturnValue(JSON.stringify({ llmReasoningEffort: saved }));
+    vi.stubEnv("VSUB_LLM_REASONING_EFFORT", env);
+    expect(getConfig().llmReasoningEffort).toBe(expected);
+  });
+  it.each([
     [true, undefined, true],
     [false, "true", true],
     [true, "false", false],

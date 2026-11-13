@@ -4,6 +4,7 @@ import {
   createOpenAICompatibleTextModel,
   type OpenAICompatibleTextProfile,
 } from "./openai-compatible.js";
+import type { LlmReasoningEffort } from "./providers.js";
 
 export const DEFAULT_OPENROUTER_LLM_MODEL = "google/gemini-3.8-flash";
 
@@ -35,6 +36,12 @@ export function createOpenRouterTextModel(
   apiKey: string,
   model: string,
   deps?: { fetch?: typeof fetch | undefined; lang?: SupportedLanguage | undefined },
+  effort: LlmReasoningEffort = "low",
 ): TextModel {
-  return createOpenAICompatibleTextModel(OPENROUTER_TEXT_PROFILE, apiKey, model, deps);
+  return createOpenAICompatibleTextModel(
+    { ...OPENROUTER_TEXT_PROFILE, reasoning: { effort } },
+    apiKey,
+    model,
+    deps,
+  );
 }

@@ -86,6 +86,8 @@ export const ja: typeof en = {
       `サポートされていない文字起こし提供元です: "${provider}". 利用可能な提供元: openrouter, groq, openai-compatible`,
     invalidLlmProvider: (provider: string) =>
       `サポートされていない文章生成提供元です: "${provider}". 利用可能な提供元: gemini, openrouter, openai-compatible`,
+    invalidLlmReasoningEffort: (value: string) =>
+      `サポートされていない推論の量です: "${value}". 利用可能な値: minimal, low, medium, high`,
     geminiTextKeyRequired: "Gemini で文章を生成するには、Gemini の API キーが必要です。",
     openrouterTextKeyRequired:
       "OpenRouter で文章を生成するには、OpenRouter の API キーが必要です。",
@@ -391,6 +393,7 @@ export const ja: typeof en = {
       groqModel: "Groq のモデル",
       openrouterSttModel: "OpenRouter の文字起こしモデル",
       openrouterLlmModel: "OpenRouter の文章生成モデル",
+      llmReasoningEffort: "文章生成の推論の量",
       openaiCompatibleSttBaseUrl: "OpenAI 互換の文字起こし URL",
       openaiCompatibleSttApiKey: "OpenAI 互換の文字起こし API キー",
       openaiCompatibleSttModel: "OpenAI 互換の文字起こしモデル",

@@ -164,6 +164,8 @@ export async function runBatchPipeline(options: BatchPipelineOptions): Promise<B
     {
       llmProvider: options.llmProvider,
       llmModel: options.llmModel,
+      llmReasoningEffort: options.llmReasoningEffort,
+      validateReasoningEffort: true,
       geminiModel: options.geminiModel,
     },
     lang,

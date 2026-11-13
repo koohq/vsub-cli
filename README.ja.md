@@ -122,6 +122,9 @@ export VSUB_OPENROUTER_API_KEY="your_openrouter_api_key_here"
 # 任意: Gemini のキーがあっても OpenRouter を使い続ける場合:
 # export VSUB_LLM_PROVIDER="openrouter"
 
+# 任意: 文章生成の推論の量（minimal/low/medium/high、既定: low）:
+# export VSUB_LLM_REASONING_EFFORT="medium"
+
 # 任意: 翻訳の場面メモを既定で作る (true/false、既定は無効):
 # export VSUB_AUTO_CONTEXT="true"
 
@@ -219,6 +222,7 @@ vsub は、次の順で文章の生成（翻訳・チャプター・要約）の
   - `--llm-model <model>` で、選んだ提供元の文章の生成モデルを指定できます。
   - `--gemini-model <model>` / `VSUB_GEMINI_MODEL`（設定ファイルでは `geminiModel`）で、Gemini のモデルを指定できます（提供元が Gemini のときだけ使います）。
   - `VSUB_OPENROUTER_LLM_MODEL`（設定ファイルでは `openrouterLlmModel`、既定は `google/gemini-3.8-flash`）で、OpenRouter の既定のモデルを変えられます。
+  - `--llm-reasoning-effort <level>` / `VSUB_LLM_REASONING_EFFORT`（設定ファイルでは `llmReasoningEffort`）で、`minimal`・`low`・`medium`・`high` から選べます（既定: `low`）。優先順はフラグ → 環境変数 → 設定ファイル → `low`。大文字小文字と前後の空白は問いません。OpenRouter と Gemini 直接（Gemini 3 以上のモデル）の翻訳・修正・章・要約・自動の場面メモに効きます。上げると遅く高くなることがあり（推論のトークンは出力の料金）、訳が良くなるとは約束しません。変えると文章生成のキャッシュを作り直します。`low` なら既存のキャッシュを使えます。openai-compatible には専用の `VSUB_OPENAI_COMPATIBLE_LLM_REASONING_EFFORT` を使ってください。
   - **OpenRouter で動作を確かめたモデルは `google/gemini-3.8-flash` だけです**。ほかのモデルも `--llm-model` で指定できますが、確かめていません。JSON スキーマによる構造化出力に対応していないモデルでは失敗することがあります。
 * **OpenRouter の残高と並列数**:
   - OpenRouter は、リクエストごとに最大出力トークン数（`max_tokens: 16384`）に見合う額を一時的に確保します。残高が足りないと、402（Insufficient Credits）のエラーで止まり、対処方法を表示します。`--concurrency`（既定は 3）を下げると、同時に確保される額を減らせます。
@@ -297,6 +301,7 @@ Options:
   --gemini-model <model>        翻訳に使う Gemini のモデル (提供元が Gemini のときだけ)
   --llm-provider <provider>     翻訳・チャプター・要約に使う文章の生成の提供元: gemini、openrouter、openai-compatible (既定: VSUB_LLM_PROVIDER、設定の値、または API キーから自動選択)
   --llm-model <model>           選んだ提供元の文章の生成モデル (既定: Gemini は gemini-3.8-flash、OpenRouter は google/gemini-3.8-flash、openai-compatible は設定したモデル)
+  --llm-reasoning-effort <level> OpenRouter と Gemini 3 以上の推論の量: minimal, low, medium, high (既定: VSUB_LLM_REASONING_EFFORT、設定ファイル、low の順)
   --no-cache                    途中結果のキャッシュを読まず、保存もしない (既定: false)
   --fresh                       既存のキャッシュを使わずに作り直し、キャッシュを上書きする (既定: false)
   --cache-dir <path>            キャッシュを置くディレクトリ
@@ -565,6 +570,7 @@ vsub config set --diarize true
 vsub config set --max-length 32 --burn-position bottom --burn-font-size medium
 vsub config set --stt-provider openrouter --openrouter-key "your_openrouter_key"
 vsub config set --llm-provider openrouter
+vsub config set --llm-reasoning-effort medium
 vsub config set --stt-provider openai-compatible --openai-compatible-stt-base-url http://localhost:8000/v1 --openai-compatible-stt-model whisper-1
 
 # 新しいバージョンの自動確認を止める

@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import {
   createOpenRouterTextModel,
   DEFAULT_OPENROUTER_LLM_MODEL,
@@ -17,6 +17,24 @@ describe("openrouter.ts", () => {
   });
 
   describe("createOpenRouterTextModel", () => {
+    it.each([undefined, "minimal", "medium", "high"] as const)(
+      "sends reasoning effort %s",
+      async (effort) => {
+        const fetch = vi
+          .fn<typeof globalThis.fetch>()
+          .mockResolvedValue(Response.json({ choices: [{ message: { content: "{}" } }] }));
+        await createOpenRouterTextModel(
+          "test-key-1234",
+          "test-model",
+          { fetch },
+          effort,
+        ).generateJson({ prompt: "Test", schemaName: "test", schema: { type: "object" } });
+        expect(JSON.parse(String(fetch.mock.calls[0]?.[1]?.body)).reasoning).toEqual({
+          effort: effort ?? "low",
+        });
+        expect(OPENROUTER_TEXT_PROFILE.reasoning).toEqual({ effort: "low" });
+      },
+    );
     it("should instantiate model with OpenRouter profile", () => {
       const model = createOpenRouterTextModel("test-key", DEFAULT_OPENROUTER_LLM_MODEL);
       expect(model.logLabel).toBe("OpenRouter API");

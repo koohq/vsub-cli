@@ -162,6 +162,22 @@ describe("batch.ts", () => {
         );
         expect(process).not.toHaveBeenCalled();
       });
+      it("rejects invalid common effort before keys, ffmpeg and files even for compatible providers", async () => {
+        const { file, ensure, process } = setup();
+        await expect(
+          runBatchPipeline({ targets: [file], llmReasoningEffort: "Bogus" }),
+        ).rejects.toThrow('Unsupported reasoning effort: "Bogus"');
+        expect(ensure).not.toHaveBeenCalled();
+        expect(ffmpegModule.checkFfmpeg).not.toHaveBeenCalled();
+        expect(process).not.toHaveBeenCalled();
+      });
+      it("forwards common effort to every file", async () => {
+        const { file, process } = setup();
+        await runBatchPipeline({ targets: [file], llmReasoningEffort: "medium" });
+        expect(process).toHaveBeenCalledWith(
+          expect.objectContaining({ mediaFile: file, llmReasoningEffort: "medium" }),
+        );
+      });
       it("rejects unreadable context before keys, ffmpeg, or any file processing", async () => {
         const { file, ensure, process } = setup();
         const notes = path.join(tempDir, "cast.txt");
