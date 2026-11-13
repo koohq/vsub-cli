@@ -479,7 +479,7 @@ vsub talk.mp4 -t ja --auto-context --verbose
 
 Speaker detection is opt-in: use `--diarize` (main command and `vsub batch`), `VSUB_DIARIZE=true`, or `vsub config set --diarize true`; `--no-diarize` turns it off for one run. Priority is `--diarize` / `--no-diarize` → environment → config → off. Only OpenRouter's `elevenlabs/scribe` models receive the request; other OpenRouter models show a warning when transcribing, while Groq and `openai-compatible` continue without speaker labels.
 
-Subtitles also split where the speaker changes. Labels help translation keep each person's tone and forms of address consistent; they are never written to SRT, VTT, TXT, or JSON subtitle files. `--refine` preserves labels for translation without including them in its prompt. Automatic detection can be wrong.
+Subtitles also split where the speaker changes, and the labels are passed to translation to show who is speaking. Labels alone do not say how the speakers relate to each other, so for politeness and forms of address, background notes (`--context` or `--auto-context`) matter more. Labels are never written to SRT, VTT, TXT, or JSON subtitle files. `--refine` preserves labels for translation without including them in its prompt. Automatic detection can be wrong.
 
 Audio longer than five minutes is sent in five-minute parts. With multiple parts, labels include the part number, such as `2/speaker_0`; `1/speaker_0` and `2/speaker_0` may be different people. With one part, labels remain `speaker_0`. Combine labels with background notes when you know who is speaking:
 

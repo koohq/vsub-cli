@@ -481,7 +481,7 @@ vsub talk.mp4 -t ja --auto-context --verbose
 
 話者の判別は、`--diarize`（メインと `vsub batch`）、`VSUB_DIARIZE=true`、または `vsub config set --diarize true` で有効にします。1 回だけ外すときは `--no-diarize` を使います。優先順位は `--diarize` / `--no-diarize` → 環境変数 → 設定ファイル → 無効です。OpenRouter の `elevenlabs/scribe` のモデルだけに頼みます。OpenRouter のほかのモデルでは文字起こし時に警告を出して頼まず、Groq と `openai-compatible` は話者なしで処理します。
 
-話者が変わる所でも字幕を切り、翻訳で口調・一人称・呼び方をそろえるためにラベルを使います。SRT・VTT・TXT・JSON の字幕ファイルには話者を出しません。`--refine` の依頼文にも入れず、修正後もラベルを保って翻訳に渡します。自動の判別なので、間違えることがあります。
+話者が変わる所でも字幕を切り、ラベルを翻訳に渡して、誰の発話かを示します。ラベルだけでは話者どうしの関係は伝わらないため、丁寧さや呼び方には背景メモ（`--context` か `--auto-context`）のほうが効きます。SRT・VTT・TXT・JSON の字幕ファイルには話者を出しません。`--refine` の依頼文にも入れず、修正後もラベルを保って翻訳に渡します。自動の判別なので、間違えることがあります。
 
 5 分を超える音声は 5 分ずつに分けて送ります。区切りが複数なら `2/speaker_0` のように番号が付き、`1/speaker_0` と `2/speaker_0` は別の人かもしれません。区切りが 1 つなら `speaker_0` のままです。話者が分かっている場合は背景メモを組み合わせられます。
 
