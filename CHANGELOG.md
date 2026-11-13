@@ -2,6 +2,20 @@
 
 All notable changes to this project will be documented in this file. See [standard-version](https://github.com/conventional-changelog/standard-version) for commit guidelines.
 
+## [1.10.0](https://github.com/koohq/vsub-cli/compare/vsub-cli-v1.9.1...vsub-cli-v1.10.0) (2026-11-13)
+
+
+### Features
+
+* pass background notes about speakers and the setting with --context ([87909f7](https://github.com/koohq/vsub-cli/commit/87909f79e6d9e07f1b1acddb8cd581713caf5844))
+* pass speaker labels from transcription to translation with --diarize ([0f65f1b](https://github.com/koohq/vsub-cli/commit/0f65f1b30502951a093c311b9cf5e4fad57a482c))
+* write scene notes for translation with --auto-context ([c0772f3](https://github.com/koohq/vsub-cli/commit/c0772f3b5ef85d5f753f5c1668346a4cabdfb17e))
+
+
+### Bug Fixes
+
+* show the --no-translate step line in the display language ([735dfa3](https://github.com/koohq/vsub-cli/commit/735dfa3c7724448ed3bc6bd8cd94006ad9c9c5cb))
+
 ## [1.9.1](https://github.com/koohq/vsub-cli/compare/vsub-cli-v1.9.0...vsub-cli-v1.9.1) (2026-11-12)
 
 
