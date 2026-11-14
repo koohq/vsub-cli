@@ -67,12 +67,12 @@
     "LICENSE"
   ],
   "dependencies": {
-    "@google/genai": "^2.32.0",
+    "@google/genai": "^3.1.0",
     "commander": "^15.1.0",
     "dotenv": "^18.0.10",
     "execa": "^10.2.1",
     "groq-sdk": "^1.6.0",
-    "ora": "^9.4.1",
+    "ora": "^10.0.0",
     "picocolors": "^1.1.1"
   },
   "devDependencies": {
