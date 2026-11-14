@@ -2,17 +2,23 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { DEFAULT_GEMINI_MODEL } from "../config.js";
 import {
   buildThinkingConfig,
+  createGeminiClient,
   createGeminiTextModel,
   formatModelNotFoundError,
+  GEMINI_API_VERSION,
   isModelNotFoundError,
   resolveGeminiModel,
 } from "./gemini.js";
 import type { JsonRequest } from "./model.js";
 
 const mockGenerateContent = vi.fn();
+const mockClientOptions = vi.fn();
 vi.mock("@google/genai", () => {
   return {
     GoogleGenAI: class MockGoogleGenAI {
+      constructor(options: unknown) {
+        mockClientOptions(options);
+      }
       models = {
         generateContent: mockGenerateContent,
       };
@@ -60,6 +66,26 @@ describe("src/text/gemini.ts", () => {
     it("should use DEFAULT_GEMINI_MODEL if neither is provided", () => {
       expect(resolveGeminiModel(undefined, {})).toBe(DEFAULT_GEMINI_MODEL);
       expect(resolveGeminiModel(undefined, undefined)).toBe(DEFAULT_GEMINI_MODEL);
+    });
+  });
+
+  describe("createGeminiClient", () => {
+    it("pins the Gemini API to v1beta so preview models stay reachable", () => {
+      expect(GEMINI_API_VERSION).toBe("v1beta");
+      createGeminiClient("test-api-key");
+      expect(mockClientOptions).toHaveBeenCalledWith({
+        apiKey: "test-api-key",
+        httpOptions: { apiVersion: "v1beta" },
+      });
+    });
+
+    it("is used by createGeminiTextModel", () => {
+      createGeminiTextModel("test-api-key", "gemini-3-flash-preview");
+      expect(mockClientOptions).toHaveBeenCalledTimes(1);
+      expect(mockClientOptions).toHaveBeenCalledWith({
+        apiKey: "test-api-key",
+        httpOptions: { apiVersion: "v1beta" },
+      });
     });
   });
 

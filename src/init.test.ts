@@ -43,12 +43,14 @@ vi.mock("groq-sdk", () => {
 });
 
 // Mock @google/genai SDK
+const mockGeminiClientOptions = vi.fn();
 vi.mock("@google/genai", () => {
   return {
     GoogleGenAI: class MockGoogleGenAI {
       apiKey: string;
-      constructor({ apiKey }: { apiKey: string }) {
-        this.apiKey = apiKey;
+      constructor(options: { apiKey: string }) {
+        mockGeminiClientOptions(options);
+        this.apiKey = options.apiKey;
       }
       models = {
         get: async ({ model }: { model: string }) => {
@@ -143,6 +145,15 @@ describe("init.ts", () => {
     it("should return success when key is valid", async () => {
       const result = await verifyGeminiApiKey("AIzaSyValidKey12345");
       expect(result.success).toBe(true);
+    });
+
+    it("checks the key against the v1beta Gemini API", async () => {
+      mockGeminiClientOptions.mockClear();
+      await verifyGeminiApiKey("  AIzaSyValidKey12345  ");
+      expect(mockGeminiClientOptions).toHaveBeenCalledWith({
+        apiKey: "AIzaSyValidKey12345",
+        httpOptions: { apiVersion: "v1beta" },
+      });
     });
 
     it("should return failure when API throws error", async () => {

@@ -5,6 +5,21 @@ import type { JsonRequest, JsonSchema, TextModel, TextModelErrorKind } from "./m
 import type { LlmReasoningEffort } from "./providers.js";
 
 /**
+ * Gemini API version used by every direct Gemini client.
+ * `@google/genai` 3.x defaults to `v1`, which does not serve preview models
+ * (for example `gemini-3-flash-preview`). Pin `v1beta`, the 2.x default, so the
+ * models users could choose with `--llm-model` keep working.
+ */
+export const GEMINI_API_VERSION = "v1beta";
+
+/**
+ * Creates a direct Gemini API client pinned to {@link GEMINI_API_VERSION}.
+ */
+export function createGeminiClient(apiKey: string): GoogleGenAI {
+  return new GoogleGenAI({ apiKey, httpOptions: { apiVersion: GEMINI_API_VERSION } });
+}
+
+/**
  * Builds the thinking config for models known to be Gemini 3 or newer.
  * Defaults to LOW to preserve latency and token usage. Non-matching or older
  * models (such as Gemini 2.x) are left unchanged without thinkingConfig.
@@ -116,7 +131,7 @@ export function createGeminiTextModel(
   model: string,
   effort: LlmReasoningEffort = "low",
 ): TextModel {
-  const ai = new GoogleGenAI({ apiKey });
+  const ai = createGeminiClient(apiKey);
 
   return {
     logLabel: "Gemini API",

@@ -1,5 +1,4 @@
 import readline from "node:readline/promises";
-import { GoogleGenAI } from "@google/genai";
 import { execa } from "execa";
 import Groq from "groq-sdk";
 import pc from "picocolors";
@@ -13,6 +12,7 @@ import {
 } from "./config.js";
 import { getI18n, normalizeLanguage, type SupportedLanguage } from "./i18n/index.js";
 import { normalizeTargetLangSetting } from "./languages.js";
+import { createGeminiClient } from "./text/gemini.js";
 import { DEFAULT_OPENROUTER_LLM_MODEL } from "./text/openrouter.js";
 import { type LlmProvider, parseLlmProvider, resolveLlmSettings } from "./text/select.js";
 import { DEFAULT_OPENROUTER_STT_MODEL } from "./transcribe/openrouter.js";
@@ -67,7 +67,7 @@ export async function verifyGeminiApiKey(
     return { success: false, error: i18n.init.noApiKeyProvided };
   }
   try {
-    const ai = new GoogleGenAI({ apiKey: apiKey.trim() });
+    const ai = createGeminiClient(apiKey.trim());
     await ai.models.get({ model });
     return { success: true };
   } catch (error) {
