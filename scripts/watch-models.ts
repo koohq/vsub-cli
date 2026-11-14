@@ -221,7 +221,8 @@ export async function fetchGeminiCandidateModels(apiKey?: string): Promise<Model
   const key = apiKey || process.env["GEMINI_API_KEY"] || process.env["VSUB_GEMINI_API_KEY"];
   if (!key) return unavailable("GEMINI_API_KEY is not configured.");
   try {
-    const ai = new GoogleGenAI({ apiKey: key });
+    // The SDK defaults to v1, whose catalog omits preview models and -latest aliases.
+    const ai = new GoogleGenAI({ apiKey: key, httpOptions: { apiVersion: "v1beta" } });
     const response = await ai.models.list();
     const allModels: ModelMetadata[] = [];
     const candidateModels: ModelMetadata[] = [];

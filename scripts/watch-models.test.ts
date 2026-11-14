@@ -17,10 +17,17 @@ import {
   runModelWatcher,
 } from "./watch-models.js";
 
-const sdk = vi.hoisted(() => ({ geminiList: vi.fn(), groqList: vi.fn() }));
+const sdk = vi.hoisted(() => ({
+  geminiList: vi.fn(),
+  groqList: vi.fn(),
+  geminiOptions: vi.fn(),
+}));
 vi.mock("@google/genai", () => ({
   GoogleGenAI: class {
     models = { list: sdk.geminiList };
+    constructor(options: unknown) {
+      sdk.geminiOptions(options);
+    }
   },
 }));
 vi.mock("groq-sdk", () => ({
@@ -543,6 +550,11 @@ describe("catalog fetching without real services", () => {
     if (result.status !== "ok") throw new Error("Expected catalog");
     expect(result.allModels.map((m) => m.id)).toContain(DEFAULT_GEMINI_MODEL);
     expect(result.candidateModels.map((m) => m.id)).toEqual(["gemini-4-hydrogen", "gemini-9-test"]);
+    // The SDK defaults to v1, which hides preview models and -latest aliases.
+    expect(sdk.geminiOptions).toHaveBeenLastCalledWith({
+      apiKey: "test-key-1234",
+      httpOptions: { apiVersion: "v1beta" },
+    });
   });
 
   it("keeps non-Whisper Groq models in the full catalog", async () => {
