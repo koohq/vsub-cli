@@ -2,6 +2,20 @@
 
 All notable changes to this project will be documented in this file. See [standard-version](https://github.com/conventional-changelog/standard-version) for commit guidelines.
 
+## [1.12.0](https://github.com/koohq/vsub-cli/compare/vsub-cli-v1.11.0...vsub-cli-v1.12.0) (2026-11-14)
+
+
+### Features
+
+* show the reasoning effort sent for text generation in --verbose ([5550361](https://github.com/koohq/vsub-cli/commit/5550361bdfc955c0b1031e54f0c7d7f860d36202))
+* support --refine in translate, chapters and summarize ([353cd4d](https://github.com/koohq/vsub-cli/commit/353cd4d028d8bc5823ea90aac3c1e05a84b6c72f))
+
+
+### Bug Fixes
+
+* keep direct Gemini calls on the v1beta API ([a681c64](https://github.com/koohq/vsub-cli/commit/a681c64aecab4694b7fd1b2a129a6ae90ea5354b))
+* pick auto scene notes by a politeness vote of three drafts ([57aa9fc](https://github.com/koohq/vsub-cli/commit/57aa9fccf99900e59ce09e9cd94590a7ab7c87d2))
+
 ## [1.11.0](https://github.com/koohq/vsub-cli/compare/vsub-cli-v1.10.0...vsub-cli-v1.11.0) (2026-11-13)
 
 
