@@ -2,6 +2,10 @@ version: 2
 updates:
   - package-ecosystem: "npm"
     directory: "/"
+    # The package is published to npm, so the default "auto" treats it as a
+    # library and only touches the lockfile. It is an end-user CLI, not a
+    # dependency of other packages, so raise the ranges in package.json too.
+    versioning-strategy: increase
     schedule:
       interval: "weekly"
       day: "monday"
