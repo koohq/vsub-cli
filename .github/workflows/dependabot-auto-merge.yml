@@ -11,9 +11,7 @@ concurrency:
   group: ${{ github.workflow }}-${{ github.event.pull_request.number }}
   cancel-in-progress: true
 
-permissions:
-  contents: write
-  pull-requests: write
+permissions: {}
 
 jobs:
   dependabot:
@@ -21,6 +19,11 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 10
     if: github.event.pull_request.user.login == 'dependabot[bot]'
+    permissions:
+      # Both are needed by `gh pr merge --auto`. No approval is posted: the main
+      # ruleset does not require reviews.
+      contents: write
+      pull-requests: write
     steps:
       - name: Dependabot metadata
         id: metadata
@@ -28,11 +31,15 @@ jobs:
         with:
           github-token: '${{ secrets.GITHUB_TOKEN }}'
 
-      - name: Approve and enable auto-merge for patch and minor updates
-        if: steps.metadata.outputs.update-type == 'version-update:semver-patch' || steps.metadata.outputs.update-type == 'version-update:semver-minor'
-        run: |
-          gh pr review --approve "$PR_URL"
-          gh pr merge --auto --squash "$PR_URL"
+      # Only npm updates are merged automatically. GitHub Actions updates
+      # (package-ecosystem "github_actions") are merged by hand after reading
+      # their release notes and diff (see pnpm-workspace.yaml).
+      - name: Enable auto-merge for npm patch and minor updates
+        if: >-
+          steps.metadata.outputs.package-ecosystem == 'npm_and_yarn' &&
+          (steps.metadata.outputs.update-type == 'version-update:semver-patch' ||
+          steps.metadata.outputs.update-type == 'version-update:semver-minor')
+        run: gh pr merge --auto --squash "$PR_URL"
         env:
           PR_URL: ${{ github.event.pull_request.html_url }}
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
